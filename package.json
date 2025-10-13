@@ -1,0 +1,29 @@
+{
+  "name": "biome-level-editor",
+  "version": "1.0.0",
+  "description": "Browser-based tile editor for creating biome levels for Unreal Engine",
+  "scripts": {
+    "test": "playwright test tests/playwright.test.js",
+    "test:ui": "playwright test tests/playwright.test.js --ui",
+    "test:headed": "playwright test tests/playwright.test.js --headed",
+    "test:report": "playwright test tests/playwright.test.js --reporter=html && playwright show-report",
+    "test:python": "python tests/selenium_test.py",
+    "install-browsers": "playwright install"
+  },
+  "keywords": [
+    "level-editor",
+    "tile-editor",
+    "biome",
+    "unreal-engine",
+    "gamedev",
+    "canvas"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

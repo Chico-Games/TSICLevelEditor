@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "tilesets": {
+    "BIOME_NAME_1": {
+      "color": "#HEXCOLOR",
+      "tag": "Biome.YourGameplayTag",
+      "category": "Natural"
+    },
+    "BIOME_NAME_2": {
+      "color": "#HEXCOLOR",
+      "tag": "Biome.YourGameplayTag",
+      "category": "Natural"
+    }
+  },
+  "layers": [
+    {
+      "name": "Layer 1",
+      "visible": true,
+      "opacity": 1.0,
+      "locked": false
+    },
+    {
+      "name": "Layer 2",
+      "visible": true,
+      "opacity": 0.9,
+      "locked": false
+    }
+  ],
+  "defaultGridSize": {
+    "width": 256,
+    "height": 256
+  }
+}

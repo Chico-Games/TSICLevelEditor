@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biome Level Editor</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Top Toolbar -->
+    <div id="toolbar">
+        <div class="toolbar-section">
+            <h1>Biome Level Editor</h1>
+        </div>
+
+        <div class="toolbar-section">
+            <button id="btn-new" title="New Level (Ctrl+N)">New</button>
+            <button id="btn-load" title="Load Level">Load</button>
+            <button id="btn-save" title="Save Level (Ctrl+S)">Save</button>
+            <button id="btn-export" title="Export JSON">Export</button>
+            <input type="file" id="file-input" accept=".json" style="display: none;">
+        </div>
+
+        <div class="toolbar-section">
+            <label>Grid Size:</label>
+            <select id="grid-size-select">
+                <option value="256">256×256</option>
+                <option value="512" selected>512×512</option>
+                <option value="1024">1024×1024</option>
+            </select>
+            <button id="btn-resize-grid">Apply</button>
+        </div>
+
+        <div class="toolbar-section">
+            <label>Zoom:</label>
+            <button id="btn-zoom-out">-</button>
+            <span id="zoom-level">100%</span>
+            <button id="btn-zoom-in">+</button>
+            <button id="btn-zoom-fit">Fit</button>
+        </div>
+
+        <div class="toolbar-section">
+            <label>
+                <input type="checkbox" id="show-grid" checked>
+                Show Grid
+            </label>
+        </div>
+    </div>
+
+    <!-- Tool Options Bar -->
+    <div id="tool-options">
+        <div class="option-group">
+            <label>Brush Size:</label>
+            <select id="brush-size">
+                <option value="1">1×1</option>
+                <option value="2">2×2</option>
+                <option value="3">3×3</option>
+                <option value="5">5×5</option>
+                <option value="7">7×7</option>
+            </select>
+        </div>
+
+        <div class="option-group" id="shape-options" style="display: none;">
+            <label>Fill Mode:</label>
+            <select id="fill-mode">
+                <option value="filled">Filled</option>
+                <option value="outline">Outline</option>
+            </select>
+        </div>
+
+        <div class="option-group">
+            <button id="btn-undo" title="Undo (Ctrl+Z)">↶ Undo</button>
+            <button id="btn-redo" title="Redo (Ctrl+Y)">↷ Redo</button>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div id="main-container">
+        <!-- Left Panel - Tools & Palette -->
+        <div id="left-panel">
+            <div class="panel-section">
+                <h3>Tools</h3>
+                <div id="tools">
+                    <button class="tool-btn active" data-tool="pencil" title="Pencil (B)">
+                        <span class="tool-icon">✏️</span>
+                        <span class="tool-name">Pencil</span>
+                    </button>
+                    <button class="tool-btn" data-tool="bucket" title="Bucket Fill (G)">
+                        <span class="tool-icon">🪣</span>
+                        <span class="tool-name">Bucket</span>
+                    </button>
+                    <button class="tool-btn" data-tool="line" title="Line (L)">
+                        <span class="tool-icon">📏</span>
+                        <span class="tool-name">Line</span>
+                    </button>
+                    <button class="tool-btn" data-tool="rectangle" title="Rectangle (R)">
+                        <span class="tool-icon">▭</span>
+                        <span class="tool-name">Rectangle</span>
+                    </button>
+                    <button class="tool-btn" data-tool="eyedropper" title="Eyedropper (I)">
+                        <span class="tool-icon">💧</span>
+                        <span class="tool-name">Picker</span>
+                    </button>
+                    <button class="tool-btn" data-tool="eraser" title="Eraser (E)">
+                        <span class="tool-icon">🧹</span>
+                        <span class="tool-name">Eraser</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>Color Palette</h3>
+                <div id="current-color-display">
+                    <div id="current-color" style="background-color: #7CFC00;"></div>
+                    <div id="current-color-label">None Selected</div>
+                </div>
+                <div id="color-palette">
+                    <!-- Colors loaded from config -->
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>Statistics</h3>
+                <div id="statistics">
+                    <div class="stat-row">
+                        <span>Tiles:</span>
+                        <span id="stat-tiles">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Empty:</span>
+                        <span id="stat-empty">65536</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Panel - Canvas -->
+        <div id="center-panel">
+            <div id="canvas-container">
+                <canvas id="grid-canvas"></canvas>
+                <canvas id="preview-canvas"></canvas>
+            </div>
+
+            <!-- Minimap -->
+            <div id="minimap-container">
+                <canvas id="minimap-canvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Right Panel - Layers -->
+        <div id="right-panel">
+            <div class="panel-section">
+                <div class="section-header">
+                    <h3>Layers</h3>
+                    <button id="btn-add-layer" title="Add Layer">+</button>
+                </div>
+
+                <!-- World Layer Tabs -->
+                <div id="world-layer-tabs">
+                    <button class="world-tab active" data-world="Floor">Floor</button>
+                    <button class="world-tab" data-world="Underground">Underground</button>
+                    <button class="world-tab" data-world="Sky">Sky</button>
+                </div>
+
+                <div id="layers-list">
+                    <!-- Layers loaded from config -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Dialog Modal -->
+    <div id="export-dialog" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Export to PNG (TSIC World Generation)</h2>
+                <button class="modal-close" id="export-close">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="export-section">
+                    <h3>World Layer Selection</h3>
+                    <div class="export-options">
+                        <label>
+                            <input type="radio" name="export-world" value="Floor" checked>
+                            Floor (Main mall level)
+                        </label>
+                        <label>
+                            <input type="radio" name="export-world" value="Underground">
+                            Underground (Basements & tunnels)
+                        </label>
+                        <label>
+                            <input type="radio" name="export-world" value="Sky">
+                            Sky (Rooftops & upper floors)
+                        </label>
+                        <label>
+                            <input type="radio" name="export-world" value="All">
+                            All Layers (Complete world)
+                        </label>
+                    </div>
+                </div>
+
+                <div class="export-section">
+                    <h3>Export Options</h3>
+                    <div class="export-options">
+                        <label>
+                            <input type="checkbox" id="export-metadata" checked>
+                            Include metadata (map.json)
+                        </label>
+                        <label>
+                            Map Name: <input type="text" id="export-map-name" value="TSIC_Mall" placeholder="Map name">
+                        </label>
+                        <label>
+                            Seed: <input type="text" id="export-seed" placeholder="Auto-generate" size="12">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="export-section">
+                    <h3>Color Validation</h3>
+                    <div id="export-validation">
+                        <!-- Validation results will be populated by JavaScript -->
+                    </div>
+                </div>
+
+                <div class="export-section">
+                    <h3>Export Summary</h3>
+                    <div id="export-summary">
+                        <!-- Summary will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button id="export-cancel" class="btn-secondary">Cancel</button>
+                <button id="export-confirm" class="btn-primary">Export PNG Files</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div id="status-bar">
+        <span id="status-position">X: 0, Y: 0</span>
+        <span id="status-message">Ready</span>
+        <span id="status-autosave">Auto-saved</span>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/config.js"></script>
+    <script src="js/layers.js"></script>
+    <script src="js/tools.js"></script>
+    <script src="js/editor.js"></script>
+    <script src="js/validation.js"></script>
+    <script src="js/export-png.js"></script>
+    <script src="js/export-metadata.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

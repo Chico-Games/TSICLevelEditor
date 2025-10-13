@@ -1,0 +1,99 @@
+{
+  "version": "1.0",
+  "gridSize": {
+    "width": 256,
+    "height": 256
+  },
+  "layers": [
+    {
+      "name": "Terrain",
+      "visible": true,
+      "opacity": 1,
+      "locked": false,
+      "tiles": [
+        {
+          "x": 10,
+          "y": 10,
+          "tag": "Biome.Grassland",
+          "name": "Grassland"
+        },
+        {
+          "x": 11,
+          "y": 10,
+          "tag": "Biome.Grassland",
+          "name": "Grassland"
+        },
+        {
+          "x": 12,
+          "y": 10,
+          "tag": "Biome.Forest",
+          "name": "Forest"
+        },
+        {
+          "x": 10,
+          "y": 11,
+          "tag": "Biome.Grassland",
+          "name": "Grassland"
+        },
+        {
+          "x": 11,
+          "y": 11,
+          "tag": "Biome.Desert",
+          "name": "Desert"
+        },
+        {
+          "x": 12,
+          "y": 11,
+          "tag": "Biome.Forest",
+          "name": "Forest"
+        },
+        {
+          "x": 10,
+          "y": 12,
+          "tag": "Biome.Ocean",
+          "name": "Ocean"
+        },
+        {
+          "x": 11,
+          "y": 12,
+          "tag": "Biome.Ocean",
+          "name": "Ocean"
+        },
+        {
+          "x": 12,
+          "y": 12,
+          "tag": "Biome.Beach",
+          "name": "Beach"
+        }
+      ]
+    },
+    {
+      "name": "Structures",
+      "visible": true,
+      "opacity": 0.9,
+      "locked": false,
+      "tiles": [
+        {
+          "x": 11,
+          "y": 11,
+          "tag": "Structure.Town",
+          "name": "Town"
+        }
+      ]
+    },
+    {
+      "name": "Objects",
+      "visible": true,
+      "opacity": 0.85,
+      "locked": false,
+      "tiles": []
+    },
+    {
+      "name": "Decorations",
+      "visible": true,
+      "opacity": 0.8,
+      "locked": false,
+      "tiles": []
+    }
+  ]
+}

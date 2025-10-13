@@ -1,0 +1,138 @@
+/**
+ * Configuration Manager
+ * Loads and manages biome configuration from JSON
+ */
+
+class ConfigManager {
+    constructor() {
+        this.config = null;
+        this.tilesets = {};
+        this.layers = [];
+        this.defaultGridSize = { width: 256, height: 256 };
+    }
+
+    /**
+     * Load configuration from JSON file
+     */
+    async loadConfig(configPath = 'config/biomes.json') {
+        try {
+            // Add cache-busting timestamp to force fresh load
+            const cacheBuster = `?v=${Date.now()}`;
+            const response = await fetch(configPath + cacheBuster);
+            if (!response.ok) {
+                throw new Error(`Failed to load config: ${response.statusText}`);
+            }
+
+            this.config = await response.json();
+            this.parseConfig();
+            return true;
+        } catch (error) {
+            console.error('Error loading config:', error);
+            // Use default config
+            this.createDefaultConfig();
+            return false;
+        }
+    }
+
+    /**
+     * Parse loaded configuration
+     */
+    parseConfig() {
+        if (this.config.tilesets) {
+            this.tilesets = this.config.tilesets;
+        }
+
+        if (this.config.layers) {
+            this.layers = this.config.layers;
+        }
+
+        if (this.config.defaultGridSize) {
+            this.defaultGridSize = this.config.defaultGridSize;
+        }
+    }
+
+    /**
+     * Create default configuration if loading fails
+     * Using inline TSIC configuration as fallback
+     */
+    createDefaultConfig() {
+        console.warn('Using embedded TSIC configuration - config/biomes.json failed to load');
+
+        // INLINE TSIC CONFIG - COPY OF biomes.json
+        this.config = {"version":"2.0","tilesets":{"Easy":{"color":"#90EE90","tag":"Difficulty.Easy","category":"Difficulty"},"Medium":{"color":"#FFD700","tag":"Difficulty.Medium","category":"Difficulty"},"Hard":{"color":"#FF6347","tag":"Difficulty.Hard","category":"Difficulty"},"Height_0":{"color":"#1a1a2e","tag":"Terrain.Height.0","category":"Height","height":0},"Height_1":{"color":"#2d3142","tag":"Terrain.Height.1","category":"Height","height":1},"Height_2":{"color":"#3f4756","tag":"Terrain.Height.2","category":"Height","height":2},"Height_3":{"color":"#525d6b","tag":"Terrain.Height.3","category":"Height","height":3},"Height_4":{"color":"#65737f","tag":"Terrain.Height.4","category":"Height","height":4},"Height_5":{"color":"#778994","tag":"Terrain.Height.5","category":"Height","height":5},"Height_6":{"color":"#8a9fa8","tag":"Terrain.Height.6","category":"Height","height":6},"Height_7":{"color":"#9db5bd","tag":"Terrain.Height.7","category":"Height","height":7},"Height_8":{"color":"#b0cbd1","tag":"Terrain.Height.8","category":"Height","height":8},"Height_9":{"color":"#c3e1e6","tag":"Terrain.Height.9","category":"Height","height":9},"Pit":{"color":"#2F1B0C","tag":"Object.Pit","category":"Objects"},"Wall":{"color":"#4A4A4A","tag":"Object.Wall","category":"Objects"},"Showroom":{"color":"#FF6B6B","tag":"Department.Showroom","category":"Departments"},"Warehouse":{"color":"#4ECDC4","tag":"Department.Warehouse","category":"Departments"},"Marketplace":{"color":"#45B7D1","tag":"Department.Marketplace","category":"Departments"},"Cafe":{"color":"#F7DC6F","tag":"Department.Cafe","category":"Departments"},"CustomerService":{"color":"#BB8FCE","tag":"Department.CustomerService","category":"Departments"},"LostAndFound":{"color":"#F8B400","tag":"Department.LostAndFound","category":"Departments"},"Checkout":{"color":"#58D68D","tag":"Department.Checkout","category":"Departments"},"Assembly":{"color":"#EC7063","tag":"Department.Assembly","category":"Departments"},"Delivery":{"color":"#5DADE2","tag":"Department.Delivery","category":"Departments"},"RestArea":{"color":"#AED6F1","tag":"Department.RestArea","category":"Departments"},"Entrance":{"color":"#52BE80","tag":"Department.Entrance","category":"Departments"},"Exit":{"color":"#E74C3C","tag":"Department.Exit","category":"Departments"},"Radiation_Low":{"color":"#39FF14","tag":"Hazard.Radiation.Low","category":"Hazards","intensity":1},"Radiation_Medium":{"color":"#00FF00","tag":"Hazard.Radiation.Medium","category":"Hazards","intensity":2},"Radiation_High":{"color":"#00CC00","tag":"Hazard.Radiation.High","category":"Hazards","intensity":3},"Freezing_Low":{"color":"#ADD8E6","tag":"Hazard.Freezing.Low","category":"Hazards","intensity":1},"Freezing_Medium":{"color":"#87CEEB","tag":"Hazard.Freezing.Medium","category":"Hazards","intensity":2},"Freezing_High":{"color":"#4682B4","tag":"Hazard.Freezing.High","category":"Hazards","intensity":3},"Toxic_Low":{"color":"#9ACD32","tag":"Hazard.Toxic.Low","category":"Hazards","intensity":1},"Toxic_Medium":{"color":"#7CB342","tag":"Hazard.Toxic.Medium","category":"Hazards","intensity":2},"Toxic_High":{"color":"#558B2F","tag":"Hazard.Toxic.High","category":"Hazards","intensity":3},"Burning_Low":{"color":"#FF8C00","tag":"Hazard.Burning.Low","category":"Hazards","intensity":1},"Burning_Medium":{"color":"#FF6347","tag":"Hazard.Burning.Medium","category":"Hazards","intensity":2},"Burning_High":{"color":"#DC143C","tag":"Hazard.Burning.High","category":"Hazards","intensity":3},"Corrosive_Low":{"color":"#DDA0DD","tag":"Hazard.Corrosive.Low","category":"Hazards","intensity":1},"Corrosive_Medium":{"color":"#BA55D3","tag":"Hazard.Corrosive.Medium","category":"Hazards","intensity":2},"Corrosive_High":{"color":"#9932CC","tag":"Hazard.Corrosive.High","category":"Hazards","intensity":3},"Drowning_Low":{"color":"#5F9EA0","tag":"Hazard.Drowning.Low","category":"Hazards","intensity":1},"Drowning_Medium":{"color":"#4682B4","tag":"Hazard.Drowning.Medium","category":"Hazards","intensity":2},"Drowning_High":{"color":"#191970","tag":"Hazard.Drowning.High","category":"Hazards","intensity":3}},"layers":[{"name":"Floor - Biome","visible":true,"opacity":0.8,"locked":false,"editable":true,"layerType":"biome","worldLayer":"Floor","required":true},{"name":"Floor - Height","visible":true,"opacity":0.6,"locked":false,"editable":true,"showHeights":true,"layerType":"height","worldLayer":"Floor","required":true},{"name":"Floor - Difficulty","visible":true,"opacity":0.5,"locked":false,"editable":true,"layerType":"difficulty","worldLayer":"Floor","required":false},{"name":"Floor - Hazards","visible":true,"opacity":0.7,"locked":false,"editable":true,"layerType":"hazard","worldLayer":"Floor","required":false},{"name":"Underground - Biome","visible":true,"opacity":0.8,"locked":false,"editable":true,"layerType":"biome","worldLayer":"Underground","required":false},{"name":"Underground - Height","visible":true,"opacity":0.6,"locked":false,"editable":true,"showHeights":true,"layerType":"height","worldLayer":"Underground","required":false},{"name":"Underground - Difficulty","visible":true,"opacity":0.5,"locked":false,"editable":true,"layerType":"difficulty","worldLayer":"Underground","required":false},{"name":"Underground - Hazards","visible":true,"opacity":0.7,"locked":false,"editable":true,"layerType":"hazard","worldLayer":"Underground","required":false},{"name":"Sky - Biome","visible":true,"opacity":0.8,"locked":false,"editable":true,"layerType":"biome","worldLayer":"Sky","required":false},{"name":"Sky - Height","visible":true,"opacity":0.6,"locked":false,"editable":true,"showHeights":true,"layerType":"height","worldLayer":"Sky","required":false},{"name":"Sky - Difficulty","visible":true,"opacity":0.5,"locked":false,"editable":true,"layerType":"difficulty","worldLayer":"Sky","required":false},{"name":"Sky - Hazards","visible":true,"opacity":0.7,"locked":false,"editable":true,"layerType":"hazard","worldLayer":"Sky","required":false}],"defaultGridSize":{"width":512,"height":512},"availableSizes":[{"value":256,"label":"256×256 (Small)"},{"value":512,"label":"512×512 (Standard)","default":true},{"value":1024,"label":"1024×1024 (Large)"}]};
+
+        this.parseConfig();
+    }
+
+    /**
+     * Get all tilesets
+     */
+    getTilesets() {
+        return this.tilesets;
+    }
+
+    /**
+     * Get tileset by name
+     */
+    getTileset(name) {
+        return this.tilesets[name] || null;
+    }
+
+    /**
+     * Get tileset by color
+     */
+    getTilesetByColor(color) {
+        for (const [name, tileset] of Object.entries(this.tilesets)) {
+            if (tileset.color.toLowerCase() === color.toLowerCase()) {
+                return { name, ...tileset };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get tileset by gameplay tag
+     */
+    getTilesetByTag(tag) {
+        for (const [name, tileset] of Object.entries(this.tilesets)) {
+            if (tileset.tag === tag) {
+                return { name, ...tileset };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get layers configuration
+     */
+    getLayers() {
+        return this.layers;
+    }
+
+    /**
+     * Get default grid size
+     */
+    getDefaultGridSize() {
+        return this.defaultGridSize;
+    }
+
+    /**
+     * Get tilesets grouped by category
+     */
+    getTilesetsByCategory() {
+        const categories = {};
+
+        for (const [name, tileset] of Object.entries(this.tilesets)) {
+            const category = tileset.category || 'Other';
+            if (!categories[category]) {
+                categories[category] = [];
+            }
+            categories[category].push({ name, ...tileset });
+        }
+
+        return categories;
+    }
+}
+
+// Export singleton instance
+const configManager = new ConfigManager();
