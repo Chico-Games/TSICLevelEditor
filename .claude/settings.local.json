@@ -15,7 +15,9 @@
       "Bash(npx playwright:*)",
       "Bash(start index.html)",
       "Bash(powershell:*)",
-      "Read(//c/**)"
+      "Read(//c/**)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nComplete TSIC integration with all 6 phases\n\n- Phase 1: 512x512 grid support with viewport culling and optimized rendering\n- Phase 2: Layer type system (biome/height/difficulty/hazard) with world layers (Floor/Underground/Sky)\n- Phase 3: 18 hazard tilesets (Radiation, Freezing, Toxic, Burning, Corrosive, Drowning) + 3 difficulty levels\n- Phase 4: PNG export system with metadata and validation\n- Phase 5: Color validation against Unreal Engine mappings\n- Phase 6: Polish, testing, and UI improvements\n\nFeatures:\n- Organized color palette into collapsible category folders\n- Fixed layer lock/visibility toggle functionality\n- Adaptive zoom increments (5% to 800% with finer control at low zoom)\n- World layer tabs for Floor/Underground/Sky navigation\n- Embedded TSIC config to avoid CORS issues\n- 45 comprehensive tests covering all features\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
