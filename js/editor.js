@@ -72,7 +72,9 @@ class LevelEditor {
                 opacity: layerConfig.opacity,
                 locked: layerConfig.locked,
                 editable: layerConfig.editable,
-                showHeights: layerConfig.showHeights
+                showHeights: layerConfig.showHeights,
+                layerType: layerConfig.layerType,
+                worldLayer: layerConfig.worldLayer
             });
         }
 
@@ -167,7 +169,7 @@ class LevelEditor {
 
             if (this.gridX >= 0 && this.gridY >= 0) {
                 this.saveState();
-                this.currentTool.onMouseDown(this, this.gridX, this.gridY);
+                this.currentTool.onMouseDown(this, this.gridX, this.gridY, e);
                 this.render();
                 this.renderMinimap();
                 this.isDirty = true;
@@ -189,8 +191,11 @@ class LevelEditor {
 
         this.updateGridPosition();
 
+        // Highlight layer under cursor
+        this.highlightLayerAtPosition(this.gridX, this.gridY);
+
         if (this.isMouseDown && this.gridX >= 0 && this.gridY >= 0) {
-            this.currentTool.onMouseMove(this, this.gridX, this.gridY);
+            this.currentTool.onMouseMove(this, this.gridX, this.gridY, e);
             this.render();
             this.renderMinimap();
         }
@@ -206,7 +211,7 @@ class LevelEditor {
         }
 
         if (this.isMouseDown && this.gridX >= 0 && this.gridY >= 0) {
-            this.currentTool.onMouseUp(this, this.gridX, this.gridY);
+            this.currentTool.onMouseUp(this, this.gridX, this.gridY, e);
             this.render();
             this.renderMinimap();
         }
@@ -219,6 +224,7 @@ class LevelEditor {
         this.isPanning = false;
         this.gridCanvas.style.cursor = 'crosshair';
         this.clearPreview();
+        this.clearLayerHoverHighlight();
     }
 
     /**
@@ -271,10 +277,93 @@ class LevelEditor {
     }
 
     /**
+     * Highlight the layer that has data at the current cursor position
+     * Searches from top to bottom (forward order, since first layer renders on top)
+     */
+    highlightLayerAtPosition(x, y) {
+        // Check if coordinates are valid
+        if (x < 0 || x >= this.layerManager.width || y < 0 || y >= this.layerManager.height) {
+            this.clearLayerHoverHighlight();
+            document.getElementById('status-hover-info').textContent = '';
+            return;
+        }
+
+        let foundLayerIndex = -1;
+        let foundTileset = null;
+        let foundDataType = null;
+
+        // Search from first layer (top) to last layer (bottom)
+        for (let i = 0; i < this.layerManager.layers.length; i++) {
+            const layer = this.layerManager.layers[i];
+            if (!layer.visible) continue;
+
+            // Check if this layer has any data at this position
+            // Check all data types on the layer, not just the active one
+            const dataTypes = ['biome', 'height', 'difficulty', 'hazard'];
+            let hasData = false;
+
+            for (const type of dataTypes) {
+                const data = layer.getData(type, x, y);
+                // Check if data exists with a tileset (indicating a drawn pixel)
+                if (data && data.tileset) {
+                    hasData = true;
+                    foundTileset = data.tileset;
+                    foundDataType = type;
+                    break;
+                }
+            }
+
+            if (hasData) {
+                foundLayerIndex = i;
+                break;
+            }
+        }
+
+        // Update the UI to highlight the found layer
+        this.updateLayerHoverHighlight(foundLayerIndex);
+
+        // Update status bar with hover info
+        if (foundLayerIndex >= 0 && foundTileset) {
+            const layer = this.layerManager.layers[foundLayerIndex];
+            const typeLabel = foundDataType.charAt(0).toUpperCase() + foundDataType.slice(1);
+            document.getElementById('status-hover-info').textContent =
+                `Layer: ${layer.name} | ${typeLabel}: ${foundTileset.name}`;
+        } else {
+            document.getElementById('status-hover-info').textContent = '';
+        }
+    }
+
+    /**
+     * Update the visual highlight on layer items in the layers panel
+     */
+    updateLayerHoverHighlight(layerIndex) {
+        const layerItems = document.querySelectorAll('.layer-item');
+
+        layerItems.forEach((item, index) => {
+            if (index === layerIndex) {
+                item.classList.add('layer-hover');
+            } else {
+                item.classList.remove('layer-hover');
+            }
+        });
+    }
+
+    /**
+     * Clear all layer hover highlights
+     */
+    clearLayerHoverHighlight() {
+        const layerItems = document.querySelectorAll('.layer-item');
+        layerItems.forEach(item => {
+            item.classList.remove('layer-hover');
+        });
+    }
+
+    /**
      * Set tiles (used by tools)
      */
     setTiles(tiles) {
         const layer = this.layerManager.getActiveLayer();
+        const dataType = this.layerManager.activeDataType;
         if (!layer || !this.selectedTileset) return;
 
         // Check if layer is editable
@@ -287,7 +376,7 @@ class LevelEditor {
         }
 
         for (const tile of tiles) {
-            layer.setTile(tile.x, tile.y, this.selectedTileset);
+            layer.setData(dataType, tile.x, tile.y, this.selectedTileset.value, this.selectedTileset);
         }
     }
 
@@ -296,6 +385,7 @@ class LevelEditor {
      */
     clearTiles(tiles) {
         const layer = this.layerManager.getActiveLayer();
+        const dataType = this.layerManager.activeDataType;
         if (!layer) return;
 
         // Check if layer is editable
@@ -308,7 +398,7 @@ class LevelEditor {
         }
 
         for (const tile of tiles) {
-            layer.clearTile(tile.x, tile.y);
+            layer.clearData(dataType, tile.x, tile.y);
         }
     }
 
@@ -338,6 +428,13 @@ class LevelEditor {
      */
     setTool(toolName) {
         if (tools[toolName]) {
+            // Finalize any floating selection when switching away from selection tool
+            if (this.currentTool.name === 'selection' && toolName !== 'selection') {
+                if (this.currentTool.isFloating) {
+                    this.currentTool.finalizeSelection(this);
+                }
+            }
+
             this.currentTool = tools[toolName];
 
             // Show/hide shape options
@@ -346,6 +443,16 @@ class LevelEditor {
                 shapeOptions.style.display = 'flex';
             } else {
                 shapeOptions.style.display = 'none';
+            }
+
+            // Update cursor based on tool
+            const container = document.getElementById('canvas-container');
+            if (toolName === 'pan') {
+                container.style.cursor = 'grab';
+            } else if (toolName === 'selection') {
+                container.style.cursor = 'crosshair';
+            } else {
+                container.style.cursor = 'crosshair';
             }
         }
     }
@@ -396,8 +503,9 @@ class LevelEditor {
         ctx.translate(this.offsetX, this.offsetY);
         ctx.scale(this.zoom, this.zoom);
 
-        // Render layers from bottom to top
-        for (const layer of this.layerManager.layers) {
+        // Render layers in reverse order (first layer in list renders on top)
+        for (let i = this.layerManager.layers.length - 1; i >= 0; i--) {
+            const layer = this.layerManager.layers[i];
             if (!layer.visible) continue;
 
             ctx.globalAlpha = layer.opacity;
@@ -405,6 +513,11 @@ class LevelEditor {
         }
 
         ctx.globalAlpha = 1.0;
+
+        // Render grid boundary (visible border around the actual grid)
+        ctx.strokeStyle = '#4a9eff';
+        ctx.lineWidth = 2 / this.zoom;
+        ctx.strokeRect(0, 0, this.layerManager.width * this.tileSize, this.layerManager.height * this.tileSize);
 
         // Render grid lines
         if (this.showGrid && this.zoom >= 0.5) {
@@ -419,8 +532,27 @@ class LevelEditor {
 
     /**
      * Render a single layer with viewport culling
+     * Each layer renders its appropriate data type based on its layerType
      */
     renderLayer(ctx, layer) {
+        // Determine which data type to render based on layer type
+        let dataTypeToRender = 'biome'; // default
+
+        if (layer.layerType) {
+            const layerType = layer.layerType.toLowerCase();
+            if (layerType === 'hazard') {
+                dataTypeToRender = 'hazard';
+            } else if (layerType === 'height') {
+                dataTypeToRender = 'height';
+            } else if (layerType === 'difficulty') {
+                dataTypeToRender = 'difficulty';
+            }
+            // Floor, Showfloor, Sky, Underground all use 'biome'
+        }
+
+        const dataMap = layer.getDataMap(dataTypeToRender);
+        if (!dataMap) return;
+
         // Calculate visible tile bounds for culling
         const startX = Math.max(0, Math.floor(-this.offsetX / (this.tileSize * this.zoom)));
         const startY = Math.max(0, Math.floor(-this.offsetY / (this.tileSize * this.zoom)));
@@ -428,7 +560,7 @@ class LevelEditor {
         const endY = Math.min(layer.height, startY + Math.ceil(this.gridCanvas.height / (this.tileSize * this.zoom)) + 1);
 
         // Only render tiles within viewport
-        for (const [key, tileset] of layer.tiles.entries()) {
+        for (const [key, data] of dataMap.entries()) {
             const [x, y] = key.split(',').map(Number);
 
             // Skip tiles outside viewport
@@ -436,8 +568,10 @@ class LevelEditor {
                 continue;
             }
 
-            ctx.fillStyle = tileset.color;
-            ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+            if (data.tileset) {
+                ctx.fillStyle = data.tileset.color;
+                ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+            }
         }
     }
 
@@ -478,7 +612,7 @@ class LevelEditor {
         ctx.clearRect(0, 0, this.previewCanvas.width, this.previewCanvas.height);
 
         if (this.gridX < 0 || this.gridY < 0) return;
-        if (!this.selectedTileset && this.currentTool.name !== 'eraser' && this.currentTool.name !== 'eyedropper') return;
+        if (!this.selectedTileset && this.currentTool.name !== 'eraser' && this.currentTool.name !== 'eyedropper' && this.currentTool.name !== 'selection') return;
 
         const preview = this.currentTool.getPreview(this, this.gridX, this.gridY);
 
@@ -487,12 +621,26 @@ class LevelEditor {
         ctx.scale(this.zoom, this.zoom);
 
         for (const tile of preview) {
-            if (this.currentTool.name === 'eraser') {
-                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+            // Handle selection outline
+            if (tile.outline && this.currentTool.name === 'selection') {
+                ctx.strokeStyle = '#4a9eff';
+                ctx.lineWidth = 2 / this.zoom;
+                ctx.setLineDash([4 / this.zoom, 4 / this.zoom]);
+                ctx.strokeRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+                ctx.setLineDash([]);
+            } else if (tile.tileset && this.currentTool.name === 'selection') {
+                // Show actual tile content when moving selection
+                ctx.fillStyle = tile.tileset.color + 'CC'; // Semi-transparent
+                ctx.fillRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
             } else {
-                ctx.fillStyle = this.selectedTileset ? this.selectedTileset.color + '80' : 'rgba(255, 255, 255, 0.3)';
+                // Normal tile preview
+                if (this.currentTool.name === 'eraser') {
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                } else {
+                    ctx.fillStyle = this.selectedTileset ? this.selectedTileset.color + '80' : 'rgba(255, 255, 255, 0.3)';
+                }
+                ctx.fillRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
             }
-            ctx.fillRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
         }
 
         ctx.restore();
@@ -524,26 +672,45 @@ class LevelEditor {
         // For 512×512: sample every 2nd tile, for 256×256: every tile
         const sampleRate = Math.max(1, Math.ceil(this.layerManager.width / 256));
 
-        // Render all layers
-        for (const layer of this.layerManager.layers) {
+        // Render all layers in reverse order (first layer in list renders on top)
+        for (let i = this.layerManager.layers.length - 1; i >= 0; i--) {
+            const layer = this.layerManager.layers[i];
             if (!layer.visible) continue;
 
             ctx.globalAlpha = layer.opacity;
 
+            // Determine which data type to render based on layer type
+            let dataTypeToRender = 'biome'; // default
+            if (layer.layerType) {
+                const layerType = layer.layerType.toLowerCase();
+                if (layerType === 'hazard') {
+                    dataTypeToRender = 'hazard';
+                } else if (layerType === 'height') {
+                    dataTypeToRender = 'height';
+                } else if (layerType === 'difficulty') {
+                    dataTypeToRender = 'difficulty';
+                }
+            }
+
+            const dataMap = layer.getDataMap(dataTypeToRender);
+            if (!dataMap) continue;
+
             // Render tiles with sampling for performance
-            for (const [key, tileset] of layer.tiles.entries()) {
+            for (const [key, data] of dataMap.entries()) {
                 const [x, y] = key.split(',').map(Number);
 
                 // Skip some tiles for larger grids
                 if (x % sampleRate !== 0 || y % sampleRate !== 0) continue;
 
-                ctx.fillStyle = tileset.color;
-                ctx.fillRect(
-                    x * scaleX,
-                    y * scaleY,
-                    sampleRate * scaleX + 1,
-                    sampleRate * scaleY + 1
-                );
+                if (data.tileset) {
+                    ctx.fillStyle = data.tileset.color;
+                    ctx.fillRect(
+                        x * scaleX,
+                        y * scaleY,
+                        sampleRate * scaleX + 1,
+                        sampleRate * scaleY + 1
+                    );
+                }
             }
         }
 

@@ -187,6 +187,39 @@ select {
     font-size: 13px;
 }
 
+/* Data Type Selector */
+#data-type-selector {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.data-type-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    width: 100%;
+    text-align: center;
+    background-color: #2b2b2b;
+    border: 2px solid transparent;
+    transition: all 0.2s;
+}
+
+.data-type-btn:hover {
+    background-color: #3c3c3c;
+}
+
+.data-type-btn.active {
+    background-color: #3c3c3c;
+    border-color: #4a9eff;
+}
+
+.data-type-name {
+    font-size: 13px;
+    font-weight: 500;
+}
+
 /* Color Palette */
 #current-color-display {
     display: flex;
@@ -317,6 +350,75 @@ select {
     border-radius: 4px;
 }
 
+/* Copy History */
+#copy-history {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.copy-history-empty {
+    font-size: 12px;
+    color: #666;
+    text-align: center;
+    padding: 20px;
+}
+
+.copy-history-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px;
+    background-color: #2b2b2b;
+    border: 2px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.copy-history-item:hover {
+    background-color: #3c3c3c;
+    border-color: #555;
+}
+
+.copy-history-item.active {
+    border-color: #4a9eff;
+    background-color: #3c3c3c;
+}
+
+.copy-history-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.copy-history-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #4a9eff;
+}
+
+.copy-history-details {
+    font-size: 10px;
+    color: #aaa;
+}
+
+.copy-history-delete {
+    padding: 2px 6px;
+    font-size: 12px;
+    background-color: transparent;
+    border: none;
+    color: #666;
+    cursor: pointer;
+}
+
+.copy-history-delete:hover {
+    color: #ff6b6b;
+}
+
 /* Center Panel - Canvas */
 #center-panel {
     flex: 1;
@@ -330,7 +432,7 @@ select {
 #canvas-container {
     flex: 1;
     position: relative;
-    overflow: auto;
+    overflow: hidden;
     cursor: crosshair;
     /* Checkered pattern background to distinguish from canvas */
     background-color: #1a1a1a;
@@ -437,6 +539,17 @@ select {
     background-color: #3c3c3c;
 }
 
+.layer-item.layer-hover {
+    background-color: #4a4a2a;
+    border-color: #ffd700;
+}
+
+.layer-item.layer-hover.active {
+    border-color: #4a9eff;
+    background-color: #3c4c3c;
+    box-shadow: 0 0 8px rgba(255, 215, 0, 0.3);
+}
+
 .layer-header {
     display: flex;
     justify-content: space-between;
@@ -480,6 +593,19 @@ select {
     width: 100px;
 }
 
+.btn-show-only {
+    padding: 4px 8px;
+    font-size: 11px;
+    background-color: #4a9eff;
+    color: #fff;
+    border: none;
+    width: 100%;
+}
+
+.btn-show-only:hover {
+    background-color: #3a8eef;
+}
+
 /* Status Bar */
 #status-bar {
     display: flex;
@@ -498,6 +624,12 @@ select {
 
 #status-autosave {
     color: #4a9eff;
+}
+
+#status-hover-info {
+    color: #4a9eff;
+    font-weight: 500;
+    min-width: 200px;
 }
 
 /* Scrollbar Styling */
@@ -726,4 +858,47 @@ select {
 
 .validation-summary .success {
     color: #51cf66;
+}
+
+.validation-summary .tip {
+    color: #4a9eff;
+    font-style: italic;
+}
+
+/* Compression Efficiency Bar */
+.compression-bar-container {
+    background: #3c3c3c;
+    height: 24px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 10px 0;
+    position: relative;
+}
+
+.compression-bar {
+    height: 100%;
+    transition: width 0.3s ease, background-color 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.compression-bar.excellent {
+    background: linear-gradient(90deg, #51cf66, #37b24d);
+}
+
+.compression-bar.good {
+    background: linear-gradient(90deg, #4a9eff, #3a8eef);
+}
+
+.compression-bar.fair {
+    background: linear-gradient(90deg, #ffa500, #ff8c00);
+}
+
+.compression-bar.poor {
+    background: linear-gradient(90deg, #ff6b6b, #fa5252);
 }

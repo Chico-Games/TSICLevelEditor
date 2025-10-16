@@ -68,6 +68,13 @@
             </select>
         </div>
 
+        <div class="option-group" id="wand-options" style="display: none;">
+            <label>
+                <input type="checkbox" id="wand-diagonal">
+                Include Diagonals
+            </label>
+        </div>
+
         <div class="option-group">
             <button id="btn-undo" title="Undo (Ctrl+Z)">↶ Undo</button>
             <button id="btn-redo" title="Redo (Ctrl+Y)">↷ Redo</button>
@@ -83,27 +90,57 @@
                 <div id="tools">
                     <button class="tool-btn active" data-tool="pencil" title="Pencil (B)">
                         <span class="tool-icon">✏️</span>
-                        <span class="tool-name">Pencil</span>
+                        <span class="tool-name">Pencil (B)</span>
                     </button>
                     <button class="tool-btn" data-tool="bucket" title="Bucket Fill (G)">
                         <span class="tool-icon">🪣</span>
-                        <span class="tool-name">Bucket</span>
+                        <span class="tool-name">Bucket (G)</span>
                     </button>
                     <button class="tool-btn" data-tool="line" title="Line (L)">
                         <span class="tool-icon">📏</span>
-                        <span class="tool-name">Line</span>
+                        <span class="tool-name">Line (L)</span>
                     </button>
                     <button class="tool-btn" data-tool="rectangle" title="Rectangle (R)">
                         <span class="tool-icon">▭</span>
-                        <span class="tool-name">Rectangle</span>
+                        <span class="tool-name">Rectangle (R)</span>
                     </button>
                     <button class="tool-btn" data-tool="eyedropper" title="Eyedropper (I)">
                         <span class="tool-icon">💧</span>
-                        <span class="tool-name">Picker</span>
+                        <span class="tool-name">Picker (I)</span>
                     </button>
                     <button class="tool-btn" data-tool="eraser" title="Eraser (E)">
                         <span class="tool-icon">🧹</span>
-                        <span class="tool-name">Eraser</span>
+                        <span class="tool-name">Eraser (E)</span>
+                    </button>
+                    <button class="tool-btn" data-tool="pan" title="Pan (H)">
+                        <span class="tool-icon">✋</span>
+                        <span class="tool-name">Pan (H)</span>
+                    </button>
+                    <button class="tool-btn" data-tool="selection" title="Selection (M)">
+                        <span class="tool-icon">⬚</span>
+                        <span class="tool-name">Select (M)</span>
+                    </button>
+                    <button class="tool-btn" data-tool="wand" title="Magic Wand (W)">
+                        <span class="tool-icon">✨</span>
+                        <span class="tool-name">Wand (W)</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>Data Type</h3>
+                <div id="data-type-selector">
+                    <button class="data-type-btn active" data-type="biome" title="Edit biome/room types">
+                        <span class="data-type-name">Biome</span>
+                    </button>
+                    <button class="data-type-btn" data-type="height" title="Edit height/elevation">
+                        <span class="data-type-name">Height</span>
+                    </button>
+                    <button class="data-type-btn" data-type="difficulty" title="Edit difficulty zones">
+                        <span class="data-type-name">Difficulty</span>
+                    </button>
+                    <button class="data-type-btn" data-type="hazard" title="Edit environmental hazards">
+                        <span class="data-type-name">Hazard</span>
                     </button>
                 </div>
             </div>
@@ -132,6 +169,13 @@
                     </div>
                 </div>
             </div>
+
+            <div class="panel-section">
+                <h3>Copy History</h3>
+                <div id="copy-history">
+                    <div class="copy-history-empty">No copies yet</div>
+                </div>
+            </div>
         </div>
 
         <!-- Center Panel - Canvas -->
@@ -155,13 +199,6 @@
                     <button id="btn-add-layer" title="Add Layer">+</button>
                 </div>
 
-                <!-- World Layer Tabs -->
-                <div id="world-layer-tabs">
-                    <button class="world-tab active" data-world="Floor">Floor</button>
-                    <button class="world-tab" data-world="Underground">Underground</button>
-                    <button class="world-tab" data-world="Sky">Sky</button>
-                </div>
-
                 <div id="layers-list">
                     <!-- Layers loaded from config -->
                 </div>
@@ -173,42 +210,19 @@
     <div id="export-dialog" class="modal" style="display: none;">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Export to PNG (TSIC World Generation)</h2>
+                <h2>Export JSON-RLE World</h2>
                 <button class="modal-close" id="export-close">&times;</button>
             </div>
 
             <div class="modal-body">
                 <div class="export-section">
-                    <h3>World Layer Selection</h3>
+                    <h3>World Metadata</h3>
                     <div class="export-options">
                         <label>
-                            <input type="radio" name="export-world" value="Floor" checked>
-                            Floor (Main mall level)
+                            Map Name: <input type="text" id="export-map-name" value="TSIC_Mall" placeholder="Map name" required>
                         </label>
                         <label>
-                            <input type="radio" name="export-world" value="Underground">
-                            Underground (Basements & tunnels)
-                        </label>
-                        <label>
-                            <input type="radio" name="export-world" value="Sky">
-                            Sky (Rooftops & upper floors)
-                        </label>
-                        <label>
-                            <input type="radio" name="export-world" value="All">
-                            All Layers (Complete world)
-                        </label>
-                    </div>
-                </div>
-
-                <div class="export-section">
-                    <h3>Export Options</h3>
-                    <div class="export-options">
-                        <label>
-                            <input type="checkbox" id="export-metadata" checked>
-                            Include metadata (map.json)
-                        </label>
-                        <label>
-                            Map Name: <input type="text" id="export-map-name" value="TSIC_Mall" placeholder="Map name">
+                            Description: <input type="text" id="export-description" value="Mall level" placeholder="Level description">
                         </label>
                         <label>
                             Seed: <input type="text" id="export-seed" placeholder="Auto-generate" size="12">
@@ -217,23 +231,23 @@
                 </div>
 
                 <div class="export-section">
-                    <h3>Color Validation</h3>
+                    <h3>Validation Results</h3>
                     <div id="export-validation">
                         <!-- Validation results will be populated by JavaScript -->
                     </div>
                 </div>
 
                 <div class="export-section">
-                    <h3>Export Summary</h3>
-                    <div id="export-summary">
-                        <!-- Summary will be populated by JavaScript -->
+                    <h3>Compression Statistics</h3>
+                    <div id="export-stats">
+                        <!-- Compression stats will be populated by JavaScript -->
                     </div>
                 </div>
             </div>
 
             <div class="modal-footer">
                 <button id="export-cancel" class="btn-secondary">Cancel</button>
-                <button id="export-confirm" class="btn-primary">Export PNG Files</button>
+                <button id="export-confirm" class="btn-primary">Export JSON-RLE</button>
             </div>
         </div>
     </div>
@@ -241,13 +255,21 @@
     <!-- Status Bar -->
     <div id="status-bar">
         <span id="status-position">X: 0, Y: 0</span>
+        <span id="status-hover-info"></span>
+        <span id="status-filename">No file loaded</span>
         <span id="status-message">Ready</span>
-        <span id="status-autosave">Auto-saved</span>
+        <label style="margin-left: 10px;">
+            <input type="checkbox" id="autosave-checkbox">
+            Auto-save to JSON
+        </label>
+        <span id="status-autosave"></span>
     </div>
 
     <!-- Scripts -->
     <script src="js/config.js"></script>
     <script src="js/layers.js"></script>
+    <script src="js/rle-validator.js"></script>
+    <script src="js/dynamic-validator.js"></script>
     <script src="js/tools.js"></script>
     <script src="js/editor.js"></script>
     <script src="js/validation.js"></script>
