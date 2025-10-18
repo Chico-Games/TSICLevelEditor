@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Direct Performance Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+        }
+        #output {
+            white-space: pre-wrap;
+            font-size: 12px;
+        }
+        .good { color: #0f0; }
+        .warn { color: #ff0; }
+        .bad { color: #f00; }
+    </style>
+</head>
+<body>
+    <h1>🔬 DIRECT PERFORMANCE TEST</h1>
+    <div id="output"></div>
+
+    <!-- Canvas elements (hidden) -->
+    <div style="position: absolute; left: -10000px;">
+        <div id="canvas-container">
+            <canvas id="grid-canvas"></canvas>
+            <canvas id="preview-canvas"></canvas>
+        </div>
+        <canvas id="minimap-canvas"></canvas>
+        <div id="status-bar">
+            <span id="status-position"></span>
+            <span id="status-message">Ready</span>
+            <span id="status-hover-info"></span>
+            <span id="zoom-level"></span>
+            <span id="status-autosave"></span>
+            <span id="stat-tiles">0</span>
+            <span id="stat-empty">0</span>
+        </div>
+        <button id="btn-undo"></button>
+        <button id="btn-redo"></button>
+    </div>
+
+    <script src="js/color-mapper.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/layers.js"></script>
+    <script src="js/tools.js"></script>
+    <script src="js/editor.js"></script>
+    <script>
+        const output = document.getElementById('output');
+        function log(msg, className = '') {
+            const line = document.createElement('div');
+            line.className = className;
+            line.textContent = msg;
+            output.appendChild(line);
+            console.log(msg);
+        }
+
+        async function runTest() {
+            log('='.repeat(70));
+            log('DIRECT PERFORMANCE TEST - 100% FILLED LEVEL', 'good');
+            log('='.repeat(70));
+            log('');
+
+            // 1. SETUP
+            log('STEP 1: Initialize editor...');
+            const t1 = performance.now();
+            await configManager.loadConfig('config/biomes.json');
+            const editor = new LevelEditor();
+            editor.initializeLayers(configManager);
+            const setupTime = performance.now() - t1;
+            log(`✓ Setup time: ${setupTime.toFixed(2)}ms ${setupTime < 500 ? '(GOOD)' : '(SLOW)'}`, setupTime < 500 ? 'good' : 'warn');
+            log('');
+
+            // 2. FILL LEVEL 100%
+            log('STEP 2: Fill all 6 layers (256x256 = 393,216 tiles)...');
+            const t2 = performance.now();
+            const colors = ['#FF6B6B', '#525d6b', '#39FF14', '#FFD700', '#87CEEB', '#FF00FF'];
+            editor.layerManager.layers.forEach((layer, i) => {
+                for (let y = 0; y < 256; y++) {
+                    for (let x = 0; x < 256; x++) {
+                        layer.tileData.set(`${x},${y}`, colors[i]);
+                    }
+                }
+            });
+            const fillTime = performance.now() - t2;
+            log(`✓ Fill time: ${fillTime.toFixed(2)}ms`, 'good');
+            log('');
+
+            // 3. INITIAL RENDER
+            log('STEP 3: Initial render of filled level...');
+            const t3 = performance.now();
+            editor.render();
+            const initialRenderTime = performance.now() - t3;
+            const renderClass = initialRenderTime < 100 ? 'good' : initialRenderTime < 300 ? 'warn' : 'bad';
+            log(`✓ Initial render: ${initialRenderTime.toFixed(2)}ms ${initialRenderTime < 100 ? '(EXCELLENT)' : initialRenderTime < 300 ? '(OK)' : '(SLOW)'}`, renderClass);
+            log('');
+
+            // 4. CRITICAL: MOUSEDOWN DELAY
+            log('STEP 4: ⚠️  CRITICAL TEST - Mousedown delay (what user feels)...');
+            editor.setTool('pencil');
+            const tileset = configManager.getTileset('Biome_Grassland');
+            editor.selectedTileset = { name: 'Biome_Grassland', ...tileset };
+            editor.brushSize = 10;
+
+            const t4 = performance.now();
+            // Simulate mousedown
+            const rect = editor.gridCanvas.getBoundingClientRect();
+            editor.mouseX = 400 - rect.left;
+            editor.mouseY = 400 - rect.top;
+            editor.updateGridPosition();
+            editor.onMouseDown({ button: 0, clientX: 400, clientY: 400 });
+            const mousedownTime = performance.now() - t4;
+
+            const clickClass = mousedownTime < 50 ? 'good' : mousedownTime < 200 ? 'warn' : 'bad';
+            log(`✓ Mousedown delay: ${mousedownTime.toFixed(2)}ms ${mousedownTime < 50 ? '(INSTANT!)' : mousedownTime < 200 ? '(OK)' : '(TOO SLOW!)'}`, clickClass);
+            if (mousedownTime > 200) {
+                log(`  ❌ USER WILL FEEL LAG! Should be < 50ms`, 'bad');
+            } else if (mousedownTime < 50) {
+                log(`  ✅ PERFECT! User won't notice any delay`, 'good');
+            }
+            log('');
+
+            // Wait for deferred save
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // 5. DRAWING PERFORMANCE
+            log('STEP 5: Drawing performance (10 mouse moves)...');
+            const drawTimes = [];
+            for (let i = 0; i < 10; i++) {
+                const t = performance.now();
+                editor.mouseX = (400 + i * 10) - rect.left;
+                editor.mouseY = 400 - rect.top;
+                editor.updateGridPosition();
+                editor.onMouseMove({ clientX: 400 + i * 10, clientY: 400 });
+                drawTimes.push(performance.now() - t);
+            }
+            const avgDrawTime = drawTimes.reduce((a, b) => a + b, 0) / drawTimes.length;
+            const drawClass = avgDrawTime < 10 ? 'good' : avgDrawTime < 50 ? 'warn' : 'bad';
+            log(`✓ Average per move: ${avgDrawTime.toFixed(2)}ms ${avgDrawTime < 10 ? '(SMOOTH)' : avgDrawTime < 50 ? '(OK)' : '(LAGGY)'}`, drawClass);
+            log(`  Min: ${Math.min(...drawTimes).toFixed(2)}ms, Max: ${Math.max(...drawTimes).toFixed(2)}ms`);
+            log('');
+
+            // Wait for batched renders
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // 6. RENDER PERFORMANCE
+            log('STEP 6: Continuous render performance (10 renders)...');
+            const renderTimes = [];
+            for (let i = 0; i < 10; i++) {
+                const t = performance.now();
+                editor.render();
+                renderTimes.push(performance.now() - t);
+            }
+            const avgRenderTime = renderTimes.reduce((a, b) => a + b, 0) / renderTimes.length;
+            const fps = 1000 / avgRenderTime;
+            const renderFpsClass = fps >= 30 ? 'good' : fps >= 15 ? 'warn' : 'bad';
+            log(`✓ Average render: ${avgRenderTime.toFixed(2)}ms (${fps.toFixed(1)} FPS) ${fps >= 30 ? '(SMOOTH!)' : fps >= 15 ? '(OK)' : '(CHOPPY)'}`, renderFpsClass);
+            log(`  Min: ${Math.min(...renderTimes).toFixed(2)}ms, Max: ${Math.max(...renderTimes).toFixed(2)}ms`);
+            log('');
+
+            // SUMMARY
+            log('='.repeat(70));
+            log('PERFORMANCE SUMMARY', 'good');
+            log('='.repeat(70));
+            log(`Setup:          ${setupTime.toFixed(2)}ms`);
+            log(`Fill level:     ${fillTime.toFixed(2)}ms`);
+            log(`Initial render: ${initialRenderTime.toFixed(2)}ms`);
+            log(`Mousedown:      ${mousedownTime.toFixed(2)}ms ${mousedownTime < 50 ? '✅' : mousedownTime < 200 ? '⚠️' : '❌'}`, clickClass);
+            log(`Drawing:        ${avgDrawTime.toFixed(2)}ms avg ${avgDrawTime < 10 ? '✅' : avgDrawTime < 50 ? '⚠️' : '❌'}`, drawClass);
+            log(`Rendering:      ${avgRenderTime.toFixed(2)}ms (${fps.toFixed(1)} FPS) ${fps >= 30 ? '✅' : fps >= 15 ? '⚠️' : '❌'}`, renderFpsClass);
+            log('');
+
+            // VERDICT
+            log('='.repeat(70));
+            log('VERDICT', 'good');
+            log('='.repeat(70));
+            if (mousedownTime < 50 && avgDrawTime < 10 && fps >= 30) {
+                log('✅ EXCELLENT PERFORMANCE! App is fast and responsive.', 'good');
+            } else if (mousedownTime < 200 && avgDrawTime < 50 && fps >= 15) {
+                log('⚠️  ACCEPTABLE - Some operations could be faster.', 'warn');
+            } else {
+                log('❌ PERFORMANCE ISSUES DETECTED!', 'bad');
+                if (mousedownTime >= 200) {
+                    log('  - Mousedown delay is too high (user will feel lag)', 'bad');
+                }
+                if (avgDrawTime >= 50) {
+                    log('  - Drawing is too slow (feels laggy)', 'bad');
+                }
+                if (fps < 15) {
+                    log('  - Rendering is too slow (choppy visuals)', 'bad');
+                }
+            }
+        }
+
+        // Run on load
+        window.addEventListener('load', () => {
+            setTimeout(runTest, 500);
+        });
+    </script>
+</body>
+</html>

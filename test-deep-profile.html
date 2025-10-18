@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Deep Performance Profiling</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        #profile-results {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #000;
+            color: #0f0;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            z-index: 10000;
+            border: 2px solid #0f0;
+        }
+        .timing { color: #ff0; font-weight: bold; }
+        .slow { color: #f00; font-weight: bold; }
+        .fast { color: #0f0; }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <canvas id="grid-canvas"></canvas>
+        <canvas id="preview-canvas"></canvas>
+    </div>
+    <canvas id="minimap-canvas" style="display: none;"></canvas>
+    <div id="status-bar" style="display: none;">
+        <span id="status-position"></span>
+        <span id="status-message"></span>
+        <span id="status-hover-info"></span>
+    </div>
+
+    <div id="profile-results">
+        <h3>🔬 DEEP PERFORMANCE PROFILING</h3>
+        <div id="output"></div>
+    </div>
+
+    <script src="js/color-mapper.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/layers.js"></script>
+    <script src="js/tools.js"></script>
+    <script src="js/editor.js"></script>
+    <script>
+        const output = document.getElementById('output');
+        function log(msg, className = '') {
+            const div = document.createElement('div');
+            div.className = className;
+            div.innerHTML = msg;
+            output.appendChild(div);
+            console.log(msg.replace(/<[^>]*>/g, ''));
+        }
+
+        let editor;
+        const timings = {};
+
+        function measure(name, fn) {
+            const start = performance.now();
+            const result = fn();
+            const end = performance.now();
+            const time = end - start;
+
+            if (!timings[name]) timings[name] = [];
+            timings[name].push(time);
+
+            return { result, time };
+        }
+
+        async function runDeepProfile() {
+            log('='.repeat(50));
+            log('<span class="timing">DEEP PERFORMANCE PROFILING</span>');
+            log('='.repeat(50));
+            log('');
+
+            // Load config
+            const configResult = measure('config-load', () => {
+                return configManager.loadConfig('config/biomes.json');
+            });
+            await configResult.result;
+            log(`✓ Config loaded: ${configResult.time.toFixed(2)}ms`);
+
+            // Initialize editor
+            const editorResult = measure('editor-init', () => {
+                editor = new LevelEditor();
+                editor.initializeLayers(configManager);
+            });
+            log(`✓ Editor initialized: ${editorResult.time.toFixed(2)}ms`);
+            log('');
+
+            // INSTRUMENT THE EDITOR to measure each step
+            const originalSetTiles = editor.setTiles.bind(editor);
+            const originalRender = editor.render.bind(editor);
+            const originalRenderPreview = editor.renderPreview.bind(editor);
+            const originalRenderLayer = editor.renderLayer.bind(editor);
+            const originalSaveState = editor.deferredSaveState.bind(editor);
+
+            let setTilesCalls = 0;
+            let renderCalls = 0;
+            let renderLayerCalls = 0;
+
+            editor.setTiles = function(tiles) {
+                const start = performance.now();
+                const result = originalSetTiles(tiles);
+                const time = performance.now() - start;
+                setTilesCalls++;
+                timings['setTiles'] = timings['setTiles'] || [];
+                timings['setTiles'].push(time);
+                return result;
+            };
+
+            editor.render = function() {
+                const start = performance.now();
+                originalRender();
+                const time = performance.now() - start;
+                renderCalls++;
+                timings['render'] = timings['render'] || [];
+                timings['render'].push(time);
+            };
+
+            editor.renderPreview = function() {
+                const start = performance.now();
+                originalRenderPreview();
+                const time = performance.now() - start;
+                timings['renderPreview'] = timings['renderPreview'] || [];
+                timings['renderPreview'].push(time);
+            };
+
+            editor.renderLayer = function(ctx, layer) {
+                const start = performance.now();
+                originalRenderLayer(ctx, layer);
+                const time = performance.now() - start;
+                renderLayerCalls++;
+                timings['renderLayer'] = timings['renderLayer'] || [];
+                timings['renderLayer'].push(time);
+            };
+
+            editor.deferredSaveState = function() {
+                const start = performance.now();
+                originalSaveState();
+                const time = performance.now() - start;
+                timings['saveState'] = timings['saveState'] || [];
+                timings['saveState'].push(time);
+            };
+
+            // Instrument layer.setTile
+            editor.layerManager.layers.forEach(layer => {
+                const originalLayerSetTile = layer.setTile.bind(layer);
+                layer.setTile = function(x, y, value, tileset) {
+                    const start = performance.now();
+                    const result = originalLayerSetTile(x, y, value, tileset);
+                    const time = performance.now() - start;
+                    timings['layer.setTile'] = timings['layer.setTile'] || [];
+                    timings['layer.setTile'].push(time);
+                    return result;
+                };
+            });
+
+            log('<span class="timing">STEP 1: Fill level to 100%</span>');
+            const fillStart = performance.now();
+            const colors = ['#FF6B6B', '#525d6b', '#39FF14', '#FFD700', '#87CEEB', '#1a1a1a'];
+            editor.layerManager.layers.forEach((layer, i) => {
+                for (let y = 0; y < 256; y++) {
+                    for (let x = 0; x < 256; x++) {
+                        layer.tileData.set(`${x},${y}`, colors[i % colors.length]);
+                    }
+                }
+            });
+            const fillTime = performance.now() - fillStart;
+            log(`Fill time: ${fillTime.toFixed(2)}ms`);
+            log('');
+
+            // Initial render
+            log('<span class="timing">STEP 2: Initial render of filled level</span>');
+            renderCalls = 0;
+            renderLayerCalls = 0;
+            const initialRenderStart = performance.now();
+            editor.render();
+            const initialRenderTime = performance.now() - initialRenderStart;
+            log(`Initial render: ${initialRenderTime.toFixed(2)}ms`);
+            log(`  Render calls: ${renderCalls}`);
+            log(`  RenderLayer calls: ${renderLayerCalls}`);
+            log('');
+
+            // Setup for drawing test
+            editor.setTool('pencil');
+            const tileset = configManager.getTileset('Biome_Grassland');
+            editor.selectedTileset = { name: 'Biome_Grassland', ...tileset };
+            editor.brushSize = 10;
+
+            log('<span class="timing">STEP 3: Simulate MOUSEDOWN (Critical!)</span>');
+            setTilesCalls = 0;
+            renderCalls = 0;
+
+            const mouseDownStart = performance.now();
+
+            const rect = editor.gridCanvas.getBoundingClientRect();
+            editor.mouseX = 400 - rect.left;
+            editor.mouseY = 400 - rect.top;
+            editor.updateGridPosition();
+
+            // This triggers saveState (deferred now) and tool.onMouseDown
+            const mouseEvent = { button: 0, clientX: 400, clientY: 400 };
+            editor.onMouseDown(mouseEvent);
+
+            const mouseDownTime = performance.now() - mouseDownStart;
+
+            const className = mouseDownTime > 100 ? 'slow' : mouseDownTime > 50 ? '' : 'fast';
+            log(`<span class="${className}">MOUSEDOWN TIME: ${mouseDownTime.toFixed(2)}ms</span>`);
+            if (mouseDownTime > 100) {
+                log(`  <span class="slow">⚠️ SLOW! User will feel lag!</span>`);
+            }
+            log('');
+
+            // Wait for any deferred saves
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            log('<span class="timing">STEP 4: Simulate MOUSE MOVE (10 moves)</span>');
+            const mouseMoves = 10;
+            setTilesCalls = 0;
+            renderCalls = 0;
+
+            const moveStart = performance.now();
+            for (let i = 0; i < mouseMoves; i++) {
+                const x = 400 + i * 5;
+                const y = 400;
+                editor.mouseX = x - rect.left;
+                editor.mouseY = y - rect.top;
+                editor.updateGridPosition();
+
+                const mouseMoveEvent = { clientX: x, clientY: y };
+                editor.onMouseMove(mouseMoveEvent);
+            }
+            const moveTime = performance.now() - moveStart;
+
+            log(`Mouse move (${mouseMoves} moves): ${moveTime.toFixed(2)}ms`);
+            log(`  Average per move: ${(moveTime / mouseMoves).toFixed(2)}ms`);
+            log(`  setTiles calls: ${setTilesCalls}`);
+            log(`  render calls: ${renderCalls}`);
+            log('');
+
+            // Wait for batched renders
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            log('<span class="timing">STEP 5: Simulate MOUSE UP</span>');
+            const mouseUpStart = performance.now();
+            editor.onMouseUp({ button: 0 });
+            const mouseUpTime = performance.now() - mouseUpStart;
+            log(`Mouse up: ${mouseUpTime.toFixed(2)}ms`);
+            log('');
+
+            // Aggregate timings
+            log('='.repeat(50));
+            log('<span class="timing">TIMING BREAKDOWN (where the time goes)</span>');
+            log('='.repeat(50));
+
+            for (const [name, times] of Object.entries(timings)) {
+                if (times.length === 0) continue;
+                const total = times.reduce((a, b) => a + b, 0);
+                const avg = total / times.length;
+                const max = Math.max(...times);
+                const min = Math.min(...times);
+
+                const className = avg > 10 ? 'slow' : avg > 1 ? '' : 'fast';
+
+                log(`<span class="${className}">${name}:</span>`);
+                log(`  Calls: ${times.length}`);
+                log(`  Total: ${total.toFixed(2)}ms`);
+                log(`  Avg: ${avg.toFixed(4)}ms`);
+                log(`  Min: ${min.toFixed(4)}ms`);
+                log(`  Max: ${max.toFixed(4)}ms`);
+
+                if (avg > 10 && times.length > 1) {
+                    log(`  <span class="slow">⚠️ This is a hotspot!</span>`);
+                }
+                log('');
+            }
+
+            // Identify bottlenecks
+            log('='.repeat(50));
+            log('<span class="timing">BOTTLENECK ANALYSIS</span>');
+            log('='.repeat(50));
+
+            const bottlenecks = [];
+            for (const [name, times] of Object.entries(timings)) {
+                const total = times.reduce((a, b) => a + b, 0);
+                if (total > 50) {
+                    bottlenecks.push({ name, total, count: times.length });
+                }
+            }
+
+            bottlenecks.sort((a, b) => b.total - a.total);
+
+            if (bottlenecks.length === 0) {
+                log('<span class="fast">✓ No major bottlenecks detected!</span>');
+            } else {
+                log('<span class="slow">Found performance bottlenecks:</span>');
+                bottlenecks.forEach((b, i) => {
+                    log(`${i + 1}. ${b.name}: ${b.total.toFixed(2)}ms (${b.count} calls)`);
+                });
+            }
+        }
+
+        // Run on load
+        window.addEventListener('load', () => {
+            setTimeout(runDeepProfile, 1000);
+        });
+    </script>
+</body>
+</html>

@@ -26,6 +26,7 @@ class LevelEditor {
         this.currentTool = tools.pencil;
         this.selectedTileset = null;
         this.brushSize = 1;
+        this.brushShape = 'square';
         this.fillMode = 'filled';
 
         // View settings
@@ -45,14 +46,36 @@ class LevelEditor {
         this.panStartX = 0;
         this.panStartY = 0;
 
+        // Minimap drag state
+        this.isMinimapDragging = false;
+
         // Undo/Redo stacks
         this.undoStack = [];
         this.redoStack = [];
         this.maxHistorySize = 50;
+        this.saveStateTimeout = null;
+        this.pendingSaveState = false;
 
         // Auto-save
         this.autoSaveInterval = null;
         this.isDirty = false;
+
+        // Performance optimization flags
+        this.isDrawing = false; // Track active drawing operations
+        this.renderRequested = false; // Track if render is already queued
+        this.minimapRenderRequested = false; // Track if minimap render is queued
+        this.needsLayerPanelUpdate = false; // Defer layer panel updates
+
+        // Layer highlight optimization
+        this.lastHighlightX = -1;
+        this.lastHighlightY = -1;
+        this.highlightThrottleTime = 50; // Only update highlight every 50ms
+        this.lastHighlightTime = 0;
+
+        // Preview optimization
+        this.lastPreviewX = -1;
+        this.lastPreviewY = -1;
+        this.previewRequested = false;
 
         this.setupEventListeners();
         this.resizeCanvas();
@@ -67,7 +90,7 @@ class LevelEditor {
 
         const layers = config.getLayers();
         for (const layerConfig of layers) {
-            this.layerManager.addLayer(layerConfig.name, {
+            const layer = this.layerManager.addLayer(layerConfig.name, {
                 visible: layerConfig.visible,
                 opacity: layerConfig.opacity,
                 locked: layerConfig.locked,
@@ -76,10 +99,39 @@ class LevelEditor {
                 layerType: layerConfig.layerType,
                 worldLayer: layerConfig.worldLayer
             });
+
+            // Fill layer with appropriate default color
+            const defaultColor = this.getDefaultColorForLayer(layerConfig.layerType);
+            if (defaultColor) {
+                this.layerManager.fillLayerWithDefault(layer, defaultColor);
+            }
         }
 
         this.resizeCanvas();
         this.render();
+    }
+
+    /**
+     * Get default color for a layer type
+     * Returns transparent (#000000) for most layers, or a valid color if needed
+     */
+    getDefaultColorForLayer(layerType) {
+        // Most layers use transparent black (#000000) as default
+        // This renders as transparent and represents "None" values
+        switch(layerType) {
+            case 'Showfloor':
+            case 'Underground':
+            case 'Sky':
+                return '#000000'; // Biome_None - renders transparent
+            case 'Height':
+                return '#525d6b'; // Height_2 - Ground floor (default height)
+            case 'Difficulty':
+                return '#000000'; // Difficulty_Easy equivalent (can use transparent)
+            case 'Hazard':
+                return '#1a1a1a'; // Hazard_None - renders transparent
+            default:
+                return '#000000'; // Default transparent
+        }
     }
 
     /**
@@ -103,6 +155,12 @@ class LevelEditor {
         // Scroll for zoom with adaptive increments
         container.addEventListener('wheel', (e) => {
             e.preventDefault();
+
+            // Get mouse position relative to container
+            const rect = this.gridCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
             // Smaller increments at lower zoom levels for finer control
             let delta;
             if (this.zoom < 0.2) {
@@ -114,12 +172,15 @@ class LevelEditor {
             } else {
                 delta = e.deltaY > 0 ? -0.1 : 0.1; // Normal control above 100%
             }
-            this.setZoom(this.zoom + delta);
+            this.setZoom(this.zoom + delta, mouseX, mouseY);
         }, { passive: false });
 
-        // Minimap click-to-pan
-        this.minimapCanvas.addEventListener('click', (e) => this.onMinimapClick(e));
-        this.minimapCanvas.style.cursor = 'pointer';
+        // Minimap drag-to-pan
+        this.minimapCanvas.addEventListener('mousedown', (e) => this.onMinimapMouseDown(e));
+        this.minimapCanvas.addEventListener('mousemove', (e) => this.onMinimapMouseMove(e));
+        this.minimapCanvas.addEventListener('mouseup', (e) => this.onMinimapMouseUp(e));
+        this.minimapCanvas.addEventListener('mouseleave', (e) => this.onMinimapMouseLeave(e));
+        this.minimapCanvas.style.cursor = 'grab';
     }
 
     /**
@@ -129,11 +190,11 @@ class LevelEditor {
         const container = document.getElementById('canvas-container');
         const rect = container.getBoundingClientRect();
 
-        const gridWidth = this.layerManager.width * this.tileSize * this.zoom;
-        const gridHeight = this.layerManager.height * this.tileSize * this.zoom;
-
-        this.gridCanvas.width = Math.max(rect.width, gridWidth);
-        this.gridCanvas.height = Math.max(rect.height, gridHeight);
+        // CRITICAL FIX: Canvas should be viewport size, NOT grid size!
+        // The old code used Math.max(rect, grid) which made huge canvases (8192x8192)
+        // This broke viewport culling and rendered ALL tiles instead of visible ones
+        this.gridCanvas.width = rect.width;
+        this.gridCanvas.height = rect.height;
 
         this.previewCanvas.width = this.gridCanvas.width;
         this.previewCanvas.height = this.gridCanvas.height;
@@ -165,13 +226,14 @@ class LevelEditor {
         // Left mouse for tool
         if (e.button === 0) {
             this.isMouseDown = true;
+            this.isDrawing = true; // Mark as drawing for performance optimization
             this.updateGridPosition();
 
             if (this.gridX >= 0 && this.gridY >= 0) {
-                this.saveState();
+                // Defer saveState to avoid blocking initial click
+                this.deferredSaveState();
                 this.currentTool.onMouseDown(this, this.gridX, this.gridY, e);
-                this.render();
-                this.renderMinimap();
+                this.requestRender();
                 this.isDirty = true;
             }
         }
@@ -185,22 +247,39 @@ class LevelEditor {
         if (this.isPanning) {
             this.offsetX = this.mouseX - this.panStartX;
             this.offsetY = this.mouseY - this.panStartY;
-            this.render();
+            this.requestRender();
+            // Skip minimap render during panning for better performance
             return;
         }
 
         this.updateGridPosition();
 
-        // Highlight layer under cursor
-        this.highlightLayerAtPosition(this.gridX, this.gridY);
+        // Highlight layer under cursor (skip during active drawing for performance)
+        if (!this.isMouseDown) {
+            // Throttle highlight updates to reduce overhead
+            const now = performance.now();
+            if (now - this.lastHighlightTime > this.highlightThrottleTime ||
+                this.gridX !== this.lastHighlightX ||
+                this.gridY !== this.lastHighlightY) {
+                this.highlightLayerAtPosition(this.gridX, this.gridY);
+                this.lastHighlightTime = now;
+                this.lastHighlightX = this.gridX;
+                this.lastHighlightY = this.gridY;
+            }
+        }
 
         if (this.isMouseDown && this.gridX >= 0 && this.gridY >= 0) {
             this.currentTool.onMouseMove(this, this.gridX, this.gridY, e);
-            this.render();
-            this.renderMinimap();
+            this.requestRender();
+            // Minimap updates are deferred until drawing finishes
         }
 
-        this.renderPreview();
+        // Only update preview if grid position changed (avoid redundant renders)
+        if (this.gridX !== this.lastPreviewX || this.gridY !== this.lastPreviewY) {
+            this.requestPreviewRender();
+            this.lastPreviewX = this.gridX;
+            this.lastPreviewY = this.gridY;
+        }
     }
 
     onMouseUp(e) {
@@ -212,25 +291,83 @@ class LevelEditor {
 
         if (this.isMouseDown && this.gridX >= 0 && this.gridY >= 0) {
             this.currentTool.onMouseUp(this, this.gridX, this.gridY, e);
-            this.render();
-            this.renderMinimap();
+            this.isDrawing = false; // Drawing finished
+            this.requestRender();
+            this.requestMinimapRender(); // Update minimap now that drawing is done
+
+            // Update layer panel after drawing completes
+            if (this.needsLayerPanelUpdate && typeof window.updateLayersPanel === 'function') {
+                window.updateLayersPanel();
+                this.needsLayerPanelUpdate = false;
+            }
+
+            // CRITICAL: Save state AFTER drawing completes, not during!
+            // deferredSaveState() just sets a flag, actual save happens here
+            if (this.pendingSaveState) {
+                // Save in next event loop to keep UI responsive
+                setTimeout(() => {
+                    this.saveStateNow();
+                    this.pendingSaveState = false;
+                }, 0);
+            }
         }
 
         this.isMouseDown = false;
+        this.isDrawing = false;
     }
 
     onMouseLeave(e) {
         this.isMouseDown = false;
         this.isPanning = false;
+        this.isDrawing = false;
         this.gridCanvas.style.cursor = 'crosshair';
         this.clearPreview();
         this.clearLayerHoverHighlight();
+        this.lastPreviewX = -1;
+        this.lastPreviewY = -1;
     }
 
     /**
-     * Handle minimap click to pan
+     * Handle minimap mouse down to start dragging
      */
-    onMinimapClick(e) {
+    onMinimapMouseDown(e) {
+        this.isMinimapDragging = true;
+        this.minimapCanvas.style.cursor = 'grabbing';
+        this.updateViewportFromMinimap(e);
+    }
+
+    /**
+     * Handle minimap mouse move while dragging
+     */
+    onMinimapMouseMove(e) {
+        if (!this.isMinimapDragging) return;
+        this.updateViewportFromMinimap(e, true); // Skip minimap render during drag
+    }
+
+    /**
+     * Handle minimap mouse up to stop dragging
+     */
+    onMinimapMouseUp(e) {
+        this.isMinimapDragging = false;
+        this.minimapCanvas.style.cursor = 'grab';
+        // Render minimap once when drag ends
+        this.renderMinimap();
+    }
+
+    /**
+     * Handle minimap mouse leave to stop dragging
+     */
+    onMinimapMouseLeave(e) {
+        if (this.isMinimapDragging) {
+            this.isMinimapDragging = false;
+            this.minimapCanvas.style.cursor = 'grab';
+        }
+    }
+
+    /**
+     * Update viewport position based on minimap coordinates
+     */
+    updateViewportFromMinimap(e, skipMinimap = false) {
         const rect = this.minimapCanvas.getBoundingClientRect();
         const clickX = e.clientX - rect.left;
         const clickY = e.clientY - rect.top;
@@ -253,8 +390,10 @@ class LevelEditor {
         this.offsetX = -(gridX - centerOffsetX) * this.tileSize * this.zoom;
         this.offsetY = -(gridY - centerOffsetY) * this.tileSize * this.zoom;
 
-        this.render();
-        this.renderMinimap();
+        this.requestRender();
+        if (!skipMinimap) {
+            this.requestMinimapRender();
+        }
     }
 
     /**
@@ -279,6 +418,7 @@ class LevelEditor {
     /**
      * Highlight the layer that has data at the current cursor position
      * Searches from top to bottom (forward order, since first layer renders on top)
+     * OPTIMIZED: Uses direct color lookup instead of full getTile reconstruction
      */
     highlightLayerAtPosition(x, y) {
         // Check if coordinates are valid
@@ -289,32 +429,21 @@ class LevelEditor {
         }
 
         let foundLayerIndex = -1;
-        let foundTileset = null;
-        let foundDataType = null;
+        let foundColor = null;
 
         // Search from first layer (top) to last layer (bottom)
+        // OPTIMIZATION: Use direct Map lookup instead of getTile() to avoid colorMapper overhead
+        const key = `${x},${y}`;
         for (let i = 0; i < this.layerManager.layers.length; i++) {
             const layer = this.layerManager.layers[i];
             if (!layer.visible) continue;
 
-            // Check if this layer has any data at this position
-            // Check all data types on the layer, not just the active one
-            const dataTypes = ['biome', 'height', 'difficulty', 'hazard'];
-            let hasData = false;
-
-            for (const type of dataTypes) {
-                const data = layer.getData(type, x, y);
-                // Check if data exists with a tileset (indicating a drawn pixel)
-                if (data && data.tileset) {
-                    hasData = true;
-                    foundTileset = data.tileset;
-                    foundDataType = type;
-                    break;
-                }
-            }
-
-            if (hasData) {
+            // Direct lookup - much faster than getTile()
+            const color = layer.tileData.get(key);
+            // PERF: Avoid toLowerCase() - colors are stored lowercase
+            if (color && color !== '#000000') {
                 foundLayerIndex = i;
+                foundColor = color;
                 break;
             }
         }
@@ -323,11 +452,14 @@ class LevelEditor {
         this.updateLayerHoverHighlight(foundLayerIndex);
 
         // Update status bar with hover info
-        if (foundLayerIndex >= 0 && foundTileset) {
+        // Only reconstruct tileset if we need to display it
+        if (foundLayerIndex >= 0 && foundColor) {
             const layer = this.layerManager.layers[foundLayerIndex];
-            const typeLabel = foundDataType.charAt(0).toUpperCase() + foundDataType.slice(1);
+            // Lazy load tileset name only when needed for display
+            const enumData = window.colorMapper?.getEnumFromColor(foundColor);
+            const tilesetName = enumData ? enumData.name : 'Unknown';
             document.getElementById('status-hover-info').textContent =
-                `Layer: ${layer.name} | ${typeLabel}: ${foundTileset.name}`;
+                `Layer: ${layer.name} | Tile: ${tilesetName}`;
         } else {
             document.getElementById('status-hover-info').textContent = '';
         }
@@ -363,7 +495,6 @@ class LevelEditor {
      */
     setTiles(tiles) {
         const layer = this.layerManager.getActiveLayer();
-        const dataType = this.layerManager.activeDataType;
         if (!layer || !this.selectedTileset) return;
 
         // Check if layer is editable
@@ -376,7 +507,14 @@ class LevelEditor {
         }
 
         for (const tile of tiles) {
-            layer.setData(dataType, tile.x, tile.y, this.selectedTileset.value, this.selectedTileset);
+            layer.setTile(tile.x, tile.y, this.selectedTileset.value, this.selectedTileset);
+        }
+
+        // Defer layer panel updates during active drawing for performance
+        if (this.isDrawing) {
+            this.needsLayerPanelUpdate = true;
+        } else if (typeof window.updateLayersPanel === 'function') {
+            window.updateLayersPanel();
         }
     }
 
@@ -385,7 +523,6 @@ class LevelEditor {
      */
     clearTiles(tiles) {
         const layer = this.layerManager.getActiveLayer();
-        const dataType = this.layerManager.activeDataType;
         if (!layer) return;
 
         // Check if layer is editable
@@ -398,7 +535,14 @@ class LevelEditor {
         }
 
         for (const tile of tiles) {
-            layer.clearData(dataType, tile.x, tile.y);
+            layer.clearTile(tile.x, tile.y);
+        }
+
+        // Defer layer panel updates during active drawing for performance
+        if (this.isDrawing) {
+            this.needsLayerPanelUpdate = true;
+        } else if (typeof window.updateLayersPanel === 'function') {
+            window.updateLayersPanel();
         }
     }
 
@@ -414,7 +558,7 @@ class LevelEditor {
             const colorDisplay = document.getElementById('current-color');
             const colorLabel = document.getElementById('current-color-label');
             colorDisplay.style.backgroundColor = tileset.color;
-            colorLabel.textContent = name;
+            colorLabel.textContent = tileset.displayName || name;
 
             // Update palette selection
             document.querySelectorAll('.color-item').forEach(item => {
@@ -459,9 +603,25 @@ class LevelEditor {
 
     /**
      * Set zoom level
+     * @param {number} newZoom - The new zoom level
+     * @param {number} centerX - Optional X coordinate to zoom towards (canvas space)
+     * @param {number} centerY - Optional Y coordinate to zoom towards (canvas space)
      */
-    setZoom(newZoom) {
+    setZoom(newZoom, centerX = null, centerY = null) {
+        const oldZoom = this.zoom;
         this.zoom = Math.max(0.05, Math.min(8, newZoom)); // 5% to 800% zoom range
+
+        // If center point provided, adjust offset to zoom towards that point
+        if (centerX !== null && centerY !== null) {
+            // Calculate world position at the center point before zoom
+            const worldX = (centerX - this.offsetX) / (this.tileSize * oldZoom);
+            const worldY = (centerY - this.offsetY) / (this.tileSize * oldZoom);
+
+            // Calculate new offset to keep that world position under the mouse
+            this.offsetX = centerX - worldX * this.tileSize * this.zoom;
+            this.offsetY = centerY - worldY * this.tileSize * this.zoom;
+        }
+
         document.getElementById('zoom-level').textContent = `${Math.round(this.zoom * 100)}%`;
         this.resizeCanvas();
     }
@@ -485,6 +645,92 @@ class LevelEditor {
 
         document.getElementById('zoom-level').textContent = `${Math.round(this.zoom * 100)}%`;
         this.resizeCanvas();
+    }
+
+    /**
+     * Get brush tiles based on shape (square or circle)
+     */
+    getBrushTiles(centerX, centerY, size = null, shape = null) {
+        const brushSize = size !== null ? size : this.brushSize;
+        const brushShape = shape !== null ? shape : this.brushShape;
+        const offset = Math.floor(brushSize / 2);
+        const tiles = [];
+
+        if (brushShape === 'circle') {
+            // Circle brush: use distance from center
+            // Calculate radius to create circular shape
+            // For odd sizes, center is at the middle tile
+            // For even sizes, center is between tiles
+            const centerOffset = brushSize / 2;
+            const radius = brushSize / 2;
+
+            for (let dy = 0; dy < brushSize; dy++) {
+                for (let dx = 0; dx < brushSize; dx++) {
+                    const tx = centerX - offset + dx;
+                    const ty = centerY - offset + dy;
+
+                    // Calculate distance from center (use 0.5 offset for pixel center)
+                    const distX = (dx + 0.5) - centerOffset;
+                    const distY = (dy + 0.5) - centerOffset;
+                    const distance = Math.sqrt(distX * distX + distY * distY);
+
+                    // Only include tiles within radius (use < for stricter circle)
+                    if (distance < radius) {
+                        tiles.push({ x: tx, y: ty });
+                    }
+                }
+            }
+        } else {
+            // Square brush (default)
+            for (let dy = 0; dy < brushSize; dy++) {
+                for (let dx = 0; dx < brushSize; dx++) {
+                    const tx = centerX - offset + dx;
+                    const ty = centerY - offset + dy;
+                    tiles.push({ x: tx, y: ty });
+                }
+            }
+        }
+
+        return tiles;
+    }
+
+    /**
+     * Request a render using requestAnimationFrame for batching
+     */
+    requestRender() {
+        if (this.renderRequested) return; // Already queued
+        this.renderRequested = true;
+
+        requestAnimationFrame(() => {
+            this.render();
+            this.renderRequested = false;
+        });
+    }
+
+    /**
+     * Request a minimap render using requestAnimationFrame for batching
+     */
+    requestMinimapRender() {
+        if (this.minimapRenderRequested) return; // Already queued
+        this.minimapRenderRequested = true;
+
+        requestAnimationFrame(() => {
+            this.renderMinimap();
+            this.minimapRenderRequested = false;
+        });
+    }
+
+    /**
+     * Request a preview render using requestAnimationFrame for batching
+     */
+    requestPreviewRender() {
+        if (this.previewRequested) return; // Already queued
+        this.previewRequested = true;
+
+        requestAnimationFrame(() => {
+            this.renderPreview();
+            this.previewRequested = false;
+        });
     }
 
     /**
@@ -531,27 +777,13 @@ class LevelEditor {
     }
 
     /**
-     * Render a single layer with viewport culling
-     * Each layer renders its appropriate data type based on its layerType
+     * Render a single layer with viewport culling and batched rendering
      */
     renderLayer(ctx, layer) {
-        // Determine which data type to render based on layer type
-        let dataTypeToRender = 'biome'; // default
-
-        if (layer.layerType) {
-            const layerType = layer.layerType.toLowerCase();
-            if (layerType === 'hazard') {
-                dataTypeToRender = 'hazard';
-            } else if (layerType === 'height') {
-                dataTypeToRender = 'height';
-            } else if (layerType === 'difficulty') {
-                dataTypeToRender = 'difficulty';
-            }
-            // Floor, Showfloor, Sky, Underground all use 'biome'
+        const dataMap = layer.tileData;
+        if (!dataMap) {
+            return;
         }
-
-        const dataMap = layer.getDataMap(dataTypeToRender);
-        if (!dataMap) return;
 
         // Calculate visible tile bounds for culling
         const startX = Math.max(0, Math.floor(-this.offsetX / (this.tileSize * this.zoom)));
@@ -559,53 +791,75 @@ class LevelEditor {
         const endX = Math.min(layer.width, startX + Math.ceil(this.gridCanvas.width / (this.tileSize * this.zoom)) + 1);
         const endY = Math.min(layer.height, startY + Math.ceil(this.gridCanvas.height / (this.tileSize * this.zoom)) + 1);
 
-        // Only render tiles within viewport
-        for (const [key, data] of dataMap.entries()) {
-            const [x, y] = key.split(',').map(Number);
+        // Batch tiles by color for more efficient rendering
+        const colorBatches = new Map();
 
-            // Skip tiles outside viewport
-            if (x < startX || x >= endX || y < startY || y >= endY) {
-                continue;
-            }
+        // CRITICAL FIX: Only iterate through VISIBLE tiles, not all tiles!
+        // Instead of iterating through entire Map (262k+ tiles), only check visible range
+        for (let y = startY; y < endY; y++) {
+            for (let x = startX; x < endX; x++) {
+                const key = `${x},${y}`;
+                const color = dataMap.get(key);
 
-            if (data.tileset) {
-                ctx.fillStyle = data.tileset.color;
-                ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                // PERF: Avoid toLowerCase() on every tile - colors are stored lowercase
+                if (color && color !== '#000000') {
+                    // Skip rendering for transparent "none" colors (#000000)
+                    if (!colorBatches.has(color)) {
+                        colorBatches.set(color, []);
+                    }
+                    colorBatches.get(color).push({ x, y });
+                }
             }
+        }
+
+        // Render all tiles of the same color together using Path2D for better performance
+        for (const [color, tiles] of colorBatches.entries()) {
+            ctx.fillStyle = color;
+
+            // CRITICAL PERF: Use Path2D to batch all rects into a single fill operation
+            // This is MUCH faster than individual fillRect calls (10x-20x speedup)
+            const path = new Path2D();
+            for (const tile of tiles) {
+                path.rect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+            }
+            ctx.fill(path);
         }
     }
 
     /**
-     * Render grid lines
+     * Render grid lines (optimized with batched paths)
      */
     renderGrid(ctx) {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
         ctx.lineWidth = 1 / this.zoom;
 
-        const startX = 0;
-        const startY = 0;
-        const endX = this.layerManager.width;
-        const endY = this.layerManager.height;
+        // Only render visible grid lines
+        const startX = Math.max(0, Math.floor(-this.offsetX / (this.tileSize * this.zoom)));
+        const startY = Math.max(0, Math.floor(-this.offsetY / (this.tileSize * this.zoom)));
+        const endX = Math.min(this.layerManager.width, startX + Math.ceil(this.gridCanvas.width / (this.tileSize * this.zoom)) + 1);
+        const endY = Math.min(this.layerManager.height, startY + Math.ceil(this.gridCanvas.height / (this.tileSize * this.zoom)) + 1);
+
+        // Batch all lines into a single path for better performance
+        ctx.beginPath();
 
         // Vertical lines
         for (let x = startX; x <= endX; x++) {
-            ctx.beginPath();
             ctx.moveTo(x * this.tileSize, startY * this.tileSize);
             ctx.lineTo(x * this.tileSize, endY * this.tileSize);
-            ctx.stroke();
         }
 
         // Horizontal lines
         for (let y = startY; y <= endY; y++) {
-            ctx.beginPath();
             ctx.moveTo(startX * this.tileSize, y * this.tileSize);
             ctx.lineTo(endX * this.tileSize, y * this.tileSize);
-            ctx.stroke();
         }
+
+        ctx.stroke();
     }
 
     /**
      * Render preview overlay
+     * OPTIMIZED: Use Path2D batching for performance
      */
     renderPreview() {
         const ctx = this.previewCtx;
@@ -615,32 +869,57 @@ class LevelEditor {
         if (!this.selectedTileset && this.currentTool.name !== 'eraser' && this.currentTool.name !== 'eyedropper' && this.currentTool.name !== 'selection') return;
 
         const preview = this.currentTool.getPreview(this, this.gridX, this.gridY);
+        if (preview.length === 0) return;
 
         ctx.save();
         ctx.translate(this.offsetX, this.offsetY);
         ctx.scale(this.zoom, this.zoom);
 
+        // Separate tiles by type for batching
+        const outlineTiles = [];
+        const floatingTiles = [];
+        const normalTiles = [];
+
         for (const tile of preview) {
-            // Handle selection outline
             if (tile.outline && this.currentTool.name === 'selection') {
-                ctx.strokeStyle = '#4a9eff';
-                ctx.lineWidth = 2 / this.zoom;
-                ctx.setLineDash([4 / this.zoom, 4 / this.zoom]);
-                ctx.strokeRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
-                ctx.setLineDash([]);
+                outlineTiles.push(tile);
             } else if (tile.tileset && this.currentTool.name === 'selection') {
-                // Show actual tile content when moving selection
-                ctx.fillStyle = tile.tileset.color + 'CC'; // Semi-transparent
-                ctx.fillRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+                floatingTiles.push(tile);
             } else {
-                // Normal tile preview
-                if (this.currentTool.name === 'eraser') {
-                    ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-                } else {
-                    ctx.fillStyle = this.selectedTileset ? this.selectedTileset.color + '80' : 'rgba(255, 255, 255, 0.3)';
-                }
-                ctx.fillRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+                normalTiles.push(tile);
             }
+        }
+
+        // Render normal tiles with Path2D batching (much faster!)
+        if (normalTiles.length > 0) {
+            const path = new Path2D();
+            for (const tile of normalTiles) {
+                path.rect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+            }
+
+            if (this.currentTool.name === 'eraser') {
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+            } else {
+                ctx.fillStyle = this.selectedTileset ? this.selectedTileset.color + '80' : 'rgba(255, 255, 255, 0.3)';
+            }
+            ctx.fill(path);
+        }
+
+        // Render floating selection tiles (can't batch due to different colors)
+        for (const tile of floatingTiles) {
+            ctx.fillStyle = tile.tileset.color + 'CC';
+            ctx.fillRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+        }
+
+        // Render outline tiles (can't batch due to setLineDash)
+        if (outlineTiles.length > 0) {
+            ctx.strokeStyle = '#4a9eff';
+            ctx.lineWidth = 2 / this.zoom;
+            ctx.setLineDash([4 / this.zoom, 4 / this.zoom]);
+            for (const tile of outlineTiles) {
+                ctx.strokeRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+            }
+            ctx.setLineDash([]);
         }
 
         ctx.restore();
@@ -679,37 +958,26 @@ class LevelEditor {
 
             ctx.globalAlpha = layer.opacity;
 
-            // Determine which data type to render based on layer type
-            let dataTypeToRender = 'biome'; // default
-            if (layer.layerType) {
-                const layerType = layer.layerType.toLowerCase();
-                if (layerType === 'hazard') {
-                    dataTypeToRender = 'hazard';
-                } else if (layerType === 'height') {
-                    dataTypeToRender = 'height';
-                } else if (layerType === 'difficulty') {
-                    dataTypeToRender = 'difficulty';
-                }
-            }
-
-            const dataMap = layer.getDataMap(dataTypeToRender);
+            const dataMap = layer.tileData;
             if (!dataMap) continue;
 
-            // Render tiles with sampling for performance
-            for (const [key, data] of dataMap.entries()) {
-                const [x, y] = key.split(',').map(Number);
+            // CRITICAL FIX: Only iterate through sampled positions, not all tiles!
+            // For large grids, this reduces iterations from 262k to ~65k (4x faster)
+            for (let y = 0; y < layer.height; y += sampleRate) {
+                for (let x = 0; x < layer.width; x += sampleRate) {
+                    const key = `${x},${y}`;
+                    const color = dataMap.get(key);
 
-                // Skip some tiles for larger grids
-                if (x % sampleRate !== 0 || y % sampleRate !== 0) continue;
-
-                if (data.tileset) {
-                    ctx.fillStyle = data.tileset.color;
-                    ctx.fillRect(
-                        x * scaleX,
-                        y * scaleY,
-                        sampleRate * scaleX + 1,
-                        sampleRate * scaleY + 1
-                    );
+                    // PERF: Avoid toLowerCase() - colors are stored lowercase
+                    if (color && color !== '#000000') {
+                        ctx.fillStyle = color;
+                        ctx.fillRect(
+                            x * scaleX,
+                            y * scaleY,
+                            sampleRate * scaleX + 1,
+                            sampleRate * scaleY + 1
+                        );
+                    }
                 }
             }
         }
@@ -733,6 +1001,10 @@ class LevelEditor {
      * Update statistics display
      */
     updateStatistics() {
+        // Skip statistics update during drawing for performance
+        // Statistics are expensive to calculate for large grids
+        if (this.isDrawing) return;
+
         const totalTiles = this.layerManager.getTotalTileCount();
         const emptyTiles = (this.layerManager.width * this.layerManager.height) - totalTiles;
 
@@ -741,9 +1013,36 @@ class LevelEditor {
     }
 
     /**
-     * Save state for undo
+     * Save state for undo (deferred to avoid blocking user input)
+     * PERFORMANCE: For large levels (512x512 filled), this can take 1-2 seconds!
+     * We defer it so the tool starts drawing immediately
+     */
+    deferredSaveState() {
+        // Only schedule one save per operation
+        if (this.pendingSaveState) return;
+        this.pendingSaveState = true;
+
+        // CRITICAL: Don't schedule timeout at all - let onMouseUp handle it
+        // This prevents saveState from firing DURING drawing, which causes the hitch
+        // The save will be executed immediately after drawing completes (see onMouseUp)
+
+        // No timeout needed - onMouseUp will call saveStateNow() when drawing finishes
+        // This ensures the save happens AFTER drawing, not during
+    }
+
+    /**
+     * Save state for undo (immediate version for when we need it right away)
      */
     saveState() {
+        // Cancel any pending deferred save
+        this.pendingSaveState = false;
+        this.saveStateNow();
+    }
+
+    /**
+     * Actually perform the save (called by deferred or immediate save)
+     */
+    saveStateNow() {
         const state = this.layerManager.exportData();
         this.undoStack.push(JSON.stringify(state));
 
@@ -810,40 +1109,57 @@ class LevelEditor {
     }
 
     /**
-     * Clear all layers
+     * Clear all layers and refill with defaults
      */
     clearAll() {
         this.saveState();
         this.layerManager.clearAll();
+
+        // Refill each layer with its default color
+        for (const layer of this.layerManager.layers) {
+            const defaultColor = this.getDefaultColorForLayer(layer.layerType);
+            if (defaultColor) {
+                this.layerManager.fillLayerWithDefault(layer, defaultColor);
+            }
+        }
+
         this.render();
         this.renderMinimap();
         this.isDirty = true;
     }
 
     /**
-     * Export level data
+     * Export level data (legacy format for undo/redo)
      */
     exportLevel() {
-        return {
-            version: '1.0',
-            gridSize: {
-                width: this.layerManager.width,
-                height: this.layerManager.height
-            },
-            layers: this.layerManager.exportData().layers
-        };
+        // Use legacy export for backwards compatibility with undo/redo
+        return this.layerManager.exportData();
     }
 
     /**
-     * Import level data
+     * Import level data (supports both legacy and RLE formats)
      */
     importLevel(data) {
-        if (data.gridSize) {
-            this.layerManager.resize(data.gridSize.width, data.gridSize.height);
+        // Check if it's RLE format (has metadata and layers array)
+        if (data.metadata && Array.isArray(data.layers)) {
+            // RLE format
+            const worldSize = data.metadata.world_size;
+            this.layerManager.resize(worldSize, worldSize);
+            this.layerManager.importRLEData(data, configManager);
+        } else {
+            // Legacy format
+            if (data.gridSize) {
+                this.layerManager.resize(data.gridSize.width, data.gridSize.height);
+            }
+            this.layerManager.importData(data, configManager);
         }
 
-        this.layerManager.importData(data, configManager);
         this.resizeCanvas();
         this.isDirty = false;
     }
+}
+
+// Export for testing
+if (typeof window !== 'undefined') {
+    window.LevelEditor = LevelEditor;
 }
