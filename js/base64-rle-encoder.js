@@ -33,21 +33,30 @@ class Base64RLEEncoder {
                 }
             }
 
-            // Encode tag byte: (colorIndex << 5) | min(runLength, 31)
-            const lenPart = Math.min(runLength, 31);
-            const tagByte = (colorIndex << 5) | lenPart;
-            bytes.push(tagByte);
+            // Encode tag byte: (colorIndex << 5) | lenPart
+            // Reserve lenPart=31 as flag for "ULEB128 follows"
+            // For runLength 0-30: store directly in lenPart
+            // For runLength >= 31: store 31 in lenPart + full runLength in ULEB128
+            let lenPart, tagByte;
 
-            // If run length > 31, encode remainder using ULEB128
-            if (runLength > 31) {
-                let remainder = runLength - 31;
+            if (runLength <= 30) {
+                // Store directly in tag byte
+                lenPart = runLength;
+                tagByte = (colorIndex << 5) | lenPart;
+                bytes.push(tagByte);
+            } else {
+                // Use lenPart=31 as flag, write full runLength as ULEB128
+                lenPart = 31;
+                tagByte = (colorIndex << 5) | lenPart;
+                bytes.push(tagByte);
 
-                // ULEB128 encoding: 7 bits per byte, MSB=1 means more bytes follow
-                while (remainder >= 128) {
-                    bytes.push((remainder & 0x7F) | 0x80);
-                    remainder >>= 7;
+                // ULEB128 encoding of full runLength: 7 bits per byte, MSB=1 means more bytes follow
+                let value = runLength;
+                while (value >= 128) {
+                    bytes.push((value & 0x7F) | 0x80);
+                    value >>= 7;
                 }
-                bytes.push(remainder & 0x7F);
+                bytes.push(value & 0x7F);
             }
         }
 
@@ -70,10 +79,13 @@ class Base64RLEEncoder {
             // Read tag byte
             const tag = bytes[p++];
             const colorIndex = tag >> 5;
-            let runLength = tag & 31;
+            const lenPart = tag & 31;
+            let runLength;
 
-            // If lenPart == 31, read ULEB128 remainder
-            if ((tag & 31) === 31) {
+            // If lenPart == 31, read full runLength from ULEB128
+            // Otherwise, runLength is stored directly in lenPart
+            if (lenPart === 31) {
+                // Read ULEB128 encoded full runLength
                 let shift = 0;
                 let byte;
                 let value = 0;
@@ -87,7 +99,10 @@ class Base64RLEEncoder {
                     shift += 7;
                 } while (byte & 0x80);
 
-                runLength += value;
+                runLength = value; // Use full value, not lenPart + value
+            } else {
+                // Use lenPart directly as runLength (0-30)
+                runLength = lenPart;
             }
 
             rleData.push([colorIndex, runLength]);
