@@ -1335,7 +1335,7 @@ function saveLevel() {
         Date.now()
     );
 
-    const json = JSON.stringify(rleData, null, 2);
+    const json = JSON.stringify(rleData); // Minified for smaller file size
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
 
@@ -1483,7 +1483,7 @@ function autoSaveToJSON() {
         const rleData = editor.layerManager.exportRLEData(baseFileName, 'Auto-saved level', Date.now());
 
         // Download JSON file
-        const json = JSON.stringify(rleData, null, 2);
+        const json = JSON.stringify(rleData); // Minified for smaller file size
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
 

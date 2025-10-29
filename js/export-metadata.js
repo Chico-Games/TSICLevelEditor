@@ -170,7 +170,7 @@ class MetadataExporter {
      * @param {string} filename - Filename to save as
      */
     downloadMetadata(metadata, filename = 'map.json') {
-        const json = JSON.stringify(metadata, null, 2);
+        const json = JSON.stringify(metadata); // Minified for smaller file size
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');

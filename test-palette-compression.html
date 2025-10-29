@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Palette Compression Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        #output {
+            white-space: pre-wrap;
+            background: #252526;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .success { color: #4ec9b0; }
+        .info { color: #9cdcfe; }
+        .warning { color: #ce9178; }
+        button {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+        button:hover { background: #1177bb; }
+    </style>
+</head>
+<body>
+    <h1>🎨 Palette-Based Compression Test</h1>
+    <p>Testing the new palette-based RLE format with array encoding</p>
+
+    <button onclick="runTest()">Run Compression Test</button>
+    <button onclick="testSaveLoad()">Test Save/Load Cycle</button>
+
+    <div id="output"></div>
+
+    <script src="js/config.js"></script>
+    <script src="js/color-mapper.js"></script>
+    <script src="js/layers.js"></script>
+
+    <script>
+        const output = document.getElementById('output');
+
+        function log(msg, type = 'info') {
+            const span = document.createElement('span');
+            span.className = type;
+            span.textContent = msg + '\n';
+            output.appendChild(span);
+        }
+
+        function runTest() {
+            output.innerHTML = '';
+            log('=== Palette-Based Compression Test ===\n', 'success');
+
+            try {
+                // Create a test layer with some data
+                const layer = new WorldLayer('Floor', 256, 256, {
+                    layerType: 'Floor',
+                    worldLayer: 'Floor'
+                });
+
+                // Add some test colors (simulating a level with a few biomes)
+                const colors = [
+                    '#00ff00', // Grassland (green)
+                    '#0000ff', // Ocean (blue)
+                    '#ffff00', // Desert (yellow)
+                    '#8b4513', // Mountain (brown)
+                ];
+
+                log('Creating test level with random colored regions...', 'info');
+
+                // Fill different regions with different colors
+                for (let y = 0; y < 256; y++) {
+                    for (let x = 0; x < 256; x++) {
+                        // Create some regions
+                        let colorIndex;
+                        if (x < 128 && y < 128) colorIndex = 0; // Top-left: green
+                        else if (x >= 128 && y < 128) colorIndex = 1; // Top-right: blue
+                        else if (x < 128 && y >= 128) colorIndex = 2; // Bottom-left: yellow
+                        else colorIndex = 3; // Bottom-right: brown
+
+                        const key = `${x},${y}`;
+                        layer.tileData.set(key, colors[colorIndex]);
+                    }
+                }
+
+                log(`Filled ${layer.tileData.size} tiles with ${colors.length} unique colors\n`, 'info');
+
+                // Export using new palette format
+                const rleData = layer.exportRLEData();
+
+                log('=== Export Results ===', 'success');
+                log(`Layer Type: ${rleData.layer_type}`, 'info');
+                log(`Palette Size: ${rleData.palette.length} colors`, 'info');
+                log(`Palette: ${JSON.stringify(rleData.palette)}`, 'info');
+                log(`RLE Runs: ${rleData.color_data.length} entries\n`, 'info');
+
+                // Show first few RLE entries
+                log('First 5 RLE entries (format: [paletteIndex, count]):', 'info');
+                for (let i = 0; i < Math.min(5, rleData.color_data.length); i++) {
+                    const [idx, count] = rleData.color_data[i];
+                    log(`  [${idx}, ${count}] → ${rleData.palette[idx]} × ${count}`, 'info');
+                }
+                log('', 'info');
+
+                // Calculate sizes
+                const oldFormat = {
+                    layer_type: rleData.layer_type,
+                    color_data: rleData.color_data.map(([idx, count]) => ({
+                        color: rleData.palette[idx],
+                        count: count
+                    }))
+                };
+
+                const oldSize = JSON.stringify(oldFormat).length;
+                const oldSizePretty = JSON.stringify(oldFormat, null, 2).length;
+                const newSize = JSON.stringify(rleData).length;
+
+                log('=== Compression Comparison ===', 'success');
+                log(`Old format (pretty):     ${oldSizePretty.toLocaleString()} bytes (${(oldSizePretty/1024).toFixed(2)} KB)`, 'warning');
+                log(`Old format (minified):   ${oldSize.toLocaleString()} bytes (${(oldSize/1024).toFixed(2)} KB)`, 'warning');
+                log(`New format (minified):   ${newSize.toLocaleString()} bytes (${(newSize/1024).toFixed(2)} KB)`, 'success');
+
+                const savingsVsPretty = ((1 - newSize / oldSizePretty) * 100).toFixed(1);
+                const savingsVsOld = ((1 - newSize / oldSize) * 100).toFixed(1);
+
+                log(`\nSavings vs pretty:    ${savingsVsPretty}% (${((oldSizePretty - newSize)/1024).toFixed(2)} KB saved)`, 'success');
+                log(`Savings vs old minified: ${savingsVsOld}% (${((oldSize - newSize)/1024).toFixed(2)} KB saved)`, 'success');
+
+            } catch (error) {
+                log(`\n❌ ERROR: ${error.message}`, 'warning');
+                console.error(error);
+            }
+        }
+
+        function testSaveLoad() {
+            output.innerHTML = '';
+            log('=== Save/Load Cycle Test ===\n', 'success');
+
+            try {
+                // Create test layer
+                const originalLayer = new WorldLayer('Floor', 64, 64, {
+                    layerType: 'Floor',
+                    worldLayer: 'Floor'
+                });
+
+                // Add some test data
+                const colors = ['#ff0000', '#00ff00', '#0000ff'];
+                for (let i = 0; i < 100; i++) {
+                    const x = Math.floor(Math.random() * 64);
+                    const y = Math.floor(Math.random() * 64);
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+                    const key = `${x},${y}`;
+                    originalLayer.tileData.set(key, color);
+                }
+
+                log(`Original layer: ${originalLayer.tileData.size} tiles`, 'info');
+
+                // Export
+                const exported = originalLayer.exportRLEData();
+                log(`Exported: ${exported.color_data.length} RLE runs, ${exported.palette.length} colors`, 'info');
+
+                const jsonString = JSON.stringify(exported);
+                log(`JSON size: ${jsonString.length} bytes\n`, 'info');
+
+                // Import
+                const importedLayer = new WorldLayer('Floor', 64, 64, {
+                    layerType: 'Floor',
+                    worldLayer: 'Floor'
+                });
+                importedLayer.importRLEData(exported, null);
+
+                log(`Imported layer: ${importedLayer.tileData.size} tiles`, 'info');
+
+                // Verify
+                let matches = 0;
+                let mismatches = 0;
+                for (const [key, color] of originalLayer.tileData.entries()) {
+                    const importedColor = importedLayer.tileData.get(key);
+                    if (importedColor === color) {
+                        matches++;
+                    } else {
+                        mismatches++;
+                        log(`  Mismatch at ${key}: expected ${color}, got ${importedColor}`, 'warning');
+                    }
+                }
+
+                log(`\n=== Verification Results ===`, 'success');
+                log(`✓ Matches: ${matches}`, 'success');
+                log(`✗ Mismatches: ${mismatches}`, mismatches > 0 ? 'warning' : 'success');
+
+                if (mismatches === 0 && matches === originalLayer.tileData.size) {
+                    log('\n🎉 SUCCESS! Save/Load cycle preserves all data perfectly!', 'success');
+                } else {
+                    log('\n⚠️ WARNING! Data integrity issues detected!', 'warning');
+                }
+
+            } catch (error) {
+                log(`\n❌ ERROR: ${error.message}`, 'warning');
+                console.error(error);
+            }
+        }
+
+        // Auto-run on load
+        log('Ready! Click "Run Compression Test" to see the improvements.\n', 'info');
+    </script>
+</body>
+</html>

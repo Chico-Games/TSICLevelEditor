@@ -133,24 +133,40 @@ class WorldLayer {
             colorGrid[index] = color;
         }
 
-        // Compress to RLE
+        // Build palette: map of unique colors to indices
+        const palette = [];
+        const colorToIndex = new Map();
+
+        for (const color of colorGrid) {
+            if (!colorToIndex.has(color)) {
+                colorToIndex.set(color, palette.length);
+                palette.push(color);
+            }
+        }
+
+        // Compress to RLE using palette indices
         const rle = [];
         let currentColor = colorGrid[0];
+        let currentIndex = colorToIndex.get(currentColor);
         let count = 1;
 
         for (let i = 1; i < colorGrid.length; i++) {
             if (colorGrid[i] === currentColor) {
                 count++;
             } else {
-                rle.push({ color: currentColor, count });
+                // Store as [paletteIndex, count] array
+                rle.push([currentIndex, count]);
                 currentColor = colorGrid[i];
+                currentIndex = colorToIndex.get(currentColor);
                 count = 1;
             }
         }
-        rle.push({ color: currentColor, count });
+        // Push last run
+        rle.push([currentIndex, count]);
 
         return {
             layer_type: this.layerType,
+            palette: palette,
             color_data: rle
         };
     }
@@ -168,9 +184,23 @@ class WorldLayer {
 
         // Decompress RLE to color grid
         const colorGrid = [];
+
+        // Check if using palette-based format (new) or object format (old)
+        const hasPalette = rleData.palette && Array.isArray(rleData.palette);
+
         for (const entry of rleData.color_data) {
-            for (let i = 0; i < entry.count; i++) {
-                colorGrid.push(entry.color);
+            if (Array.isArray(entry)) {
+                // New format: [paletteIndex, count]
+                const [paletteIndex, count] = entry;
+                const color = hasPalette ? rleData.palette[paletteIndex] : '#000000';
+                for (let i = 0; i < count; i++) {
+                    colorGrid.push(color);
+                }
+            } else {
+                // Old format: { color: "#rrggbb", count: n }
+                for (let i = 0; i < entry.count; i++) {
+                    colorGrid.push(entry.color);
+                }
             }
         }
 
