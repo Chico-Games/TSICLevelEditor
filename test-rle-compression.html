@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RLE Compression Test</title>
+    <script src="js/config.js"></script>
+    <script src="js/color-mapper.js"></script>
+    <script src="js/layers.js"></script>
+</head>
+<body>
+    <h1>RLE Compression Test</h1>
+    <button id="test-btn">Test RLE Compression</button>
+    <pre id="output" style="max-height: 600px; overflow-y: scroll;"></pre>
+
+    <script>
+        async function testRLECompression() {
+            const output = document.getElementById('output');
+            output.textContent = 'Testing RLE compression...\n\n';
+
+            // Load config
+            await configManager.loadConfig();
+            const config = await fetch('config/biomes.json').then(r => r.json());
+            colorMapper.loadFromConfig(config);
+
+            // Test 1: Single color filling entire 512x512 grid
+            output.textContent += '=== TEST 1: Entire grid with same color ===\n';
+            const layer1 = new WorldLayer('Test1', 512, 512, { layerType: 'Height' });
+
+            // Fill with one color
+            const testColor = '#ff0000';
+            for (let y = 0; y < 512; y++) {
+                for (let x = 0; x < 512; x++) {
+                    layer1.setTile(x, y, 0, { color: testColor });
+                }
+            }
+
+            output.textContent += `Total tiles: ${layer1.tileData.size}\n`;
+
+            const rle1 = layer1.exportRLEData();
+            output.textContent += `RLE entries: ${rle1.color_data.length}\n`;
+            output.textContent += `Expected: 1 entry (perfect compression)\n`;
+            output.textContent += `RLE data: ${JSON.stringify(rle1.color_data, null, 2)}\n\n`;
+
+            // Check if it's actually compressed
+            const totalFromRLE = rle1.color_data.reduce((sum, entry) => sum + entry.count, 0);
+            output.textContent += `Total tiles from RLE: ${totalFromRLE}\n`;
+            output.textContent += `Match: ${totalFromRLE === 512 * 512 ? '✓' : '✗'}\n\n`;
+
+            // Test 2: Mixed colors (should have more entries)
+            output.textContent += '=== TEST 2: Mixed colors pattern ===\n';
+            const layer2 = new WorldLayer('Test2', 512, 512, { layerType: 'Height' });
+
+            // Create a checkerboard pattern
+            for (let y = 0; y < 512; y++) {
+                for (let x = 0; x < 512; x++) {
+                    const color = (x + y) % 2 === 0 ? '#ff0000' : '#00ff00';
+                    layer2.setTile(x, y, 0, { color });
+                }
+            }
+
+            const rle2 = layer2.exportRLEData();
+            output.textContent += `RLE entries: ${rle2.color_data.length}\n`;
+            output.textContent += `Sample entries (first 10):\n`;
+            output.textContent += JSON.stringify(rle2.color_data.slice(0, 10), null, 2) + '\n\n';
+
+            // Test 3: Real-world scenario - test map generation
+            output.textContent += '=== TEST 3: LayerManager with 6 layers ===\n';
+            const layerManager = new LayerManager(512, 512);
+
+            // Add 6 layers
+            layerManager.addLayer('Height', { layerType: 'Height' });
+            layerManager.addLayer('Difficulty', { layerType: 'Difficulty' });
+            layerManager.addLayer('Hazard', { layerType: 'Hazard' });
+            layerManager.addLayer('Sky', { layerType: 'Sky' });
+            layerManager.addLayer('Floor', { layerType: 'Floor' });
+            layerManager.addLayer('Underground', { layerType: 'Underground' });
+
+            // Fill first layer with base color
+            const heightLayer = layerManager.layers[0];
+            for (let y = 0; y < 512; y++) {
+                for (let x = 0; x < 512; x++) {
+                    heightLayer.setTile(x, y, 0, { color: '#ff6b6b' });
+                }
+            }
+
+            // Add some variation (100 tiles of different color)
+            for (let i = 0; i < 100; i++) {
+                heightLayer.setTile(i, 0, 0, { color: '#00ff00' });
+            }
+
+            const fullExport = layerManager.exportRLEData('TestMap', 'Test', 12345);
+
+            output.textContent += `Metadata: ${JSON.stringify(fullExport.metadata, null, 2)}\n`;
+            output.textContent += `Number of layers: ${fullExport.layers.length}\n\n`;
+
+            fullExport.layers.forEach((layer, i) => {
+                output.textContent += `Layer ${i} (${layer.layer_type}):\n`;
+                output.textContent += `  RLE entries: ${layer.color_data.length}\n`;
+                output.textContent += `  Total tiles: ${layer.color_data.reduce((sum, e) => sum + e.count, 0)}\n`;
+                if (layer.color_data.length > 0 && layer.color_data.length < 5) {
+                    output.textContent += `  Data: ${JSON.stringify(layer.color_data, null, 2)}\n`;
+                }
+            });
+
+            // Calculate file size
+            const jsonString = JSON.stringify(fullExport, null, 2);
+            output.textContent += `\nJSON size: ${(jsonString.length / 1024).toFixed(2)} KB\n`;
+            output.textContent += `First 1000 chars of JSON:\n${jsonString.substring(0, 1000)}...\n`;
+        }
+
+        document.getElementById('test-btn').addEventListener('click', testRLECompression);
+    </script>
+</body>
+</html>

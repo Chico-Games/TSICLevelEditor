@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test RLE Export</title>
+    <script src="js/config.js"></script>
+    <script src="js/color-mapper.js"></script>
+    <script src="js/layers.js"></script>
+</head>
+<body>
+    <h1>RLE Export Test</h1>
+    <button id="test-btn">Test RLE Export</button>
+    <pre id="output"></pre>
+
+    <script>
+        async function testRLE() {
+            const output = document.getElementById('output');
+
+            // Load config
+            await configManager.loadConfig();
+            const config = await fetch('config/biomes.json').then(r => r.json());
+            colorMapper.loadFromConfig(config);
+
+            // Create a layer manager
+            const layerManager = new LayerManager(512, 512);
+            layerManager.addLayer('Height', { layerType: 'Height' });
+
+            // Add some test tiles
+            const layer = layerManager.layers[0];
+            const testColor = '#ff6b6b';
+
+            // Fill a small area with the same color
+            for (let y = 0; y < 10; y++) {
+                for (let x = 0; x < 10; x++) {
+                    layer.setTile(x, y, 0, { color: testColor });
+                }
+            }
+
+            output.textContent += `Layer has ${layer.tileData.size} tiles\n`;
+
+            // Export RLE
+            const rleData = layerManager.exportRLEData();
+
+            output.textContent += `\nRLE Export:\n`;
+            output.textContent += JSON.stringify(rleData, null, 2);
+
+            // Check compression
+            const colorDataArray = rleData.layers[0].color_data;
+            output.textContent += `\n\nRLE entries: ${colorDataArray.length}\n`;
+            output.textContent += `Expected: Should have very few entries (good compression)\n`;
+
+            // Calculate total tiles from RLE
+            const totalTiles = colorDataArray.reduce((sum, entry) => sum + entry.count, 0);
+            output.textContent += `Total tiles from RLE: ${totalTiles}\n`;
+            output.textContent += `Expected: ${512 * 512}\n`;
+
+            // Now test with a full test map
+            output.textContent += `\n\n=== Testing with filled grid ===\n`;
+
+            const layer2 = new WorldLayer('Test', 512, 512, { layerType: 'Test' });
+
+            // Fill entire grid with same color (should compress to 1 entry)
+            for (let y = 0; y < 512; y++) {
+                for (let x = 0; x < 512; x++) {
+                    layer2.setTile(x, y, 0, { color: '#ff0000' });
+                }
+            }
+
+            const singleLayerRLE = layer2.exportRLEData();
+            output.textContent += `Full grid RLE entries: ${singleLayerRLE.color_data.length}\n`;
+            output.textContent += `Expected: 1 (perfect compression)\n`;
+            output.textContent += JSON.stringify(singleLayerRLE, null, 2).substring(0, 500) + '...\n';
+        }
+
+        document.getElementById('test-btn').addEventListener('click', testRLE);
+    </script>
+</body>
+</html>

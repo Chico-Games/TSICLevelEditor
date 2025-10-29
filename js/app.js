@@ -6,6 +6,234 @@
 let editor = null;
 let dynamicValidator = null;
 
+// Expose editor and configManager to window for testing
+window.editor = editor;
+window.configManager = window.configManager || configManager;
+
+/**
+ * Generate test map with random splodges of all colors
+ */
+function generateTestMap() {
+    try {
+        if (!editor) {
+            console.error('Editor not initialized');
+            alert('Editor not initialized. Please reload the page.');
+            return;
+        }
+
+        editor.saveState();
+
+    // Clear all existing data first
+    editor.layerManager.layers.forEach(layer => {
+        layer.tileData = new Map();
+    });
+
+    // Get all tilesets organized by category
+    const tilesets = configManager.getTilesets();
+    const biomes = [];
+    const heights = [];
+    const difficulties = [];
+    const hazards = [];
+
+    for (const [name, tileset] of Object.entries(tilesets)) {
+        switch (tileset.category) {
+            case 'Biomes':
+                if (name !== 'Biome_None') biomes.push(name);
+                break;
+            case 'Height':
+                heights.push(name);
+                break;
+            case 'Difficulty':
+                difficulties.push(name);
+                break;
+            case 'Hazards':
+                if (name !== 'Hazard_None') hazards.push(name);
+                break;
+        }
+    }
+
+    /**
+     * Generate a random splodge using a modified flood fill algorithm
+     */
+    function generateSplodge(layer, tileset, centerX, centerY, minSize, maxSize) {
+        const targetSize = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
+        const filled = new Set();
+        const toFill = [[centerX, centerY]];
+
+        while (toFill.length > 0 && filled.size < targetSize) {
+            const [x, y] = toFill.shift();
+            const key = `${x},${y}`;
+
+            if (filled.has(key)) continue;
+            if (x < 0 || x >= editor.layerManager.width || y < 0 || y >= editor.layerManager.height) continue;
+
+            filled.add(key);
+            layer.setTile(x, y, tileset.value || 0, tileset);
+
+            // Add neighbors with some randomness to create organic shapes
+            const neighbors = [
+                [x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]
+            ];
+
+            // Also add some diagonal neighbors for more irregular shapes
+            if (Math.random() > 0.3) {
+                neighbors.push(
+                    [x + 1, y + 1], [x - 1, y - 1],
+                    [x + 1, y - 1], [x - 1, y + 1]
+                );
+            }
+
+            for (const [nx, ny] of neighbors) {
+                const nkey = `${nx},${ny}`;
+                if (!filled.has(nkey) && Math.random() > 0.2) { // 80% chance to spread
+                    toFill.push([nx, ny]);
+                }
+            }
+        }
+
+        return filled.size;
+    }
+
+    /**
+     * Fill entire layer with a base color
+     */
+    function fillLayerWithBase(layer, tileset) {
+        for (let y = 0; y < gridHeight; y++) {
+            for (let x = 0; x < gridWidth; x++) {
+                layer.setTile(x, y, tileset.value || 0, tileset);
+            }
+        }
+    }
+
+    // Generate splodges for each layer
+    const layers = editor.layerManager.layers;
+    const gridWidth = editor.layerManager.width;
+    const gridHeight = editor.layerManager.height;
+
+    // Floor layer - FILL ALL with base, then add VERY LARGE splodges
+    const floorLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'floor') || layers[0];
+    console.log('[TestMap] Floor layer found:', floorLayer?.name, 'layerType:', floorLayer?.layerType);
+    if (floorLayer && biomes.length > 0) {
+        const baseTileset = { name: biomes[0], ...configManager.getTileset(biomes[0]) };
+        console.log('[TestMap] Filling Floor layer with base tileset:', baseTileset.name);
+        fillLayerWithBase(floorLayer, baseTileset);
+        console.log('[TestMap] Floor layer tileData size after fill:', floorLayer.tileData.size);
+
+        const numSplodges = Math.floor(biomes.length * 2); // Only 2 splodges per biome color
+        for (let i = 0; i < numSplodges; i++) {
+            const biomeName = biomes[Math.floor(Math.random() * biomes.length)];
+            const tileset = { name: biomeName, ...configManager.getTileset(biomeName) };
+            const centerX = Math.floor(Math.random() * gridWidth);
+            const centerY = Math.floor(Math.random() * gridHeight);
+            generateSplodge(floorLayer, tileset, centerX, centerY, 2000, 5000); // Huge splodges
+        }
+    }
+
+    // Sky layer - FILL ALL with base, then add VERY LARGE splodges
+    const skyLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'sky');
+    if (skyLayer && biomes.length > 0) {
+        const baseTileset = { name: biomes[Math.min(1, biomes.length - 1)], ...configManager.getTileset(biomes[Math.min(1, biomes.length - 1)]) };
+        fillLayerWithBase(skyLayer, baseTileset);
+
+        const numSplodges = Math.floor(biomes.length * 2); // Only 2 splodges per biome color
+        for (let i = 0; i < numSplodges; i++) {
+            const biomeName = biomes[Math.floor(Math.random() * biomes.length)];
+            const tileset = { name: biomeName, ...configManager.getTileset(biomeName) };
+            const centerX = Math.floor(Math.random() * gridWidth);
+            const centerY = Math.floor(Math.random() * gridHeight);
+            generateSplodge(skyLayer, tileset, centerX, centerY, 2000, 5000); // Huge splodges
+        }
+    }
+
+    // Underground layer - FILL ALL with base, then add VERY LARGE splodges
+    const undergroundLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'underground');
+    if (undergroundLayer && biomes.length > 0) {
+        const baseTileset = { name: biomes[Math.min(2, biomes.length - 1)], ...configManager.getTileset(biomes[Math.min(2, biomes.length - 1)]) };
+        fillLayerWithBase(undergroundLayer, baseTileset);
+
+        const numSplodges = Math.floor(biomes.length * 2); // Only 2 splodges per biome color
+        for (let i = 0; i < numSplodges; i++) {
+            const biomeName = biomes[Math.floor(Math.random() * biomes.length)];
+            const tileset = { name: biomeName, ...configManager.getTileset(biomeName) };
+            const centerX = Math.floor(Math.random() * gridWidth);
+            const centerY = Math.floor(Math.random() * gridHeight);
+            generateSplodge(undergroundLayer, tileset, centerX, centerY, 2000, 5000); // Huge splodges
+        }
+    }
+
+    // Height layer - FILL ALL with base, then add VERY LARGE splodges
+    const heightLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'height');
+    if (heightLayer && heights.length > 0) {
+        const baseTileset = { name: heights[0], ...configManager.getTileset(heights[0]) };
+        fillLayerWithBase(heightLayer, baseTileset);
+
+        const numSplodges = heights.length * 3; // Only 3 splodges per height value
+        for (let i = 0; i < numSplodges; i++) {
+            const heightName = heights[Math.floor(Math.random() * heights.length)];
+            const tileset = { name: heightName, ...configManager.getTileset(heightName) };
+            const centerX = Math.floor(Math.random() * gridWidth);
+            const centerY = Math.floor(Math.random() * gridHeight);
+            generateSplodge(heightLayer, tileset, centerX, centerY, 3000, 6000); // Massive splodges
+        }
+    }
+
+    // Difficulty layer - FILL ALL with base, then add VERY LARGE splodges
+    const difficultyLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'difficulty');
+    if (difficultyLayer && difficulties.length > 0) {
+        const baseTileset = { name: difficulties[0], ...configManager.getTileset(difficulties[0]) };
+        fillLayerWithBase(difficultyLayer, baseTileset);
+
+        const numSplodges = difficulties.length * 3; // Only 3 splodges per difficulty
+        for (let i = 0; i < numSplodges; i++) {
+            const diffName = difficulties[Math.floor(Math.random() * difficulties.length)];
+            const tileset = { name: diffName, ...configManager.getTileset(diffName) };
+            const centerX = Math.floor(Math.random() * gridWidth);
+            const centerY = Math.floor(Math.random() * gridHeight);
+            generateSplodge(difficultyLayer, tileset, centerX, centerY, 3000, 6000); // Massive splodges
+        }
+    }
+
+    // Hazard layer - FILL ALL with base, then add ULTRA LARGE splodges
+    const hazardLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'hazard');
+    if (hazardLayer && hazards.length > 0) {
+        const baseTileset = { name: hazards[0], ...configManager.getTileset(hazards[0]) };
+        fillLayerWithBase(hazardLayer, baseTileset);
+
+        const numSplodges = hazards.length * 4; // Only 4 splodges per hazard type
+        for (let i = 0; i < numSplodges; i++) {
+            const hazardName = hazards[Math.floor(Math.random() * hazards.length)];
+            const tileset = { name: hazardName, ...configManager.getTileset(hazardName) };
+            const centerX = Math.floor(Math.random() * gridWidth);
+            const centerY = Math.floor(Math.random() * gridHeight);
+            generateSplodge(hazardLayer, tileset, centerX, centerY, 5000, 10000); // Ultra massive
+        }
+    }
+
+    // Re-render everything
+    editor.render();
+    editor.renderMinimap();
+    updateLayersPanel();
+    editor.isDirty = true;
+
+    // Set zoom to 100% so tiles are clearly visible
+    editor.setZoom(1.0);
+    // Reset view to top-left corner (0,0) so we can see the tiles
+    editor.offsetX = 0;
+    editor.offsetY = 0;
+    editor.render();
+    editor.renderMinimap();
+
+    document.getElementById('status-message').textContent = 'Test map generated with random splodges!';
+    setTimeout(() => {
+        document.getElementById('status-message').textContent = 'Ready';
+    }, 2000);
+    } catch (error) {
+        console.error('Test map generation failed:', error);
+        alert(`Failed to generate test map: ${error.message}`);
+        document.getElementById('status-message').textContent = 'Generation failed';
+    }
+}
+
 /**
  * Initialize application
  */
@@ -26,6 +254,11 @@ async function init() {
         console.warn('Using default configuration');
     }
 
+    // Initialize color mapper
+    const config = await fetch('config/biomes.json').then(r => r.json());
+    colorMapper.loadFromConfig(config);
+    console.log('[ColorMapper] Initialized:', colorMapper.getSummary());
+
     // Initialize dynamic validator
     dynamicValidator = new DynamicRLEValidator();
     const validatorLoaded = await dynamicValidator.loadConfig('config/biomes.json');
@@ -40,10 +273,10 @@ async function init() {
 
     // Create editor
     editor = new LevelEditor();
+    window.editor = editor; // Expose for testing
     editor.initializeLayers(configManager);
 
     // Initialize UI
-    initializeDataTypeSelector();
     initializeColorPalette();
     initializeLayersPanel();
     initializeToolButtons();
@@ -56,6 +289,13 @@ async function init() {
     const firstTileset = Object.keys(tilesets)[0];
     if (firstTileset) {
         editor.selectTileset(firstTileset);
+    }
+
+    // Filter color palette based on active layer
+    const activeLayer = editor.layerManager.getActiveLayer();
+    if (activeLayer) {
+        filterColorsByLayer(activeLayer.layerType);
+        ensureValidColorForLayer(activeLayer.layerType);
     }
 
     // Start auto-save
@@ -72,85 +312,6 @@ async function init() {
     // Update status
     if (!editor.currentFileName) {
         document.getElementById('status-message').textContent = 'Ready';
-    }
-}
-
-/**
- * Initialize data type selector
- */
-function initializeDataTypeSelector() {
-    const dataTypeButtons = document.querySelectorAll('.data-type-btn');
-
-    dataTypeButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            const dataType = button.dataset.type;
-
-            // Update layer manager's active data type
-            if (editor.layerManager.setActiveDataType(dataType)) {
-                // Update active state on buttons
-                dataTypeButtons.forEach(btn => btn.classList.remove('active'));
-                button.classList.add('active');
-
-                // Filter color palette by data type
-                filterColorPalette(dataType);
-
-                // Re-render to show the new data type
-                editor.render();
-                editor.renderMinimap();
-
-                // Update status
-                const typeNames = {
-                    'biome': 'Biome',
-                    'height': 'Height',
-                    'difficulty': 'Difficulty',
-                    'hazard': 'Hazard'
-                };
-                document.getElementById('status-message').textContent = `Editing: ${typeNames[dataType]}`;
-                setTimeout(() => {
-                    document.getElementById('status-message').textContent = 'Ready';
-                }, 1500);
-            }
-        });
-    });
-}
-
-/**
- * Filter color palette by data type
- */
-function filterColorPalette(dataType) {
-    // Map data types to categories
-    const categoryMapping = {
-        'biome': ['Biomes'],
-        'height': ['Height'],
-        'difficulty': ['Difficulty'],
-        'hazard': ['Hazards']
-    };
-
-    const allowedCategories = categoryMapping[dataType] || [];
-
-    // Show/hide categories based on data type
-    document.querySelectorAll('.color-category').forEach(categoryDiv => {
-        const categoryName = categoryDiv.querySelector('.color-category-header').textContent;
-
-        if (allowedCategories.includes(categoryName)) {
-            categoryDiv.style.display = 'block';
-            // Auto-expand when filtered
-            categoryDiv.classList.remove('collapsed');
-        } else {
-            categoryDiv.style.display = 'none';
-        }
-    });
-
-    // Auto-select first visible tileset if current selection is hidden
-    if (editor.selectedTileset) {
-        const currentCategory = configManager.getTileset(editor.selectedTileset.name)?.category;
-        if (!allowedCategories.includes(currentCategory)) {
-            // Select first tileset in the filtered category
-            const firstVisibleItem = document.querySelector('.color-category:not([style*="display: none"]) .color-item');
-            if (firstVisibleItem) {
-                firstVisibleItem.click();
-            }
-        }
     }
 }
 
@@ -205,7 +366,7 @@ function initializeColorPalette() {
 
             const label = document.createElement('div');
             label.className = 'color-name';
-            label.textContent = name;
+            label.textContent = tileset.displayName || name;
 
             colorItem.appendChild(swatch);
             colorItem.appendChild(label);
@@ -225,8 +386,105 @@ function initializeColorPalette() {
         paletteContainer.appendChild(categoryDiv);
     }
 
-    // Apply initial filter based on default data type (biome)
-    filterColorPalette(editor.layerManager.activeDataType);
+    // Initialize color search
+    initializeColorSearch();
+}
+
+/**
+ * Initialize color search functionality
+ */
+function initializeColorSearch() {
+    const searchInput = document.getElementById('color-search');
+    const clearButton = document.getElementById('color-search-clear');
+    const paletteContainer = document.getElementById('color-palette');
+
+    // Handle search input
+    searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase().trim();
+
+        // Show/hide clear button
+        clearButton.classList.toggle('visible', query.length > 0);
+
+        // Filter colors
+        filterColors(query);
+    });
+
+    // Handle clear button
+    clearButton.addEventListener('click', () => {
+        searchInput.value = '';
+        clearButton.classList.remove('visible');
+        filterColors('');
+        searchInput.focus();
+    });
+
+    // Handle Escape key to clear search
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            searchInput.value = '';
+            clearButton.classList.remove('visible');
+            filterColors('');
+        }
+    });
+
+    /**
+     * Filter colors based on search query
+     */
+    function filterColors(query) {
+        const categories = paletteContainer.querySelectorAll('.color-category');
+        let totalVisibleColors = 0;
+
+        categories.forEach(category => {
+            const categoryHeader = category.querySelector('.color-category-header');
+            const categoryName = categoryHeader.textContent.toLowerCase();
+            const colorItems = category.querySelectorAll('.color-item');
+
+            let visibleInCategory = 0;
+
+            colorItems.forEach(colorItem => {
+                const colorName = colorItem.dataset.name.toLowerCase();
+
+                // Match query against color name or category name
+                const matches = query === '' ||
+                              colorName.includes(query) ||
+                              categoryName.includes(query);
+
+                colorItem.classList.toggle('hidden', !matches);
+
+                if (matches) {
+                    visibleInCategory++;
+                    totalVisibleColors++;
+                }
+            });
+
+            // Hide category if no colors match
+            category.classList.toggle('hidden', visibleInCategory === 0);
+
+            // Expand categories with matches
+            if (visibleInCategory > 0 && query !== '') {
+                category.classList.remove('collapsed');
+            }
+        });
+
+        // Show "no results" message if needed
+        let noResultsMsg = paletteContainer.querySelector('.search-no-results');
+
+        if (totalVisibleColors === 0 && query !== '') {
+            if (!noResultsMsg) {
+                noResultsMsg = document.createElement('div');
+                noResultsMsg.className = 'search-no-results';
+                noResultsMsg.textContent = `No colors found for "${query}"`;
+                paletteContainer.appendChild(noResultsMsg);
+            } else {
+                noResultsMsg.textContent = `No colors found for "${query}"`;
+                noResultsMsg.style.display = 'block';
+            }
+        } else if (noResultsMsg) {
+            noResultsMsg.style.display = 'none';
+        }
+    }
+
+    // Expose for testing
+    window.filterColors = filterColors;
 }
 
 /**
@@ -252,32 +510,172 @@ function initializeLayersPanel() {
 function checkLayerDataTypes(layer) {
     const warnings = [];
 
-    // Define expected data types for each layer type
-    const expectedDataTypes = {
-        'height': ['height'],
-        'difficulty': ['difficulty'],
-        'hazard': ['hazard'],
-        'showfloor': ['biome'],
-        'sky': ['biome'],
-        'underground': ['biome'],
-        'floor': ['biome']
+    // Define expected categories for each layer type
+    const expectedCategories = {
+        'height': ['Height'],
+        'difficulty': ['Difficulty'],
+        'hazard': ['Hazards'],
+        'floor': ['Biomes'],
+        'sky': ['Biomes'],
+        'underground': ['Biomes']
     };
 
     const layerType = (layer.layerType || '').toLowerCase();
-    const expected = expectedDataTypes[layerType] || [];
+    const expected = expectedCategories[layerType] || [];
 
     if (expected.length === 0) return warnings; // Unknown layer type, no check
 
-    // Check all data types
-    const dataTypes = ['biome', 'height', 'difficulty', 'hazard'];
-    for (const dataType of dataTypes) {
-        const dataMap = layer.getDataMap(dataType);
-        if (dataMap && dataMap.size > 0 && !expected.includes(dataType)) {
-            warnings.push(`Layer "${layer.name}" contains ${dataType} data but should only contain ${expected.join(', ')}`);
+    // Check all tiles in the layer (now tileData stores colors)
+    const wrongCategories = new Set();
+    const sampleWrongTiles = []; // Store samples for debugging
+    for (const [key, color] of layer.tileData) {
+        if (color && window.colorMapper) {
+            const enumData = window.colorMapper.getEnumFromColor(color);
+            if (enumData && enumData.category) {
+                if (!expected.includes(enumData.category)) {
+                    wrongCategories.add(enumData.category);
+                    // Store first 3 examples
+                    if (sampleWrongTiles.length < 3) {
+                        sampleWrongTiles.push({ key, color, enumData });
+                    }
+                }
+            }
         }
     }
 
+    // Debug: log samples of wrong tiles
+    if (sampleWrongTiles.length > 0) {
+        console.log(`[WARNING] Layer "${layer.name}" (type: ${layerType}) has wrong categories:`, wrongCategories);
+        console.log('  Sample wrong tiles:', sampleWrongTiles);
+    }
+
+    // Generate warnings for each wrong category found
+    for (const category of wrongCategories) {
+        warnings.push(`Layer "${layer.name}" contains ${category} tiles but should only contain ${expected.join(', ')}`);
+    }
+
     return warnings;
+}
+
+/**
+ * Clear invalid data types from a layer
+ */
+function clearInvalidDataTypes(layer) {
+    // Define expected categories for each layer type
+    const expectedCategories = {
+        'height': ['Height'],
+        'difficulty': ['Difficulty'],
+        'hazard': ['Hazards'],
+        'floor': ['Biomes'],
+        'sky': ['Biomes'],
+        'underground': ['Biomes']
+    };
+
+    const layerType = (layer.layerType || '').toLowerCase();
+    const expected = expectedCategories[layerType] || [];
+
+    if (expected.length === 0) return; // Unknown layer type, no clearing
+
+    // Clear all tiles with invalid categories (now tileData stores colors)
+    const tilesToRemove = [];
+    for (const [key, color] of layer.tileData) {
+        if (color && window.colorMapper) {
+            const enumData = window.colorMapper.getEnumFromColor(color);
+            if (enumData && enumData.category) {
+                if (!expected.includes(enumData.category)) {
+                    tilesToRemove.push(key);
+                }
+            }
+        }
+    }
+
+    // Remove invalid tiles
+    for (const key of tilesToRemove) {
+        const [x, y] = key.split(',').map(Number);
+        layer.clearTile(x, y);
+    }
+}
+
+/**
+ * Filter color palette to show only colors valid for the current layer
+ */
+function filterColorsByLayer(layerType) {
+    // Define expected categories for each layer type
+    const expectedCategories = {
+        'height': ['Height'],
+        'difficulty': ['Difficulty'],
+        'hazard': ['Hazards'],
+        'floor': ['Biomes'],
+        'sky': ['Biomes'],
+        'underground': ['Biomes']
+    };
+
+    const layerTypeLower = (layerType || '').toLowerCase();
+    const validCategories = expectedCategories[layerTypeLower] || [];
+
+    // If no valid categories defined for this layer type, show all colors
+    if (validCategories.length === 0) {
+        document.querySelectorAll('.color-category').forEach(category => {
+            category.classList.remove('hidden');
+        });
+        return;
+    }
+
+    // Show/hide categories based on validity
+    document.querySelectorAll('.color-category').forEach(category => {
+        const categoryHeader = category.querySelector('.color-category-header');
+        const categoryName = categoryHeader.textContent.trim();
+
+        const isValid = validCategories.includes(categoryName);
+        category.classList.toggle('hidden', !isValid);
+
+        // Expand valid categories
+        if (isValid) {
+            category.classList.remove('collapsed');
+        }
+    });
+}
+
+/**
+ * Ensure the currently selected color is valid for the active layer
+ * If not, switch to the first valid color
+ */
+function ensureValidColorForLayer(layerType) {
+    // Define expected categories for each layer type
+    const expectedCategories = {
+        'height': ['Height'],
+        'difficulty': ['Difficulty'],
+        'hazard': ['Hazards'],
+        'floor': ['Biomes'],
+        'sky': ['Biomes'],
+        'underground': ['Biomes']
+    };
+
+    const layerTypeLower = (layerType || '').toLowerCase();
+    const validCategories = expectedCategories[layerTypeLower] || [];
+
+    // If no valid categories defined, no need to switch
+    if (validCategories.length === 0) return;
+
+    // Check if current color is valid
+    const currentTileset = editor.selectedTileset;
+    if (currentTileset && currentTileset.category && validCategories.includes(currentTileset.category)) {
+        // Current color is valid, keep it
+        return;
+    }
+
+    // Current color is invalid, find first valid color
+    const tilesets = configManager.getTilesets();
+    for (const [name, tileset] of Object.entries(tilesets)) {
+        if (tileset.category && validCategories.includes(tileset.category)) {
+            editor.selectTileset(name);
+            document.getElementById('status-message').textContent = `Switched to valid color: ${tileset.displayName || name}`;
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 2000);
+            break;
+        }
+    }
 }
 
 /**
@@ -311,9 +709,24 @@ function updateLayersPanel() {
         if (warnings.length > 0) {
             const warningIcon = document.createElement('span');
             warningIcon.textContent = ' ⚠️';
-            warningIcon.title = warnings.join('\n');
+            warningIcon.title = warnings.join('\n') + '\n\nClick to remove all invalid colors';
             warningIcon.style.color = '#ffa500';
-            warningIcon.style.cursor = 'help';
+            warningIcon.style.cursor = 'pointer';
+            warningIcon.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent layer selection
+                if (confirm(`Remove all invalid colors from layer "${layer.name}"?\n\n${warnings.join('\n')}`)) {
+                    editor.saveState();
+                    clearInvalidDataTypes(layer);
+                    updateLayersPanel();
+                    editor.render();
+                    editor.renderMinimap();
+                    editor.isDirty = true;
+                    document.getElementById('status-message').textContent = 'Invalid colors removed';
+                    setTimeout(() => {
+                        document.getElementById('status-message').textContent = 'Ready';
+                    }, 2000);
+                }
+            });
             layerName.appendChild(warningIcon);
         }
 
@@ -384,10 +797,23 @@ function updateLayersPanel() {
         showOnlyBtn.title = 'Hide all other layers';
         showOnlyBtn.addEventListener('click', (e) => {
             e.stopPropagation(); // Prevent layer selection when clicking button
-            // Hide all layers except this one
-            layers.forEach((l, index) => {
-                l.visible = (index === i);
-            });
+
+            // Check if this layer is already the only visible one
+            const visibleLayers = layers.filter(l => l.visible);
+            const isOnlyVisible = visibleLayers.length === 1 && visibleLayers[0] === layers[i];
+
+            if (isOnlyVisible) {
+                // If this is already the only visible layer, show all layers
+                layers.forEach(l => {
+                    l.visible = true;
+                });
+            } else {
+                // Hide all layers except this one
+                layers.forEach((l, index) => {
+                    l.visible = (index === i);
+                });
+            }
+
             editor.render();
             editor.renderMinimap();
             updateLayersPanel();
@@ -430,38 +856,11 @@ function updateLayersPanel() {
         layerItem.addEventListener('click', () => {
             editor.layerManager.setActiveLayer(i);
 
-            // Auto-switch data type based on layer name
-            const layerName = layer.name.toLowerCase();
-            let dataType = 'biome'; // default
-
-            if (layerName.includes('height')) {
-                dataType = 'height';
-            } else if (layerName.includes('difficulty')) {
-                dataType = 'difficulty';
-            } else if (layerName.includes('hazard')) {
-                dataType = 'hazard';
-            }
-            // Otherwise use biome for Floor, Sky, Underground, Showroom, Terrain, etc.
-
-            // Switch to the appropriate data type
-            if (editor.layerManager.setActiveDataType(dataType)) {
-                // Update data type button visual state
-                document.querySelectorAll('.data-type-btn').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.type === dataType);
-                });
-
-                // Filter palette
-                filterColorPalette(dataType);
-
-                // Auto-select first visible color in the palette
-                const firstVisibleColor = document.querySelector('.color-item:not([style*="display: none"])');
-                if (firstVisibleColor) {
-                    firstVisibleColor.click();
-                }
-
-                // Re-render to show the new data type
-                editor.render();
-                editor.renderMinimap();
+            // Filter colors and ensure valid color for new layer
+            const activeLayer = editor.layerManager.getActiveLayer();
+            if (activeLayer) {
+                filterColorsByLayer(activeLayer.layerType);
+                ensureValidColorForLayer(activeLayer.layerType);
             }
 
             updateLayersPanel();
@@ -502,9 +901,25 @@ function initializeToolButtons() {
         });
     });
 
-    // Brush size
-    document.getElementById('brush-size').addEventListener('change', (e) => {
-        editor.brushSize = parseInt(e.target.value);
+    // Brush size slider
+    const brushSizeSlider = document.getElementById('brush-size');
+    const brushSizeLabel = document.getElementById('brush-size-label');
+
+    brushSizeSlider.addEventListener('input', (e) => {
+        const size = parseInt(e.target.value);
+        editor.brushSize = size;
+        brushSizeLabel.textContent = `Brush Size: ${size}`;
+    });
+
+    brushSizeSlider.addEventListener('change', (e) => {
+        const size = parseInt(e.target.value);
+        editor.brushSize = size;
+        brushSizeLabel.textContent = `Brush Size: ${size}`;
+    });
+
+    // Brush shape selector
+    document.getElementById('brush-shape').addEventListener('change', (e) => {
+        editor.brushShape = e.target.value;
     });
 
     // Fill mode
@@ -534,6 +949,14 @@ function initializeToolbar() {
     // Load
     document.getElementById('btn-load').addEventListener('click', () => {
         document.getElementById('file-input').click();
+    });
+
+    // Load Test Map
+    document.getElementById('btn-load-test-map').addEventListener('click', () => {
+        if (editor.isDirty && !confirm('Discard unsaved changes and generate test map?')) {
+            return;
+        }
+        generateTestMap();
     });
 
     document.getElementById('file-input').addEventListener('change', (e) => {
@@ -622,11 +1045,6 @@ function initializeToolbar() {
         saveLevel();
     });
 
-    // Export
-    document.getElementById('btn-export').addEventListener('click', () => {
-        exportLevel();
-    });
-
     // Grid size resize
     document.getElementById('btn-resize-grid').addEventListener('click', () => {
         const newSize = parseInt(document.getElementById('grid-size-select').value);
@@ -684,10 +1102,12 @@ function initializeToolbar() {
     // Undo/Redo
     document.getElementById('btn-undo').addEventListener('click', () => {
         editor.undo();
+        updateLayersPanel(); // Refresh layer warnings after undo
     });
 
     document.getElementById('btn-redo').addEventListener('click', () => {
         editor.redo();
+        updateLayersPanel(); // Refresh layer warnings after redo
     });
 
     // Update grid size inputs (if they exist)
@@ -745,48 +1165,17 @@ function initializeKeyboardShortcuts() {
             return;
         }
 
-        // Number keys 1-4 for data type selection (when Alt is pressed)
-        if (e.altKey && e.key >= '1' && e.key <= '4') {
+        // Number keys 1-9 for brush size (when no modifiers and Alt is NOT pressed)
+        if (e.key >= '1' && e.key <= '9' && !e.ctrlKey && !e.metaKey && !e.altKey) {
             e.preventDefault();
-            const dataTypes = ['biome', 'height', 'difficulty', 'hazard'];
-            const dataType = dataTypes[parseInt(e.key) - 1];
-            const typeNames = {
-                'biome': 'Biome',
-                'height': 'Height',
-                'difficulty': 'Difficulty',
-                'hazard': 'Hazard'
-            };
-
-            if (editor.layerManager.setActiveDataType(dataType)) {
-                // Update data type button visual state
-                document.querySelectorAll('.data-type-btn').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.type === dataType);
-                });
-
-                // Filter palette
-                filterColorPalette(dataType);
-
-                // Re-render
-                editor.render();
-                editor.renderMinimap();
-
-                document.getElementById('status-message').textContent = `Data Type: ${typeNames[dataType]} (Alt+${e.key})`;
-                setTimeout(() => {
-                    document.getElementById('status-message').textContent = 'Ready';
-                }, 1500);
-            }
-            return;
-        }
-
-        // Number keys 1-7 for brush size (when no modifiers)
-        if (e.key >= '1' && e.key <= '7' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-            e.preventDefault();
-            const brushSizes = ['1', '2', '3', '5', '7'];
+            const brushSizes = [1, 2, 3, 5, 7, 10, 15, 20, 25];
             const sizeIndex = parseInt(e.key) - 1;
             if (sizeIndex < brushSizes.length) {
-                editor.brushSize = parseInt(brushSizes[sizeIndex]);
-                document.getElementById('brush-size').value = brushSizes[sizeIndex];
-                document.getElementById('status-message').textContent = `Brush size: ${brushSizes[sizeIndex]}×${brushSizes[sizeIndex]}`;
+                const size = brushSizes[sizeIndex];
+                editor.brushSize = size;
+                document.getElementById('brush-size').value = size;
+                document.getElementById('brush-size-label').textContent = `Brush Size: ${size}`;
+                document.getElementById('status-message').textContent = `Brush size: ${size}×${size}`;
                 setTimeout(() => {
                     document.getElementById('status-message').textContent = 'Ready';
                 }, 1500);
@@ -855,14 +1244,17 @@ function initializeKeyboardShortcuts() {
                     e.preventDefault();
                     if (e.shiftKey) {
                         editor.redo();
+                        updateLayersPanel(); // Refresh layer warnings after redo
                     } else {
                         editor.undo();
+                        updateLayersPanel(); // Refresh layer warnings after undo
                     }
                     break;
 
                 case 'y':
                     e.preventDefault();
                     editor.redo();
+                    updateLayersPanel(); // Refresh layer warnings after redo
                     break;
 
                 case 's':
@@ -878,37 +1270,26 @@ function initializeKeyboardShortcuts() {
                     }
                     break;
 
-                case 'e':
-                    e.preventDefault();
-                    exportLevel();
-                    break;
-
                 case 'o':
                     e.preventDefault();
                     document.getElementById('btn-load').click();
                     break;
 
                 case 'c':
-                    // Copy selection
-                    if (editor.currentTool.name === 'selection') {
+                    // Copy selection (support both selection and wand tool)
+                    if (editor.currentTool.name === 'selection' || editor.currentTool.name === 'wand') {
                         e.preventDefault();
                         editor.currentTool.copySelection(editor);
-                        document.getElementById('status-message').textContent = 'Selection copied';
-                        setTimeout(() => {
-                            document.getElementById('status-message').textContent = 'Ready';
-                        }, 1500);
+                        // Tool will set its own status message
                     }
                     break;
 
                 case 'v':
-                    // Paste selection
-                    if (editor.currentTool.name === 'selection' && editor.currentTool.selectionData) {
+                    // Paste selection (support both selection and wand tool)
+                    if (editor.currentTool.name === 'selection' || editor.currentTool.name === 'wand') {
                         e.preventDefault();
                         editor.currentTool.pasteSelection(editor);
-                        document.getElementById('status-message').textContent = 'Selection pasted';
-                        setTimeout(() => {
-                            document.getElementById('status-message').textContent = 'Ready';
-                        }, 1500);
+                        // Tool will set its own status message
                     }
                     break;
             }
@@ -941,202 +1322,44 @@ function initializeKeyboardShortcuts() {
 }
 
 /**
- * Save level to file
+ * Save level to file (using RLE format)
  */
 function saveLevel() {
-    const data = editor.exportLevel();
-    const json = JSON.stringify(data, null, 2);
+    // Use RLE format for file export (compressed)
+    const mapName = editor.currentFileName ?
+        editor.currentFileName.replace(/\.json$/, '') :
+        'TSIC_Mall';
+    const rleData = editor.layerManager.exportRLEData(
+        mapName,
+        'Generated by Biome Level Editor',
+        Date.now()
+    );
+
+    const json = JSON.stringify(rleData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = `level_${Date.now()}.json`;
+    a.download = `${mapName}_${Date.now()}.json`;
     a.click();
 
     URL.revokeObjectURL(url);
 
     editor.isDirty = false;
-    document.getElementById('status-message').textContent = 'Level saved';
-}
-
-/**
- * Export level (JSON-RLE Export)
- */
-function exportLevel() {
-    // Show export dialog
-    const dialog = document.getElementById('export-dialog');
-    dialog.classList.add('show');
-
-    // Update validation and stats when inputs change
-    const updateValidationAndStats = () => {
-        const mapName = document.getElementById('export-map-name').value || 'TSIC_Mall';
-        const description = document.getElementById('export-description').value || 'Mall level';
-        const seedInput = document.getElementById('export-seed').value;
-        const seed = seedInput ? parseInt(seedInput) : Math.floor(Math.random() * 2147483647);
-
-        const validationDiv = document.getElementById('export-validation');
-        const statsDiv = document.getElementById('export-stats');
-        const confirmBtn = document.getElementById('export-confirm');
-
-        try {
-            // Generate RLE data
-            const rleData = editor.layerManager.exportRLEData(mapName, description, seed);
-
-            // Validate using dynamic validator (falls back to rleValidator if not loaded)
-            const validator = dynamicValidator || rleValidator;
-            const validationResult = validator.validate(rleData);
-
-            // Show validation results with helpful messages
-            if (validationResult.valid) {
-                validationDiv.innerHTML = `<p class="success">✅ Validation PASSED</p>`;
-                if (validationResult.warnings && validationResult.warnings.length > 0) {
-                    validationDiv.innerHTML += `<p class="warning">Warnings:</p><ul>`;
-                    validationResult.warnings.forEach(warning => {
-                        const isTip = warning.startsWith('💡');
-                        const className = isTip ? 'tip' : 'warning';
-                        validationDiv.innerHTML += `<li class="${className}">${warning}</li>`;
-                    });
-                    validationDiv.innerHTML += `</ul>`;
-                }
-                confirmBtn.disabled = false;
-            } else {
-                validationDiv.innerHTML = `<p class="error">❌ Validation FAILED</p><ul>`;
-                validationResult.errors.forEach(error => {
-                    // Highlight tips in a different color
-                    const isTip = error.startsWith('💡');
-                    const className = isTip ? 'tip' : 'error';
-                    validationDiv.innerHTML += `<li class="${className}">${error}</li>`;
-                });
-                validationDiv.innerHTML += `</ul>`;
-                confirmBtn.disabled = true;
-            }
-
-            // Show compression statistics
-            const stats = validator.getCompressionStats(rleData);
-            if (stats) {
-                const compressionPercent = parseFloat(stats.compressionRatio);
-                const efficiencyClass = stats.efficiency.toLowerCase();
-
-                statsDiv.innerHTML = `
-                    <p><strong>World Size:</strong> ${stats.worldSize}×${stats.worldSize}</p>
-                    <p><strong>Layers:</strong> ${stats.layerCount}</p>
-                    <p><strong>Total Tiles:</strong> ${stats.totalTiles.toLocaleString()}</p>
-                    <p><strong>RLE Entries:</strong> ${stats.totalRLEEntries.toLocaleString()}</p>
-                    <p><strong>Compression Ratio:</strong> ${stats.compressionRatio}</p>
-                    <div class="compression-bar-container">
-                        <div class="compression-bar ${efficiencyClass}" style="width: ${compressionPercent}%">
-                            ${stats.efficiency}
-                        </div>
-                    </div>
-                    <p style="font-size: 11px; color: #888; margin-top: 5px;">
-                        ${compressionPercent < 25 ? '🎉 Excellent compression!' :
-                          compressionPercent < 50 ? '✅ Good compression' :
-                          compressionPercent < 75 ? '⚠️ Fair compression' :
-                          '❌ Poor compression (high variation)'}
-                    </p>
-                `;
-            }
-
-        } catch (error) {
-            validationDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
-            statsDiv.innerHTML = '';
-            confirmBtn.disabled = true;
-        }
-    };
-
-    // Initial validation
-    updateValidationAndStats();
-
-    // Listen for input changes
-    document.getElementById('export-map-name').addEventListener('input', updateValidationAndStats);
-    document.getElementById('export-description').addEventListener('input', updateValidationAndStats);
-    document.getElementById('export-seed').addEventListener('input', updateValidationAndStats);
-
-    // Cancel button
-    const cancelHandler = () => {
-        dialog.classList.remove('show');
-        document.getElementById('export-cancel').removeEventListener('click', cancelHandler);
-        document.getElementById('export-close').removeEventListener('click', cancelHandler);
-        document.getElementById('export-confirm').removeEventListener('click', confirmHandler);
-        document.getElementById('export-map-name').removeEventListener('input', updateValidationAndStats);
-        document.getElementById('export-description').removeEventListener('input', updateValidationAndStats);
-        document.getElementById('export-seed').removeEventListener('input', updateValidationAndStats);
-    };
-
-    document.getElementById('export-cancel').addEventListener('click', cancelHandler);
-    document.getElementById('export-close').addEventListener('click', cancelHandler);
-
-    // Confirm button
-    const confirmHandler = () => {
-        const mapName = document.getElementById('export-map-name').value || 'TSIC_Mall';
-        const description = document.getElementById('export-description').value || 'Mall level';
-        const seedInput = document.getElementById('export-seed').value;
-        const seed = seedInput ? parseInt(seedInput) : Math.floor(Math.random() * 2147483647);
-
-        document.getElementById('status-message').textContent = 'Exporting...';
-        dialog.classList.remove('show');
-
-        try {
-            // Generate RLE data
-            const rleData = editor.layerManager.exportRLEData(mapName, description, seed);
-
-            // Validate one more time using dynamic validator
-            const validator = dynamicValidator || rleValidator;
-            const validationResult = validator.validate(rleData);
-            if (!validationResult.valid) {
-                alert('Export failed: ' + validationResult.errors.slice(0, 10).join('\n'));
-                document.getElementById('status-message').textContent = 'Export failed';
-                return;
-            }
-
-            // Download JSON file
-            const json = JSON.stringify(rleData, null, 2);
-            const blob = new Blob([json], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${mapName}_${rleData.metadata.world_size}.json`;
-            a.click();
-
-            URL.revokeObjectURL(url);
-
-            document.getElementById('status-message').textContent = 'JSON-RLE exported successfully!';
-            editor.isDirty = false;
-
-        } catch (error) {
-            console.error('Export error:', error);
-            alert('Export failed: ' + error.message);
-            document.getElementById('status-message').textContent = 'Export failed';
-        }
-
-        // Cleanup handlers
-        document.getElementById('export-cancel').removeEventListener('click', cancelHandler);
-        document.getElementById('export-close').removeEventListener('click', cancelHandler);
-        document.getElementById('export-confirm').removeEventListener('click', confirmHandler);
-        document.getElementById('export-map-name').removeEventListener('input', updateValidationAndStats);
-        document.getElementById('export-description').removeEventListener('input', updateValidationAndStats);
-        document.getElementById('export-seed').removeEventListener('input', updateValidationAndStats);
-    };
-
-    document.getElementById('export-confirm').addEventListener('click', confirmHandler);
+    document.getElementById('status-message').textContent = 'Level saved (RLE format)';
 }
 
 /**
  * Start auto-save
  */
 function startAutoSave() {
+    // Disabled localStorage autosave for large levels (causes QuotaExceededError)
+    // Use manual save/load with JSON files instead
     editor.autoSaveInterval = setInterval(() => {
         if (editor.isDirty) {
-            const data = editor.exportLevel();
-            localStorage.setItem('levelEditor_autoSave', JSON.stringify(data));
-            localStorage.setItem('levelEditor_autoSave_time', Date.now().toString());
-
-            document.getElementById('status-autosave').textContent = 'Auto-saved';
-            setTimeout(() => {
-                document.getElementById('status-autosave').textContent = '';
-            }, 2000);
+            // Skip autosave - user must manually save large levels
+            console.log('Auto-save skipped (use manual save for large levels)');
         }
     }, 30000); // Every 30 seconds
 }
@@ -1337,6 +1560,11 @@ window.addEventListener('beforeunload', (e) => {
         return e.returnValue;
     }
 });
+
+// Export functions for editor access
+if (typeof window !== 'undefined') {
+    window.updateLayersPanel = updateLayersPanel;
+}
 
 // Initialize when DOM is loaded
 if (document.readyState === 'loading') {

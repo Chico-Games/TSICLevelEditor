@@ -1,0 +1,212 @@
+{
+  "metadata": {
+    "name": "Example Level",
+    "description": "Example showing RLE format structure",
+    "world_size": 512,
+    "maze_generation_seed": 1760709235
+  },
+  "layers": [
+    {
+      "layer_type": "Floor",
+      "biome_data": [
+        {
+          "value": 0,
+          "count": 131071
+        },
+        {
+          "value": 1,
+          "count": 5
+        },
+        {
+          "value": 0,
+          "count": 131068
+        }
+      ],
+      "height_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "difficulty_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "hazard_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ]
+    },
+    {
+      "layer_type": "Underground",
+      "biome_data": [
+        {
+          "value": 0,
+          "count": 150000
+        },
+        {
+          "value": 3,
+          "count": 100
+        },
+        {
+          "value": 0,
+          "count": 112044
+        }
+      ],
+      "height_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "difficulty_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "hazard_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ]
+    },
+    {
+      "layer_type": "Sky",
+      "biome_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "height_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "difficulty_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "hazard_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ]
+    },
+    {
+      "layer_type": "Hazard",
+      "biome_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "height_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "difficulty_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "hazard_data": [
+        {
+          "value": 0,
+          "count": 200000
+        },
+        {
+          "value": 1,
+          "count": 50
+        },
+        {
+          "value": 0,
+          "count": 62094
+        }
+      ]
+    },
+    {
+      "layer_type": "None",
+      "biome_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "height_data": [
+        {
+          "value": 0,
+          "count": 100000
+        },
+        {
+          "value": 5,
+          "count": 1000
+        },
+        {
+          "value": 0,
+          "count": 161144
+        }
+      ],
+      "difficulty_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "hazard_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ]
+    },
+    {
+      "layer_type": "None",
+      "biome_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "height_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ],
+      "difficulty_data": [
+        {
+          "value": 0,
+          "count": 180000
+        },
+        {
+          "value": 2,
+          "count": 5000
+        },
+        {
+          "value": 0,
+          "count": 77144
+        }
+      ],
+      "hazard_data": [
+        {
+          "value": 0,
+          "count": 262144
+        }
+      ]
+    }
+  ]
+}

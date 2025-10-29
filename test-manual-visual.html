@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manual Visual Test</title>
+    <script>
+        setTimeout(() => {
+            // Check if editor loaded
+            console.log('=== MANUAL TEST ===');
+            console.log('Editor:', window.editor);
+            console.log('Layers:', window.editor?.layerManager?.layers);
+
+            if (window.editor) {
+                // Check Floor layer
+                const floor = window.editor.layerManager.layers.find(l =>
+                    l.layerType && l.layerType.toLowerCase() === 'floor'
+                );
+
+                console.log('Floor layer:', floor);
+                console.log('Floor visible?', floor?.visible);
+                console.log('Floor biome data size:', floor?.biomeData?.size);
+
+                // List first 10 tiles
+                if (floor?.biomeData) {
+                    console.log('First 10 biome tiles:');
+                    let count = 0;
+                    for (const [key, data] of floor.biomeData.entries()) {
+                        console.log(`  ${key}: ${data.tileset?.name} (${data.tileset?.color})`);
+                        count++;
+                        if (count >= 10) break;
+                    }
+                }
+
+                // Check zoom and offset
+                console.log('Zoom:', window.editor.zoom);
+                console.log('OffsetX:', window.editor.offsetX);
+                console.log('OffsetY:', window.editor.offsetY);
+                console.log('Canvas size:', window.editor.gridCanvas.width, 'x', window.editor.gridCanvas.height);
+            }
+        }, 2000);
+    </script>
+</head>
+<body>
+    <h1>Manual Visual Test</h1>
+    <p>Open browser console and click "Load Test Map" button</p>
+    <iframe src="http://localhost:8000" width="100%" height="800px"></iframe>
+</body>
+</html>

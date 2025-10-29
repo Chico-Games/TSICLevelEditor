@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Performance Debug Test</title>
+    <style>
+        body { margin: 20px; font-family: monospace; }
+        #results { white-space: pre-wrap; background: #f0f0f0; padding: 10px; margin-top: 10px; }
+        button { margin: 5px; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Performance Debug Test</h1>
+    <p>This page tests specific performance bottlenecks in the drawing code.</p>
+
+    <button onclick="testRenderCalls()">Test Render Call Frequency</button>
+    <button onclick="testUpdateLayerPanel()">Test Layer Panel Updates</button>
+    <button onclick="testBatchedDrawing()">Test Batched vs Unbatched Drawing</button>
+
+    <div id="results"></div>
+
+    <script>
+        const results = document.getElementById('results');
+
+        function log(msg) {
+            results.textContent += msg + '\n';
+        }
+
+        function testRenderCalls() {
+            results.textContent = '';
+            log('Testing render call frequency...\n');
+
+            // Simulate current behavior: render on every mouse move
+            let renderCount = 0;
+            let renderTime = 0;
+
+            const startTime = performance.now();
+
+            // Simulate 100 mouse move events (typical for a stroke)
+            for (let i = 0; i < 100; i++) {
+                const renderStart = performance.now();
+
+                // Simulate a render operation (creating a canvas context and drawing)
+                const canvas = document.createElement('canvas');
+                canvas.width = 1000;
+                canvas.height = 1000;
+                const ctx = canvas.getContext('2d');
+
+                // Simulate drawing 256x256 grid with 6 layers
+                for (let layer = 0; layer < 6; layer++) {
+                    for (let y = 0; y < 256; y++) {
+                        for (let x = 0; x < 256; x++) {
+                            ctx.fillStyle = '#ff0000';
+                            ctx.fillRect(x * 4, y * 4, 4, 4);
+                        }
+                    }
+                }
+
+                renderCount++;
+                renderTime += performance.now() - renderStart;
+            }
+
+            const totalTime = performance.now() - startTime;
+
+            log(`Total render calls: ${renderCount}`);
+            log(`Total render time: ${renderTime.toFixed(2)}ms`);
+            log(`Average per render: ${(renderTime / renderCount).toFixed(2)}ms`);
+            log(`Total operation time: ${totalTime.toFixed(2)}ms`);
+            log(`\nThis simulates drawing with mouse - each mouse move triggers a full render!`);
+        }
+
+        function testUpdateLayerPanel() {
+            results.textContent = '';
+            log('Testing layer panel update frequency...\n');
+
+            // Create a mock layer panel
+            const panel = document.createElement('div');
+            panel.id = 'test-panel';
+            for (let i = 0; i < 6; i++) {
+                const item = document.createElement('div');
+                item.className = 'layer-item';
+                item.textContent = `Layer ${i}`;
+                panel.appendChild(item);
+            }
+            document.body.appendChild(panel);
+
+            const startTime = performance.now();
+
+            // Simulate calling updateLayersPanel 100 times (once per tile set)
+            for (let i = 0; i < 100; i++) {
+                // Force DOM reflow by querying offsetHeight
+                const items = panel.querySelectorAll('.layer-item');
+                items.forEach(item => {
+                    item.style.backgroundColor = i % 2 ? '#fff' : '#f0f0f0';
+                    // Force reflow
+                    item.offsetHeight;
+                });
+            }
+
+            const totalTime = performance.now() - startTime;
+
+            document.body.removeChild(panel);
+
+            log(`Time for 100 layer panel updates: ${totalTime.toFixed(2)}ms`);
+            log(`Average per update: ${(totalTime / 100).toFixed(2)}ms`);
+            log(`\nThis is called after EVERY tile operation - major bottleneck!`);
+        }
+
+        function testBatchedDrawing() {
+            results.textContent = '';
+            log('Testing batched vs unbatched drawing...\n');
+
+            // Test 1: Unbatched (current behavior)
+            let unbatchedTime = 0;
+            const canvas1 = document.createElement('canvas');
+            canvas1.width = 1000;
+            canvas1.height = 1000;
+            const ctx1 = canvas1.getContext('2d');
+
+            const startUnbatched = performance.now();
+
+            // Draw 100 tiles individually (like current pencil tool)
+            for (let i = 0; i < 100; i++) {
+                ctx1.fillStyle = '#ff0000';
+                ctx1.fillRect(i * 10, 100, 4, 4);
+                // Each draw triggers a render
+            }
+
+            unbatchedTime = performance.now() - startUnbatched;
+
+            // Test 2: Batched
+            let batchedTime = 0;
+            const canvas2 = document.createElement('canvas');
+            canvas2.width = 1000;
+            canvas2.height = 1000;
+            const ctx2 = canvas2.getContext('2d');
+
+            const startBatched = performance.now();
+
+            // Collect all tiles first
+            const tiles = [];
+            for (let i = 0; i < 100; i++) {
+                tiles.push({ x: i * 10, y: 100 });
+            }
+
+            // Draw all at once
+            ctx2.fillStyle = '#ff0000';
+            for (const tile of tiles) {
+                ctx2.fillRect(tile.x, tile.y, 4, 4);
+            }
+            // Single render after batch
+
+            batchedTime = performance.now() - startBatched;
+
+            log(`Unbatched drawing: ${unbatchedTime.toFixed(2)}ms`);
+            log(`Batched drawing: ${batchedTime.toFixed(2)}ms`);
+            log(`Speedup: ${(unbatchedTime / batchedTime).toFixed(2)}x`);
+            log(`\nBatching operations before rendering is much faster!`);
+        }
+    </script>
+</body>
+</html>

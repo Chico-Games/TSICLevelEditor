@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Complex Level Performance Test</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #perf-overlay {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.95);
+            color: #0f0;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            border: 3px solid #0f0;
+            z-index: 10000;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .test-section {
+            margin: 15px 0;
+            padding: 10px;
+            border: 1px solid #0f0;
+        }
+        .test-section h3 {
+            margin: 0 0 10px 0;
+            color: #ff0;
+        }
+        .metric {
+            margin: 5px 0;
+            padding: 3px 0;
+        }
+        .good { color: #0f0; }
+        .warn { color: #ff0; }
+        .bad { color: #f00; }
+        .status {
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        button {
+            background: #0f0;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+        button:hover { background: #0ff; }
+        button:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+        }
+        #progress {
+            background: #333;
+            height: 20px;
+            margin: 10px 0;
+            border: 1px solid #0f0;
+        }
+        #progress-bar {
+            background: #0f0;
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <!-- Include all normal UI elements (hidden) -->
+    <div id="toolbar" style="display: none;"></div>
+    <div id="left-panel" style="display: none;"></div>
+    <div id="canvas-container">
+        <canvas id="grid-canvas"></canvas>
+        <canvas id="preview-canvas"></canvas>
+    </div>
+    <canvas id="minimap-canvas" style="display: none;"></canvas>
+    <div id="status-bar" style="display: none;">
+        <span id="status-position"></span>
+        <span id="status-message"></span>
+        <span id="status-hover-info"></span>
+        <span id="zoom-level"></span>
+        <span id="status-autosave"></span>
+    </div>
+
+    <!-- Performance overlay -->
+    <div id="perf-overlay">
+        <div style="font-weight: bold; font-size: 16px; margin-bottom: 15px; color: #ff0;">
+            🔬 COMPLEX LEVEL PERFORMANCE TEST
+        </div>
+
+        <div class="status" id="overall-status">Status: Ready</div>
+
+        <div id="progress">
+            <div id="progress-bar"></div>
+        </div>
+
+        <button onclick="runFullTest()" id="run-btn">▶ RUN FULL TEST</button>
+        <button onclick="location.reload()">🔄 RESET</button>
+
+        <div class="test-section" id="setup-section">
+            <h3>📋 Test Setup</h3>
+            <div id="setup-info">Not started</div>
+        </div>
+
+        <div class="test-section" id="load-section">
+            <h3>⏱️ Level Load Performance</h3>
+            <div id="load-results">Not tested</div>
+        </div>
+
+        <div class="test-section" id="click-section">
+            <h3>🖱️ Initial Click Response (Critical!)</h3>
+            <div id="click-results">Not tested</div>
+        </div>
+
+        <div class="test-section" id="draw-section">
+            <h3>✏️ Drawing Performance</h3>
+            <div id="draw-results">Not tested</div>
+        </div>
+
+        <div class="test-section" id="tool-section">
+            <h3>🔧 Tool Switching</h3>
+            <div id="tool-results">Not tested</div>
+        </div>
+
+        <div class="test-section" id="render-section">
+            <h3>🎨 Render Performance</h3>
+            <div id="render-results">Not tested</div>
+        </div>
+
+        <div class="test-section" id="summary-section" style="display: none;">
+            <h3>📊 SUMMARY</h3>
+            <div id="summary-results"></div>
+        </div>
+    </div>
+
+    <script src="js/color-mapper.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/layers.js"></script>
+    <script src="js/tools.js"></script>
+    <script src="js/editor.js"></script>
+    <script>
+        let editor;
+        let testResults = {
+            setupTime: 0,
+            fillTime: 0,
+            firstClickDelay: 0,
+            drawingTimes: [],
+            toolSwitchTimes: [],
+            renderTimes: [],
+            passed: 0,
+            failed: 0,
+            warnings: 0
+        };
+
+        function log(elementId, message, className = '') {
+            const el = document.getElementById(elementId);
+            const div = document.createElement('div');
+            div.className = `metric ${className}`;
+            div.innerHTML = message;
+            el.appendChild(div);
+        }
+
+        function setStatus(message) {
+            document.getElementById('overall-status').textContent = 'Status: ' + message;
+        }
+
+        function setProgress(percent) {
+            document.getElementById('progress-bar').style.width = percent + '%';
+        }
+
+        function evaluate(value, goodThreshold, warnThreshold, unit = 'ms') {
+            const className = value <= goodThreshold ? 'good' : value <= warnThreshold ? 'warn' : 'bad';
+            const symbol = value <= goodThreshold ? '✅' : value <= warnThreshold ? '⚠️' : '❌';
+
+            if (className === 'good') testResults.passed++;
+            else if (className === 'warn') testResults.warnings++;
+            else testResults.failed++;
+
+            return `<span class="${className}">${symbol} ${value.toFixed(2)}${unit}</span>`;
+        }
+
+        async function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function runFullTest() {
+            document.getElementById('run-btn').disabled = true;
+            testResults = { setupTime: 0, fillTime: 0, firstClickDelay: 0, drawingTimes: [],
+                           toolSwitchTimes: [], renderTimes: [], passed: 0, failed: 0, warnings: 0 };
+
+            // Clear previous results
+            ['setup-info', 'load-results', 'click-results', 'draw-results',
+             'tool-results', 'render-results'].forEach(id => {
+                document.getElementById(id).innerHTML = '';
+            });
+
+            setProgress(0);
+
+            try {
+                await testSetup();
+                setProgress(20);
+
+                await testLevelLoad();
+                setProgress(40);
+
+                await testInitialClick();
+                setProgress(60);
+
+                await testDrawing();
+                setProgress(80);
+
+                await testToolSwitching();
+                setProgress(90);
+
+                await testRenderPerformance();
+                setProgress(100);
+
+                showSummary();
+            } catch (error) {
+                setStatus('ERROR: ' + error.message);
+                console.error(error);
+            }
+        }
+
+        async function testSetup() {
+            setStatus('Setting up test environment...');
+            const start = performance.now();
+
+            await configManager.loadConfig('config/biomes.json');
+            editor = new LevelEditor();
+            editor.initializeLayers(configManager);
+
+            const setupTime = performance.now() - start;
+            testResults.setupTime = setupTime;
+
+            log('setup-info', `Editor initialized: ${evaluate(setupTime, 100, 500)}`);
+            log('setup-info', `Grid size: 256x256`);
+            log('setup-info', `Layers: ${editor.layerManager.layers.length}`);
+
+            setStatus('Setup complete');
+            await sleep(500);
+        }
+
+        async function testLevelLoad() {
+            setStatus('Loading complex level (worst case: 100% filled)...');
+            document.getElementById('load-results').innerHTML = '<div>Filling all layers...</div>';
+
+            const fillStart = performance.now();
+
+            // Fill ALL layers completely (worst case scenario)
+            const colors = ['#FF6B6B', '#525d6b', '#39FF14', '#FFD700', '#87CEEB', '#1a1a1a'];
+            editor.layerManager.layers.forEach((layer, i) => {
+                for (let y = 0; y < 256; y++) {
+                    for (let x = 0; x < 256; x++) {
+                        layer.tileData.set(`${x},${y}`, colors[i % colors.length]);
+                    }
+                }
+            });
+
+            const fillTime = performance.now() - fillStart;
+            testResults.fillTime = fillTime;
+
+            document.getElementById('load-results').innerHTML = '';
+            log('load-results', `Fill time: ${evaluate(fillTime, 2000, 5000)}`);
+
+            // Now render it
+            const renderStart = performance.now();
+            editor.render();
+            const renderTime = performance.now() - renderStart;
+
+            log('load-results', `Initial render: ${evaluate(renderTime, 50, 200)}`);
+
+            const totalTiles = editor.layerManager.getTotalTileCount();
+            log('load-results', `Total tiles: <span class="good">${totalTiles.toLocaleString()}</span>`);
+            log('load-results', `Level is now 100% FILLED - worst case scenario!`, 'warn');
+
+            setStatus('Complex level loaded');
+            await sleep(1000);
+        }
+
+        async function testInitialClick() {
+            setStatus('Testing initial click response (THE CRITICAL TEST)...');
+
+            // Select a tool and tileset
+            editor.setTool('pencil');
+            const tileset = configManager.getTileset('Biome_Grassland');
+            editor.selectedTileset = { name: 'Biome_Grassland', ...tileset };
+            editor.brushSize = 10;
+
+            await sleep(500);
+
+            // Simulate mousedown event and measure the delay until it starts
+            const clickStart = performance.now();
+
+            // Trigger mousedown
+            const mouseEvent = new MouseEvent('mousedown', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 400,
+                clientY: 400,
+                button: 0
+            });
+
+            // Measure time from click to when drawing actually starts
+            const gridCanvas = document.getElementById('grid-canvas');
+            const rect = gridCanvas.getBoundingClientRect();
+            editor.mouseX = 400 - rect.left;
+            editor.mouseY = 400 - rect.top;
+            editor.updateGridPosition();
+
+            // This is where the delay happens (saveState)
+            editor.onMouseDown(mouseEvent);
+
+            const clickEnd = performance.now();
+            const clickDelay = clickEnd - clickStart;
+            testResults.firstClickDelay = clickDelay;
+
+            log('click-results', `Click to draw start: ${evaluate(clickDelay, 50, 200)}`);
+
+            if (clickDelay > 200) {
+                log('click-results', `⚠️ PERFORMANCE ISSUE DETECTED!`, 'bad');
+                log('click-results', `The tool takes ${clickDelay.toFixed(0)}ms to respond after click!`, 'bad');
+                log('click-results', `User will experience noticeable lag.`, 'bad');
+            } else if (clickDelay > 50) {
+                log('click-results', `Tool response is acceptable but could be better`, 'warn');
+            } else {
+                log('click-results', `✅ Tool responds INSTANTLY - excellent!`, 'good');
+            }
+
+            // Clean up
+            editor.isMouseDown = false;
+            editor.isDrawing = false;
+
+            setStatus('Click test complete');
+            await sleep(500);
+        }
+
+        async function testDrawing() {
+            setStatus('Testing drawing performance with filled level...');
+
+            // Test drawing with large brush on filled level
+            editor.brushSize = 20;
+
+            const drawTests = 5;
+            for (let i = 0; i < drawTests; i++) {
+                const drawStart = performance.now();
+
+                // Simulate drawing a stroke (10 mouse moves)
+                for (let j = 0; j < 10; j++) {
+                    const x = 100 + j * 10;
+                    const y = 100;
+                    editor.gridX = Math.floor(x / editor.tileSize);
+                    editor.gridY = Math.floor(y / editor.tileSize);
+
+                    if (j === 0) {
+                        editor.isMouseDown = true;
+                        editor.isDrawing = true;
+                        editor.currentTool.onMouseDown(editor, editor.gridX, editor.gridY, {});
+                    } else {
+                        editor.currentTool.onMouseMove(editor, editor.gridX, editor.gridY, {});
+                    }
+                }
+
+                editor.currentTool.onMouseUp(editor, editor.gridX, editor.gridY, {});
+                editor.isMouseDown = false;
+                editor.isDrawing = false;
+
+                const drawTime = performance.now() - drawStart;
+                testResults.drawingTimes.push(drawTime);
+
+                await sleep(100);
+            }
+
+            const avgDrawTime = testResults.drawingTimes.reduce((a,b) => a+b, 0) / testResults.drawingTimes.length;
+            const maxDrawTime = Math.max(...testResults.drawingTimes);
+            const minDrawTime = Math.min(...testResults.drawingTimes);
+
+            log('draw-results', `Average draw stroke: ${evaluate(avgDrawTime, 100, 300)}`);
+            log('draw-results', `Best: <span class="good">${minDrawTime.toFixed(2)}ms</span> | Worst: <span class="${maxDrawTime > 300 ? 'bad' : 'good'}">${maxDrawTime.toFixed(2)}ms</span>`);
+            log('draw-results', `Brush size: 20 (large)`);
+
+            if (avgDrawTime > 300) {
+                log('draw-results', `⚠️ Drawing feels laggy with filled level!`, 'bad');
+            } else {
+                log('draw-results', `✅ Drawing feels smooth even with filled level!`, 'good');
+            }
+
+            setStatus('Drawing test complete');
+            await sleep(500);
+        }
+
+        async function testToolSwitching() {
+            setStatus('Testing tool switching speed...');
+
+            const tools = ['pencil', 'line', 'rectangle', 'bucket', 'eraser'];
+
+            for (const tool of tools) {
+                const switchStart = performance.now();
+                editor.setTool(tool);
+                const switchTime = performance.now() - switchStart;
+                testResults.toolSwitchTimes.push(switchTime);
+
+                await sleep(50);
+            }
+
+            const avgSwitchTime = testResults.toolSwitchTimes.reduce((a,b) => a+b, 0) / testResults.toolSwitchTimes.length;
+
+            log('tool-results', `Average tool switch: ${evaluate(avgSwitchTime, 10, 50)}`);
+            log('tool-results', `Tools tested: ${tools.length}`);
+
+            setStatus('Tool switching test complete');
+            await sleep(500);
+        }
+
+        async function testRenderPerformance() {
+            setStatus('Testing render performance...');
+
+            // Test multiple renders
+            for (let i = 0; i < 10; i++) {
+                const renderStart = performance.now();
+                editor.render();
+                const renderTime = performance.now() - renderStart;
+                testResults.renderTimes.push(renderTime);
+
+                await sleep(50);
+            }
+
+            const avgRenderTime = testResults.renderTimes.reduce((a,b) => a+b, 0) / testResults.renderTimes.length;
+            const maxRenderTime = Math.max(...testResults.renderTimes);
+            const targetFPS = 1000 / avgRenderTime;
+
+            log('render-results', `Average render time: ${evaluate(avgRenderTime, 16, 33)}`);
+            log('render-results', `Max render time: ${evaluate(maxRenderTime, 33, 100)}`);
+            log('render-results', `Theoretical FPS: ${evaluate(targetFPS, 30, 20, ' FPS')}`);
+
+            if (avgRenderTime <= 16) {
+                log('render-results', `✅ Can achieve 60 FPS!`, 'good');
+            } else if (avgRenderTime <= 33) {
+                log('render-results', `✅ Can achieve 30 FPS`, 'good');
+            } else {
+                log('render-results', `⚠️ Render is too slow for smooth animation`, 'bad');
+            }
+
+            setStatus('Render test complete');
+            await sleep(500);
+        }
+
+        function showSummary() {
+            setStatus('All tests complete!');
+            document.getElementById('summary-section').style.display = 'block';
+
+            const summary = document.getElementById('summary-results');
+            summary.innerHTML = `
+                <div class="metric ${testResults.failed === 0 ? 'good' : 'bad'}">
+                    <strong>Tests Passed:</strong> ${testResults.passed}
+                </div>
+                <div class="metric ${testResults.warnings === 0 ? 'good' : 'warn'}">
+                    <strong>Warnings:</strong> ${testResults.warnings}
+                </div>
+                <div class="metric ${testResults.failed === 0 ? 'good' : 'bad'}">
+                    <strong>Tests Failed:</strong> ${testResults.failed}
+                </div>
+                <hr style="border-color: #0f0; margin: 10px 0;">
+                <div class="metric">
+                    <strong>Overall Performance:</strong>
+                    ${testResults.failed === 0 && testResults.warnings < 3 ?
+                        '<span class="good">✅ EXCELLENT</span>' :
+                        testResults.failed < 3 ?
+                            '<span class="warn">⚠️ ACCEPTABLE</span>' :
+                            '<span class="bad">❌ POOR - NEEDS OPTIMIZATION</span>'}
+                </div>
+                <hr style="border-color: #0f0; margin: 10px 0;">
+                <div class="metric">
+                    <strong>Critical Test (Initial Click):</strong>
+                    ${testResults.firstClickDelay <= 50 ?
+                        '<span class="good">✅ INSTANT (' + testResults.firstClickDelay.toFixed(0) + 'ms)</span>' :
+                        testResults.firstClickDelay <= 200 ?
+                            '<span class="warn">⚠️ ACCEPTABLE (' + testResults.firstClickDelay.toFixed(0) + 'ms)</span>' :
+                            '<span class="bad">❌ TOO SLOW (' + testResults.firstClickDelay.toFixed(0) + 'ms) - USER WILL NOTICE!</span>'}
+                </div>
+            `;
+
+            document.getElementById('run-btn').disabled = false;
+        }
+
+        // Initialize on load
+        window.addEventListener('load', () => {
+            console.log('Complex Level Performance Test Ready');
+            console.log('Click "RUN FULL TEST" to start automated testing');
+        });
+    </script>
+</body>
+</html>

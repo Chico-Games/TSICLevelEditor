@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Actual Performance Test</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        #perf-overlay {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.9);
+            color: #0f0;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            border: 2px solid #0f0;
+            z-index: 10000;
+            min-width: 300px;
+        }
+        .perf-stat { margin: 3px 0; }
+        .perf-warn { color: #ff0; }
+        .perf-error { color: #f00; }
+        .perf-good { color: #0f0; }
+    </style>
+</head>
+<body>
+    <!-- Include all normal UI elements -->
+    <div id="toolbar">
+        <div id="tool-buttons"></div>
+    </div>
+
+    <div id="left-panel">
+        <div id="layers-panel"></div>
+        <div id="color-palette"></div>
+    </div>
+
+    <div id="canvas-container">
+        <canvas id="grid-canvas"></canvas>
+        <canvas id="preview-canvas"></canvas>
+    </div>
+
+    <canvas id="minimap-canvas"></canvas>
+
+    <div id="status-bar">
+        <span id="status-position">X: --, Y: --</span>
+        <span id="status-message">Ready</span>
+        <span id="status-hover-info"></span>
+        <span id="zoom-level">100%</span>
+        <span id="status-autosave"></span>
+    </div>
+
+    <!-- Performance overlay -->
+    <div id="perf-overlay">
+        <div style="font-weight: bold; margin-bottom: 10px;">🔍 PERFORMANCE MONITOR</div>
+        <div class="perf-stat">FPS: <span id="perf-fps">--</span></div>
+        <div class="perf-stat">Frame Time: <span id="perf-frametime">--</span>ms</div>
+        <div class="perf-stat">Render Time: <span id="perf-rendertime">--</span>ms</div>
+        <div class="perf-stat">Render Calls: <span id="perf-rendercalls">0</span></div>
+        <div class="perf-stat">Tiles Visible: <span id="perf-visibletiles">--</span></div>
+        <div class="perf-stat">Total Tiles: <span id="perf-totaltiles">--</span></div>
+        <hr style="border-color: #0f0;">
+        <div class="perf-stat">Tool: <span id="perf-tool">--</span></div>
+        <div class="perf-stat">Drawing: <span id="perf-drawing">No</span></div>
+        <div class="perf-stat">Mouse Pos: <span id="perf-mouse">--</span></div>
+        <hr style="border-color: #0f0;">
+        <button onclick="fillTestData()" style="width: 100%; margin: 5px 0;">Fill Test Data</button>
+        <button onclick="clearAll()" style="width: 100%; margin: 5px 0;">Clear All</button>
+        <button onclick="resetCounters()" style="width: 100%; margin: 5px 0;">Reset Counters</button>
+    </div>
+
+    <script src="js/color-mapper.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/layers.js"></script>
+    <script src="js/tools.js"></script>
+    <script src="js/editor.js"></script>
+    <script>
+        let perfStats = {
+            fps: 0,
+            frameTime: 0,
+            renderTime: 0,
+            renderCalls: 0,
+            lastFrameTime: performance.now(),
+            frames: [],
+            renderTimes: []
+        };
+
+        let editor;
+        let originalRender;
+
+        // Initialize
+        configManager.loadConfig('config/biomes.json').then(() => {
+            editor = new LevelEditor();
+            editor.initializeLayers(configManager);
+
+            // Instrument render function
+            originalRender = editor.render.bind(editor);
+            editor.render = function() {
+                const start = performance.now();
+                originalRender();
+                const end = performance.now();
+
+                perfStats.renderTime = end - start;
+                perfStats.renderCalls++;
+                perfStats.renderTimes.push(perfStats.renderTime);
+
+                // Keep last 60 render times
+                if (perfStats.renderTimes.length > 60) {
+                    perfStats.renderTimes.shift();
+                }
+            };
+
+            // Select default tool
+            editor.setTool('pencil');
+
+            startPerfMonitor();
+        });
+
+        function startPerfMonitor() {
+            setInterval(() => {
+                const now = performance.now();
+                const delta = now - perfStats.lastFrameTime;
+                perfStats.frameTime = delta;
+                perfStats.fps = 1000 / delta;
+                perfStats.lastFrameTime = now;
+
+                updatePerfDisplay();
+            }, 100); // Update display 10 times per second
+        }
+
+        function updatePerfDisplay() {
+            const fps = perfStats.fps;
+            const fpsClass = fps >= 55 ? 'perf-good' : fps >= 30 ? 'perf-warn' : 'perf-error';
+            document.getElementById('perf-fps').className = fpsClass;
+            document.getElementById('perf-fps').textContent = fps.toFixed(1);
+
+            const frameTime = perfStats.frameTime;
+            const ftClass = frameTime <= 20 ? 'perf-good' : frameTime <= 35 ? 'perf-warn' : 'perf-error';
+            document.getElementById('perf-frametime').className = ftClass;
+            document.getElementById('perf-frametime').textContent = frameTime.toFixed(1);
+
+            const avgRenderTime = perfStats.renderTimes.length > 0
+                ? perfStats.renderTimes.reduce((a,b) => a+b, 0) / perfStats.renderTimes.length
+                : 0;
+            const rtClass = avgRenderTime <= 16 ? 'perf-good' : avgRenderTime <= 33 ? 'perf-warn' : 'perf-error';
+            document.getElementById('perf-rendertime').className = rtClass;
+            document.getElementById('perf-rendertime').textContent = avgRenderTime.toFixed(1);
+
+            document.getElementById('perf-rendercalls').textContent = perfStats.renderCalls;
+
+            if (editor) {
+                const totalTiles = editor.layerManager.getTotalTileCount();
+                document.getElementById('perf-totaltiles').textContent = totalTiles.toLocaleString();
+
+                // Calculate visible tiles
+                const zoom = editor.zoom;
+                const tileSize = editor.tileSize;
+                const visibleWidth = Math.ceil(editor.gridCanvas.width / (tileSize * zoom));
+                const visibleHeight = Math.ceil(editor.gridCanvas.height / (tileSize * zoom));
+                const visibleTiles = visibleWidth * visibleHeight * editor.layerManager.layers.filter(l => l.visible).length;
+                document.getElementById('perf-visibletiles').textContent = visibleTiles.toLocaleString();
+
+                document.getElementById('perf-tool').textContent = editor.currentTool.name;
+                document.getElementById('perf-drawing').textContent = editor.isDrawing ? 'YES' : 'No';
+                document.getElementById('perf-mouse').textContent = `${editor.gridX}, ${editor.gridY}`;
+            }
+        }
+
+        function fillTestData() {
+            console.log('Filling test data...');
+            const start = performance.now();
+
+            // Fill every other tile in a checkerboard pattern
+            const layers = [
+                { name: 'Floor', color: '#FF6B6B' },
+                { name: 'Height', color: '#525d6b' }
+            ];
+
+            layers.forEach(layerInfo => {
+                const layer = editor.layerManager.layers.find(l => l.name === layerInfo.name);
+                if (layer) {
+                    for (let y = 0; y < 256; y += 2) {
+                        for (let x = 0; x < 256; x += 2) {
+                            layer.tileData.set(`${x},${y}`, layerInfo.color);
+                        }
+                    }
+                }
+            });
+
+            editor.render();
+            editor.renderMinimap();
+
+            const end = performance.now();
+            console.log(`Fill took ${(end - start).toFixed(2)}ms`);
+        }
+
+        function clearAll() {
+            editor.layerManager.layers.forEach(layer => layer.clear());
+            editor.render();
+            editor.renderMinimap();
+        }
+
+        function resetCounters() {
+            perfStats.renderCalls = 0;
+            perfStats.renderTimes = [];
+        }
+    </script>
+</body>
+</html>

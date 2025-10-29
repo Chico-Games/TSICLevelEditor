@@ -15,9 +15,9 @@
 
         <div class="toolbar-section">
             <button id="btn-new" title="New Level (Ctrl+N)">New</button>
-            <button id="btn-load" title="Load Level">Load</button>
+            <button id="btn-load" title="Open Level">Open</button>
             <button id="btn-save" title="Save Level (Ctrl+S)">Save</button>
-            <button id="btn-export" title="Export JSON">Export</button>
+            <button id="btn-load-test-map" title="Generate Test Map with Splodges">Load Test Map</button>
             <input type="file" id="file-input" accept=".json" style="display: none;">
         </div>
 
@@ -50,13 +50,15 @@
     <!-- Tool Options Bar -->
     <div id="tool-options">
         <div class="option-group">
-            <label>Brush Size:</label>
-            <select id="brush-size">
-                <option value="1">1×1</option>
-                <option value="2">2×2</option>
-                <option value="3">3×3</option>
-                <option value="5">5×5</option>
-                <option value="7">7×7</option>
+            <label id="brush-size-label">Brush Size: 1</label>
+            <input type="range" id="brush-size" min="1" max="50" value="1" style="width: 150px;">
+        </div>
+
+        <div class="option-group">
+            <label>Brush Shape:</label>
+            <select id="brush-shape">
+                <option value="square">Square</option>
+                <option value="circle">Circle</option>
             </select>
         </div>
 
@@ -128,28 +130,14 @@
             </div>
 
             <div class="panel-section">
-                <h3>Data Type</h3>
-                <div id="data-type-selector">
-                    <button class="data-type-btn active" data-type="biome" title="Edit biome/room types">
-                        <span class="data-type-name">Biome</span>
-                    </button>
-                    <button class="data-type-btn" data-type="height" title="Edit height/elevation">
-                        <span class="data-type-name">Height</span>
-                    </button>
-                    <button class="data-type-btn" data-type="difficulty" title="Edit difficulty zones">
-                        <span class="data-type-name">Difficulty</span>
-                    </button>
-                    <button class="data-type-btn" data-type="hazard" title="Edit environmental hazards">
-                        <span class="data-type-name">Hazard</span>
-                    </button>
-                </div>
-            </div>
-
-            <div class="panel-section">
                 <h3>Color Palette</h3>
                 <div id="current-color-display">
                     <div id="current-color" style="background-color: #7CFC00;"></div>
                     <div id="current-color-label">None Selected</div>
+                </div>
+                <div id="color-search-container">
+                    <input type="text" id="color-search" placeholder="Search colors..." autocomplete="off">
+                    <button id="color-search-clear" title="Clear search">×</button>
                 </div>
                 <div id="color-palette">
                     <!-- Colors loaded from config -->
@@ -184,15 +172,18 @@
                 <canvas id="grid-canvas"></canvas>
                 <canvas id="preview-canvas"></canvas>
             </div>
-
-            <!-- Minimap -->
-            <div id="minimap-container">
-                <canvas id="minimap-canvas"></canvas>
-            </div>
         </div>
 
         <!-- Right Panel - Layers -->
         <div id="right-panel">
+            <!-- Minimap -->
+            <div id="minimap-section" class="panel-section">
+                <h3>Minimap</h3>
+                <div id="minimap-container">
+                    <canvas id="minimap-canvas"></canvas>
+                </div>
+            </div>
+
             <div class="panel-section">
                 <div class="section-header">
                     <h3>Layers</h3>
@@ -202,52 +193,6 @@
                 <div id="layers-list">
                     <!-- Layers loaded from config -->
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Export Dialog Modal -->
-    <div id="export-dialog" class="modal" style="display: none;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Export JSON-RLE World</h2>
-                <button class="modal-close" id="export-close">&times;</button>
-            </div>
-
-            <div class="modal-body">
-                <div class="export-section">
-                    <h3>World Metadata</h3>
-                    <div class="export-options">
-                        <label>
-                            Map Name: <input type="text" id="export-map-name" value="TSIC_Mall" placeholder="Map name" required>
-                        </label>
-                        <label>
-                            Description: <input type="text" id="export-description" value="Mall level" placeholder="Level description">
-                        </label>
-                        <label>
-                            Seed: <input type="text" id="export-seed" placeholder="Auto-generate" size="12">
-                        </label>
-                    </div>
-                </div>
-
-                <div class="export-section">
-                    <h3>Validation Results</h3>
-                    <div id="export-validation">
-                        <!-- Validation results will be populated by JavaScript -->
-                    </div>
-                </div>
-
-                <div class="export-section">
-                    <h3>Compression Statistics</h3>
-                    <div id="export-stats">
-                        <!-- Compression stats will be populated by JavaScript -->
-                    </div>
-                </div>
-            </div>
-
-            <div class="modal-footer">
-                <button id="export-cancel" class="btn-secondary">Cancel</button>
-                <button id="export-confirm" class="btn-primary">Export JSON-RLE</button>
             </div>
         </div>
     </div>
@@ -267,7 +212,9 @@
 
     <!-- Scripts -->
     <script src="js/config.js"></script>
+    <script src="js/color-mapper.js"></script>
     <script src="js/layers.js"></script>
+    <script src="js/rle-encoder.js"></script>
     <script src="js/rle-validator.js"></script>
     <script src="js/dynamic-validator.js"></script>
     <script src="js/tools.js"></script>

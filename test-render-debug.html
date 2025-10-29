@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Render Debug Test</title>
+    <style>
+        body { margin: 20px; font-family: monospace; background: #1a1a1a; color: #fff; }
+        canvas { border: 2px solid #4a9eff; margin: 10px 0; }
+        .info { background: #2a2a2a; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        button { padding: 10px 20px; margin: 5px; font-size: 16px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Render Debug Test</h1>
+    <div class="info" id="status">Loading...</div>
+    <button onclick="testRender()">Generate Test Map</button>
+    <button onclick="checkData()">Check Layer Data</button>
+    <canvas id="test-canvas" width="800" height="800"></canvas>
+
+    <script src="js/config.js"></script>
+    <script src="js/color-mapper.js"></script>
+    <script src="js/layers.js"></script>
+
+    <script>
+        let layer = null;
+
+        async function init() {
+            const config = await fetch('config/biomes.json').then(r => r.json());
+            colorMapper.loadFromConfig(config);
+
+            // Create a test layer
+            layer = new WorldLayer('Test', 50, 50);
+
+            document.getElementById('status').innerHTML =
+                '<strong>Ready!</strong><br>' +
+                'ColorMapper loaded: ' + colorMapper.getSummary().totalColors + ' colors<br>' +
+                'Click "Generate Test Map" to see tiles';
+        }
+
+        function testRender() {
+            if (!layer) return;
+
+            const tilesets = configManager.getTilesets();
+            const colors = Object.values(tilesets).filter(t => t.category === 'Biomes');
+
+            // Fill with random colors
+            for (let y = 0; y < 50; y++) {
+                for (let x = 0; x < 50; x++) {
+                    const tileset = colors[Math.floor(Math.random() * colors.length)];
+                    layer.setTile(x, y, tileset.value, {
+                        name: 'Test',
+                        color: tileset.color,
+                        value: tileset.value
+                    });
+                }
+            }
+
+            // Render to canvas
+            const canvas = document.getElementById('test-canvas');
+            const ctx = canvas.getContext('2d');
+            const tileSize = 16;
+
+            ctx.fillStyle = '#2b2b2b';
+            ctx.fillRect(0, 0, 800, 800);
+
+            // Render using the same logic as editor.js
+            for (const [key, color] of layer.tileData.entries()) {
+                const [x, y] = key.split(',').map(Number);
+
+                if (color) {
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+                }
+            }
+
+            document.getElementById('status').innerHTML =
+                '<strong>Rendered!</strong><br>' +
+                'Tiles in layer: ' + layer.tileData.size + '<br>' +
+                'Tile size: ' + tileSize + 'px<br>' +
+                'Canvas: 800×800px';
+        }
+
+        function checkData() {
+            if (!layer) return;
+
+            const sample = [];
+            let count = 0;
+            for (const [key, color] of layer.tileData.entries()) {
+                if (count < 5) sample.push(`${key} = ${color}`);
+                count++;
+            }
+
+            document.getElementById('status').innerHTML =
+                '<strong>Layer Data:</strong><br>' +
+                'Total tiles: ' + layer.tileData.size + '<br>' +
+                'Sample data:<br>' + sample.join('<br>');
+        }
+
+        init();
+    </script>
+</body>
+</html>

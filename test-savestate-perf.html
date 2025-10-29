@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SaveState Performance Test</title>
+    <style>
+        body { margin: 20px; font-family: monospace; }
+        #results { white-space: pre-wrap; background: #f0f0f0; padding: 10px; margin-top: 10px; }
+        button { margin: 5px; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>SaveState Performance Test</h1>
+    <p>Testing how long saveState() takes for different grid sizes...</p>
+
+    <button onclick="testSaveState()">Test SaveState Performance</button>
+
+    <div id="results"></div>
+
+    <script src="js/color-mapper.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/layers.js"></script>
+    <script>
+        const results = document.getElementById('results');
+
+        function log(msg) {
+            results.textContent += msg + '\n';
+        }
+
+        async function testSaveState() {
+            results.textContent = '';
+            log('Loading config...\n');
+
+            await configManager.loadConfig('config/biomes.json');
+
+            // Test with 512x512 grid
+            log('Creating 512x512 LayerManager with 6 layers...');
+            const layerManager = new LayerManager(512, 512);
+
+            // Add layers
+            const layerConfigs = [
+                { name: 'Floor', layerType: 'Floor' },
+                { name: 'Underground', layerType: 'Underground' },
+                { name: 'Sky', layerType: 'Sky' },
+                { name: 'Height', layerType: 'Height' },
+                { name: 'Difficulty', layerType: 'Difficulty' },
+                { name: 'Hazard', layerType: 'Hazard' }
+            ];
+
+            layerConfigs.forEach(cfg => {
+                layerManager.addLayer(cfg.name, { layerType: cfg.layerType });
+            });
+
+            log('Layers created.\n');
+
+            // Test 1: Empty grid
+            log('Test 1: Empty grid (minimal tiles)');
+            const emptyStart = performance.now();
+            const emptyData = layerManager.exportData();
+            const emptyJson = JSON.stringify(emptyData);
+            const emptyEnd = performance.now();
+            log(`  Export time: ${(emptyEnd - emptyStart).toFixed(2)}ms`);
+            log(`  JSON size: ${(emptyJson.length / 1024).toFixed(2)} KB\n`);
+
+            // Test 2: 10% filled
+            log('Test 2: 10% filled (checkerboard pattern)');
+            const layer1 = layerManager.layers[0];
+            for (let y = 0; y < 512; y += 10) {
+                for (let x = 0; x < 512; x += 10) {
+                    layer1.tileData.set(`${x},${y}`, '#FF6B6B');
+                }
+            }
+
+            const partial10Start = performance.now();
+            const partial10Data = layerManager.exportData();
+            const partial10Json = JSON.stringify(partial10Data);
+            const partial10End = performance.now();
+            log(`  Export time: ${(partial10End - partial10Start).toFixed(2)}ms`);
+            log(`  JSON size: ${(partial10Json.length / 1024).toFixed(2)} KB`);
+            log(`  Tile count: ${layer1.tileData.size}\n`);
+
+            // Test 3: 50% filled
+            log('Test 3: 50% filled (2 layers, checkerboard)');
+            const layer2 = layerManager.layers[1];
+            for (let y = 0; y < 512; y += 2) {
+                for (let x = 0; x < 512; x += 2) {
+                    layer1.tileData.set(`${x},${y}`, '#FF6B6B');
+                    layer2.tileData.set(`${x},${y}`, '#525d6b');
+                }
+            }
+
+            const partial50Start = performance.now();
+            const partial50Data = layerManager.exportData();
+            const partial50Json = JSON.stringify(partial50Data);
+            const partial50End = performance.now();
+            log(`  Export time: ${(partial50End - partial50Start).toFixed(2)}ms`);
+            log(`  JSON size: ${(partial50Json.length / 1024 / 1024).toFixed(2)} MB`);
+            log(`  Tile count: ${layer1.tileData.size + layer2.tileData.size}\n`);
+
+            // Test 4: Fully filled (worst case)
+            log('Test 4: FULLY FILLED (all 6 layers, every tile) - WORST CASE');
+            layerManager.layers.forEach((layer, i) => {
+                const colors = ['#FF6B6B', '#525d6b', '#39FF14', '#FFD700', '#87CEEB', '#1a1a1a'];
+                for (let y = 0; y < 512; y++) {
+                    for (let x = 0; x < 512; x++) {
+                        layer.tileData.set(`${x},${y}`, colors[i]);
+                    }
+                }
+            });
+
+            const fullStart = performance.now();
+            const fullData = layerManager.exportData();
+            const fullEnd = performance.now();
+            log(`  Export time: ${(fullEnd - fullStart).toFixed(2)}ms`);
+
+            const jsonStart = performance.now();
+            const fullJson = JSON.stringify(fullData);
+            const jsonEnd = performance.now();
+            log(`  JSON.stringify time: ${(jsonEnd - jsonStart).toFixed(2)}ms`);
+            log(`  Total time: ${(jsonEnd - fullStart).toFixed(2)}ms`);
+            log(`  JSON size: ${(fullJson.length / 1024 / 1024).toFixed(2)} MB`);
+            log(`  Tile count: ${layerManager.getTotalTileCount()}\n`);
+
+            log('===========================================');
+            log('CONCLUSION:');
+            log('Calling saveState() on every mousedown is');
+            log('EXTREMELY EXPENSIVE for large filled levels!');
+            log('This is why the tool takes 1-2 seconds to');
+            log('start drawing - it is freezing on saveState!');
+        }
+    </script>
+</body>
+</html>

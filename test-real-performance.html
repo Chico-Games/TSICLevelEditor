@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Real Performance Test</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div id="status" style="position: fixed; top: 10px; right: 10px; background: white; padding: 20px; border: 2px solid black; z-index: 10000; font-family: monospace;">
+        <h3>Performance Test</h3>
+        <div id="test-status">Initializing...</div>
+        <div id="render-time">Render time: --</div>
+        <div id="fps">FPS: --</div>
+        <button onclick="runTest()">Run Drawing Test</button>
+    </div>
+
+    <div id="canvas-container">
+        <canvas id="grid-canvas"></canvas>
+        <canvas id="preview-canvas"></canvas>
+    </div>
+    <canvas id="minimap-canvas" style="position: fixed; bottom: 10px; right: 10px;"></canvas>
+
+    <div id="status-bar" style="position: fixed; bottom: 0; left: 0; right: 0; background: #333; color: white; padding: 5px;">
+        <span id="status-position">X: --, Y: --</span>
+        <span id="status-message">Ready</span>
+        <span id="status-hover-info"></span>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/layers.js"></script>
+    <script src="js/tools.js"></script>
+    <script src="js/editor.js"></script>
+    <script>
+        let editor;
+        let renderTimes = [];
+        let lastFrameTime = performance.now();
+
+        // Initialize
+        configManager.loadConfig('config/biomes.json').then(() => {
+            editor = new LevelEditor();
+            editor.initializeLayers(configManager);
+
+            // Select a color and tool
+            const tileset = configManager.getTileset('Biome_Grassland');
+            editor.selectedTileset = { name: 'Biome_Grassland', ...tileset };
+            editor.setTool('pencil');
+            editor.brushSize = 5;
+
+            document.getElementById('test-status').textContent = 'Ready - Click "Run Drawing Test"';
+
+            // Monitor render performance
+            monitorPerformance();
+        });
+
+        function monitorPerformance() {
+            const now = performance.now();
+            const delta = now - lastFrameTime;
+            const fps = 1000 / delta;
+
+            document.getElementById('fps').textContent = `FPS: ${fps.toFixed(1)}`;
+
+            lastFrameTime = now;
+            requestAnimationFrame(monitorPerformance);
+        }
+
+        function runTest() {
+            document.getElementById('test-status').textContent = 'Running test...';
+
+            // Override render to measure time
+            const originalRender = editor.render.bind(editor);
+            let renderCount = 0;
+            let totalRenderTime = 0;
+
+            editor.render = function() {
+                const start = performance.now();
+                originalRender();
+                const end = performance.now();
+                const renderTime = end - start;
+
+                totalRenderTime += renderTime;
+                renderCount++;
+
+                document.getElementById('render-time').textContent =
+                    `Last render: ${renderTime.toFixed(2)}ms | Avg: ${(totalRenderTime/renderCount).toFixed(2)}ms | Count: ${renderCount}`;
+            };
+
+            // Simulate drawing a line
+            const startTime = performance.now();
+
+            // Fill layers first to simulate real usage
+            document.getElementById('test-status').textContent = 'Filling layers...';
+
+            setTimeout(() => {
+                const layers = ['Height', 'Floor'];
+                const colors = ['#525d6b', '#FF6B6B'];
+
+                for (let i = 0; i < layers.length; i++) {
+                    const layer = editor.layerManager.layers.find(l => l.name === layers[i]);
+                    if (layer) {
+                        // Fill with a pattern instead of full fill
+                        for (let y = 0; y < 256; y += 2) {
+                            for (let x = 0; x < 256; x += 2) {
+                                layer.tileData.set(`${x},${y}`, colors[i]);
+                            }
+                        }
+                    }
+                }
+
+                editor.render();
+                document.getElementById('test-status').textContent = 'Layers filled. Drawing test line...';
+
+                setTimeout(() => {
+                    // Now draw a line
+                    renderCount = 0;
+                    totalRenderTime = 0;
+
+                    const drawStart = performance.now();
+
+                    // Simulate 50 mouse move events
+                    for (let i = 0; i < 50; i++) {
+                        const x = 50 + i;
+                        const y = 128;
+
+                        if (i === 0) {
+                            editor.currentTool.onMouseDown(editor, x, y);
+                        } else {
+                            editor.currentTool.onMouseMove(editor, x, y);
+                        }
+                    }
+
+                    editor.currentTool.onMouseUp(editor, 100, 128);
+
+                    // Wait for any pending renders
+                    setTimeout(() => {
+                        const drawEnd = performance.now();
+                        const drawTime = drawEnd - drawStart;
+
+                        document.getElementById('test-status').innerHTML =
+                            `<strong>Test Complete!</strong><br>` +
+                            `Drawing time: ${drawTime.toFixed(2)}ms<br>` +
+                            `Render calls: ${renderCount}<br>` +
+                            `Total render time: ${totalRenderTime.toFixed(2)}ms<br>` +
+                            `Avg render time: ${(totalRenderTime/renderCount).toFixed(2)}ms`;
+                    }, 100);
+                }, 500);
+            }, 100);
+        }
+    </script>
+</body>
+</html>

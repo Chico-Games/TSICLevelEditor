@@ -119,7 +119,7 @@ class LevelEditor {
         // Most layers use transparent black (#000000) as default
         // This renders as transparent and represents "None" values
         switch(layerType) {
-            case 'Showfloor':
+            case 'Floor':
             case 'Underground':
             case 'Sky':
                 return '#000000'; // Biome_None - renders transparent
