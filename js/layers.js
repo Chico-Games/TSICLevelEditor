@@ -172,52 +172,143 @@ class WorldLayer {
     }
 
     /**
-     * Import from JSON-RLE format
+     * Export to base64-RLE format (ultra-compact)
+     * Returns RLE data encoded as base64 string
+     */
+    exportRLEDataBase64() {
+        const totalTiles = this.width * this.height;
+        const defaultColor = '#000000'; // Default empty color
+
+        // Create color grid
+        const colorGrid = new Array(totalTiles).fill(defaultColor);
+
+        // Fill grid from tile data
+        for (const [key, color] of this.tileData.entries()) {
+            const [x, y] = key.split(',').map(Number);
+            const index = y * this.width + x;
+            colorGrid[index] = color;
+        }
+
+        // Build palette
+        const palette = [];
+        const colorToIndex = new Map();
+
+        for (const color of colorGrid) {
+            if (!colorToIndex.has(color)) {
+                colorToIndex.set(color, palette.length);
+                palette.push(color);
+            }
+        }
+
+        // Compress to RLE using palette indices
+        const rle = [];
+        let currentColor = colorGrid[0];
+        let currentIndex = colorToIndex.get(currentColor);
+        let count = 1;
+
+        for (let i = 1; i < colorGrid.length; i++) {
+            if (colorGrid[i] === currentColor) {
+                count++;
+            } else {
+                rle.push([currentIndex, count]);
+                currentColor = colorGrid[i];
+                currentIndex = colorToIndex.get(currentColor);
+                count = 1;
+            }
+        }
+        rle.push([currentIndex, count]);
+
+        // Encode to base64 using base64RLEEncoder
+        if (typeof base64RLEEncoder !== 'undefined') {
+            return base64RLEEncoder.encodeLayer(rle, palette, this.layerType, this.width, this.height);
+        } else {
+            // Fallback to array format if encoder not available
+            console.warn('base64RLEEncoder not available, using array format');
+            return {
+                layer_type: this.layerType,
+                palette: palette,
+                color_data: rle
+            };
+        }
+    }
+
+    /**
+     * Import from JSON-RLE format (supports both array and base64 formats)
      */
     importRLEData(rleData, configManager) {
         this.clear();
 
-        if (!rleData.color_data) {
-            console.warn('[WorldLayer] No color_data in RLE data');
+        let colorData = null;
+        let palette = null;
+
+        // Check format: base64-RLE, palette-array, or old object format
+        if (rleData.encoding === 'rle-base64-v1' && rleData.data_b64) {
+            // Base64-RLE format (newest, most compact)
+            if (typeof base64RLEEncoder !== 'undefined') {
+                const decoded = base64RLEEncoder.decodeLayer(rleData);
+                colorData = decoded.color_data;
+                palette = decoded.palette;
+            } else {
+                console.error('base64RLEEncoder not available, cannot decode base64 format');
+                return;
+            }
+        } else if (rleData.color_data) {
+            // Array or object format
+            colorData = rleData.color_data;
+            palette = rleData.palette;
+        } else {
+            console.warn('[WorldLayer] No color_data or data_b64 in RLE data');
             return;
         }
 
-        // Decompress RLE to color grid
-        const colorGrid = [];
+        // Decompress RLE directly to tileData (avoid building massive intermediate array)
+        const hasPalette = palette && Array.isArray(palette);
+        const defaultColor = '#000000';
+        const maxIndex = this.width * this.height;
+        let currentIndex = 0;
 
-        // Check if using palette-based format (new) or object format (old)
-        const hasPalette = rleData.palette && Array.isArray(rleData.palette);
+        for (const entry of colorData) {
+            let color, count;
 
-        for (const entry of rleData.color_data) {
             if (Array.isArray(entry)) {
-                // New format: [paletteIndex, count]
-                const [paletteIndex, count] = entry;
-                const color = hasPalette ? rleData.palette[paletteIndex] : '#000000';
-                for (let i = 0; i < count; i++) {
-                    colorGrid.push(color);
+                // Palette-array format: [paletteIndex, count]
+                const [paletteIndex, runCount] = entry;
+                color = hasPalette ? palette[paletteIndex] : defaultColor;
+                count = runCount;
+            } else {
+                // Old object format: { color: "#rrggbb", count: n }
+                color = entry.color;
+                count = entry.count;
+            }
+
+            // Boundary check: silently truncate if we exceed grid size
+            if (currentIndex >= maxIndex) {
+                return;
+            }
+
+            // Clamp count to not exceed grid bounds
+            const remainingTiles = maxIndex - currentIndex;
+            const actualCount = Math.min(count, remainingTiles);
+
+            // Skip default empty color - just advance the index
+            if (color === defaultColor) {
+                currentIndex += actualCount;
+                continue;
+            }
+
+            // Set tiles for this run
+            if (color && typeof color === 'string') {
+                const normalizedColor = color.toLowerCase();
+                for (let i = 0; i < actualCount; i++) {
+                    const x = currentIndex % this.width;
+                    const y = Math.floor(currentIndex / this.width);
+                    const key = `${x},${y}`;
+                    this.tileData.set(key, normalizedColor);
+                    currentIndex++;
                 }
             } else {
-                // Old format: { color: "#rrggbb", count: n }
-                for (let i = 0; i < entry.count; i++) {
-                    colorGrid.push(entry.color);
-                }
+                currentIndex += actualCount;
             }
-        }
-
-        // Import colors into tileData
-        const defaultColor = '#000000';
-        for (let i = 0; i < colorGrid.length; i++) {
-            const color = colorGrid[i];
-
-            // Skip default empty color
-            if (color === defaultColor) continue;
-
-            const x = i % this.width;
-            const y = Math.floor(i / this.width);
-
-            // Store color directly
-            const key = `${x},${y}`;
-            this.tileData.set(key, color.toLowerCase());
         }
     }
 
@@ -381,7 +472,27 @@ class LayerManager {
     }
 
     /**
-     * Import from JSON-RLE format
+     * Export to base64-RLE format (ultra-compact)
+     */
+    exportRLEDataBase64(mapName = 'TSIC_Mall', description = 'Generated by Biome Level Editor', seed = null) {
+        const metadata = {
+            name: mapName,
+            description: description,
+            world_size: this.width,
+            maze_generation_seed: seed || Math.floor(Math.random() * 2147483647),
+            format_version: '2.0-base64'
+        };
+
+        const layers = this.layers.map(layer => layer.exportRLEDataBase64());
+
+        return {
+            metadata,
+            layers
+        };
+    }
+
+    /**
+     * Import from JSON-RLE format (supports both array and base64 formats)
      */
     importRLEData(rleData, configManager) {
         if (!rleData || !rleData.metadata || !rleData.layers) {
