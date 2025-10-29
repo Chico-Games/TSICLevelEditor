@@ -11,7 +11,7 @@ window.editor = editor;
 window.configManager = window.configManager || configManager;
 
 /**
- * Generate test map with random splodges of all colors
+ * Generate test map using Perlin noise for realistic terrain
  */
 function generateTestMap() {
     try {
@@ -21,212 +21,210 @@ function generateTestMap() {
             return;
         }
 
+        if (typeof PerlinNoise === 'undefined') {
+            console.error('PerlinNoise not loaded');
+            alert('Perlin noise generator not available. Please reload the page.');
+            return;
+        }
+
         editor.saveState();
 
-    // Clear all existing data first
-    editor.layerManager.layers.forEach(layer => {
-        layer.tileData = new Map();
-    });
+        // Clear all existing data first
+        editor.layerManager.layers.forEach(layer => {
+            layer.tileData = new Map();
+        });
 
-    // Get all tilesets organized by category
-    const tilesets = configManager.getTilesets();
-    const biomes = [];
-    const heights = [];
-    const difficulties = [];
-    const hazards = [];
+        // Get all tilesets organized by category
+        const tilesets = configManager.getTilesets();
+        const biomes = [];
+        const heights = [];
+        const difficulties = [];
+        const hazards = [];
 
-    for (const [name, tileset] of Object.entries(tilesets)) {
-        switch (tileset.category) {
-            case 'Biomes':
-                if (name !== 'Biome_None') biomes.push(name);
-                break;
-            case 'Height':
-                heights.push(name);
-                break;
-            case 'Difficulty':
-                difficulties.push(name);
-                break;
-            case 'Hazards':
-                if (name !== 'Hazard_None') hazards.push(name);
-                break;
+        for (const [name, tileset] of Object.entries(tilesets)) {
+            switch (tileset.category) {
+                case 'Biomes':
+                    if (name !== 'Biome_None') biomes.push(name);
+                    break;
+                case 'Height':
+                    heights.push(name);
+                    break;
+                case 'Difficulty':
+                    difficulties.push(name);
+                    break;
+                case 'Hazards':
+                    if (name !== 'Hazard_None') hazards.push(name);
+                    break;
+            }
         }
-    }
 
-    /**
-     * Generate a random splodge using a modified flood fill algorithm
-     */
-    function generateSplodge(layer, tileset, centerX, centerY, minSize, maxSize) {
-        const targetSize = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
-        const filled = new Set();
-        const toFill = [[centerX, centerY]];
+        const layers = editor.layerManager.layers;
+        const gridWidth = editor.layerManager.width;
+        const gridHeight = editor.layerManager.height;
 
-        while (toFill.length > 0 && filled.size < targetSize) {
-            const [x, y] = toFill.shift();
-            const key = `${x},${y}`;
+        console.log(`[TestMap] Generating ${gridWidth}x${gridHeight} map with Perlin noise...`);
+        console.log(`[TestMap] Found ${biomes.length} biomes, ${heights.length} heights, ${difficulties.length} difficulties, ${hazards.length} hazards`);
 
-            if (filled.has(key)) continue;
-            if (x < 0 || x >= editor.layerManager.width || y < 0 || y >= editor.layerManager.height) continue;
+        // Create separate noise generators for each layer with different seeds
+        const baseSeed = Date.now();
 
-            filled.add(key);
-            layer.setTile(x, y, tileset.value || 0, tileset);
+        /**
+         * Generate a layer using Perlin noise with color thresholds
+         */
+        function generatePerlinLayer(layer, colorNames, scale, octaves = 4, persistence = 0.5, lacunarity = 2.0, seed = null) {
+            if (!layer || !colorNames || colorNames.length === 0) return;
 
-            // Add neighbors with some randomness to create organic shapes
-            const neighbors = [
-                [x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]
-            ];
+            const noise = new PerlinNoise(seed || (baseSeed + Math.random() * 1000));
 
-            // Also add some diagonal neighbors for more irregular shapes
-            if (Math.random() > 0.3) {
-                neighbors.push(
-                    [x + 1, y + 1], [x - 1, y - 1],
-                    [x + 1, y - 1], [x - 1, y + 1]
-                );
+            // Create even distribution of colors across noise values
+            const colorRanges = [];
+            const step = 1.0 / colorNames.length;
+
+            for (let i = 0; i < colorNames.length; i++) {
+                const colorName = colorNames[i];
+                const tileset = configManager.getTileset(colorName);
+                if (tileset) {
+                    colorRanges.push({
+                        threshold: i * step,
+                        tileset: { name: colorName, ...tileset }
+                    });
+                }
             }
 
-            for (const [nx, ny] of neighbors) {
-                const nkey = `${nx},${ny}`;
-                if (!filled.has(nkey) && Math.random() > 0.2) { // 80% chance to spread
-                    toFill.push([nx, ny]);
+            console.log(`[TestMap] Generating ${layer.name} with ${colorRanges.length} color ranges, scale=${scale}`);
+
+            // Generate noise map and apply to layer
+            let tilesSet = 0;
+            for (let y = 0; y < gridHeight; y++) {
+                for (let x = 0; x < gridWidth; x++) {
+                    const sampleX = x / scale;
+                    const sampleY = y / scale;
+
+                    const noiseValue = (noise.octaveNoise(sampleX, sampleY, octaves, persistence, lacunarity) + 1) / 2;
+
+                    // Find appropriate color range
+                    let selectedTileset = colorRanges[0].tileset;
+                    for (const range of colorRanges) {
+                        if (noiseValue >= range.threshold) {
+                            selectedTileset = range.tileset;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    layer.setTile(x, y, selectedTileset.value || 0, selectedTileset);
+                    tilesSet++;
+                }
+            }
+
+            console.log(`[TestMap] ${layer.name}: Set ${tilesSet} tiles`);
+        }
+
+        /**
+         * Generate multi-scale noise layer (combination of large and small features)
+         */
+        function generateMultiScaleLayer(layer, colorNames, baseScale, seed = null) {
+            if (!layer || !colorNames || colorNames.length === 0) return;
+
+            const noise = new PerlinNoise(seed || (baseSeed + Math.random() * 1000));
+
+            // Create color thresholds
+            const colorRanges = [];
+            const step = 1.0 / colorNames.length;
+
+            for (let i = 0; i < colorNames.length; i++) {
+                const colorName = colorNames[i];
+                const tileset = configManager.getTileset(colorName);
+                if (tileset) {
+                    colorRanges.push({
+                        threshold: i * step,
+                        tileset: { name: colorName, ...tileset }
+                    });
+                }
+            }
+
+            console.log(`[TestMap] Generating multi-scale ${layer.name} with ${colorRanges.length} colors`);
+
+            // Generate combined noise
+            for (let y = 0; y < gridHeight; y++) {
+                for (let x = 0; x < gridWidth; x++) {
+                    // Combine multiple scales for interesting variation
+                    const largeFeat = noise.octaveNoise(x / (baseScale * 2), y / (baseScale * 2), 3, 0.5, 2.0);
+                    const medFeat = noise.octaveNoise(x / baseScale, y / baseScale, 4, 0.5, 2.0);
+                    const smallFeat = noise.octaveNoise(x / (baseScale * 0.5), y / (baseScale * 0.5), 2, 0.6, 2.0);
+
+                    // Weighted combination
+                    const combined = (largeFeat * 0.5 + medFeat * 0.3 + smallFeat * 0.2);
+                    const noiseValue = (combined + 1) / 2;
+
+                    // Apply color
+                    let selectedTileset = colorRanges[0].tileset;
+                    for (const range of colorRanges) {
+                        if (noiseValue >= range.threshold) {
+                            selectedTileset = range.tileset;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    layer.setTile(x, y, selectedTileset.value || 0, selectedTileset);
                 }
             }
         }
 
-        return filled.size;
-    }
-
-    /**
-     * Fill entire layer with a base color
-     */
-    function fillLayerWithBase(layer, tileset) {
-        for (let y = 0; y < gridHeight; y++) {
-            for (let x = 0; x < gridWidth; x++) {
-                layer.setTile(x, y, tileset.value || 0, tileset);
-            }
+        // Generate Floor layer - Large features (continents, oceans)
+        const floorLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'floor') || layers[0];
+        if (floorLayer && biomes.length > 0) {
+            generateMultiScaleLayer(floorLayer, biomes, 80, baseSeed);
         }
-    }
 
-    // Generate splodges for each layer
-    const layers = editor.layerManager.layers;
-    const gridWidth = editor.layerManager.width;
-    const gridHeight = editor.layerManager.height;
-
-    // Floor layer - FILL ALL with base, then add VERY LARGE splodges
-    const floorLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'floor') || layers[0];
-    console.log('[TestMap] Floor layer found:', floorLayer?.name, 'layerType:', floorLayer?.layerType);
-    if (floorLayer && biomes.length > 0) {
-        const baseTileset = { name: biomes[0], ...configManager.getTileset(biomes[0]) };
-        console.log('[TestMap] Filling Floor layer with base tileset:', baseTileset.name);
-        fillLayerWithBase(floorLayer, baseTileset);
-        console.log('[TestMap] Floor layer tileData size after fill:', floorLayer.tileData.size);
-
-        const numSplodges = Math.floor(biomes.length * 2); // Only 2 splodges per biome color
-        for (let i = 0; i < numSplodges; i++) {
-            const biomeName = biomes[Math.floor(Math.random() * biomes.length)];
-            const tileset = { name: biomeName, ...configManager.getTileset(biomeName) };
-            const centerX = Math.floor(Math.random() * gridWidth);
-            const centerY = Math.floor(Math.random() * gridHeight);
-            generateSplodge(floorLayer, tileset, centerX, centerY, 2000, 5000); // Huge splodges
+        // Generate Underground layer - Medium features (caves, tunnels)
+        const undergroundLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'underground');
+        if (undergroundLayer && biomes.length > 0) {
+            generateMultiScaleLayer(undergroundLayer, biomes, 60, baseSeed + 1000);
         }
-    }
 
-    // Sky layer - FILL ALL with base, then add VERY LARGE splodges
-    const skyLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'sky');
-    if (skyLayer && biomes.length > 0) {
-        const baseTileset = { name: biomes[Math.min(1, biomes.length - 1)], ...configManager.getTileset(biomes[Math.min(1, biomes.length - 1)]) };
-        fillLayerWithBase(skyLayer, baseTileset);
-
-        const numSplodges = Math.floor(biomes.length * 2); // Only 2 splodges per biome color
-        for (let i = 0; i < numSplodges; i++) {
-            const biomeName = biomes[Math.floor(Math.random() * biomes.length)];
-            const tileset = { name: biomeName, ...configManager.getTileset(biomeName) };
-            const centerX = Math.floor(Math.random() * gridWidth);
-            const centerY = Math.floor(Math.random() * gridHeight);
-            generateSplodge(skyLayer, tileset, centerX, centerY, 2000, 5000); // Huge splodges
+        // Generate Sky layer - Large, smooth features (weather patterns)
+        const skyLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'sky');
+        if (skyLayer && biomes.length > 0) {
+            generatePerlinLayer(skyLayer, biomes, 100, 3, 0.4, 2.0, baseSeed + 2000);
         }
-    }
 
-    // Underground layer - FILL ALL with base, then add VERY LARGE splodges
-    const undergroundLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'underground');
-    if (undergroundLayer && biomes.length > 0) {
-        const baseTileset = { name: biomes[Math.min(2, biomes.length - 1)], ...configManager.getTileset(biomes[Math.min(2, biomes.length - 1)]) };
-        fillLayerWithBase(undergroundLayer, baseTileset);
-
-        const numSplodges = Math.floor(biomes.length * 2); // Only 2 splodges per biome color
-        for (let i = 0; i < numSplodges; i++) {
-            const biomeName = biomes[Math.floor(Math.random() * biomes.length)];
-            const tileset = { name: biomeName, ...configManager.getTileset(biomeName) };
-            const centerX = Math.floor(Math.random() * gridWidth);
-            const centerY = Math.floor(Math.random() * gridHeight);
-            generateSplodge(undergroundLayer, tileset, centerX, centerY, 2000, 5000); // Huge splodges
+        // Generate Height layer - Elevation (mountains, valleys)
+        const heightLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'height');
+        if (heightLayer && heights.length > 0) {
+            generatePerlinLayer(heightLayer, heights, 70, 5, 0.55, 2.2, baseSeed + 3000);
         }
-    }
 
-    // Height layer - FILL ALL with base, then add VERY LARGE splodges
-    const heightLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'height');
-    if (heightLayer && heights.length > 0) {
-        const baseTileset = { name: heights[0], ...configManager.getTileset(heights[0]) };
-        fillLayerWithBase(heightLayer, baseTileset);
-
-        const numSplodges = heights.length * 3; // Only 3 splodges per height value
-        for (let i = 0; i < numSplodges; i++) {
-            const heightName = heights[Math.floor(Math.random() * heights.length)];
-            const tileset = { name: heightName, ...configManager.getTileset(heightName) };
-            const centerX = Math.floor(Math.random() * gridWidth);
-            const centerY = Math.floor(Math.random() * gridHeight);
-            generateSplodge(heightLayer, tileset, centerX, centerY, 3000, 6000); // Massive splodges
+        // Generate Difficulty layer - Combat zones
+        const difficultyLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'difficulty');
+        if (difficultyLayer && difficulties.length > 0) {
+            generatePerlinLayer(difficultyLayer, difficulties, 90, 3, 0.5, 2.0, baseSeed + 4000);
         }
-    }
 
-    // Difficulty layer - FILL ALL with base, then add VERY LARGE splodges
-    const difficultyLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'difficulty');
-    if (difficultyLayer && difficulties.length > 0) {
-        const baseTileset = { name: difficulties[0], ...configManager.getTileset(difficulties[0]) };
-        fillLayerWithBase(difficultyLayer, baseTileset);
-
-        const numSplodges = difficulties.length * 3; // Only 3 splodges per difficulty
-        for (let i = 0; i < numSplodges; i++) {
-            const diffName = difficulties[Math.floor(Math.random() * difficulties.length)];
-            const tileset = { name: diffName, ...configManager.getTileset(diffName) };
-            const centerX = Math.floor(Math.random() * gridWidth);
-            const centerY = Math.floor(Math.random() * gridHeight);
-            generateSplodge(difficultyLayer, tileset, centerX, centerY, 3000, 6000); // Massive splodges
+        // Generate Hazard layer - Environmental hazards
+        const hazardLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'hazard');
+        if (hazardLayer && hazards.length > 0) {
+            generatePerlinLayer(hazardLayer, hazards, 50, 4, 0.6, 2.5, baseSeed + 5000);
         }
-    }
 
-    // Hazard layer - FILL ALL with base, then add ULTRA LARGE splodges
-    const hazardLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'hazard');
-    if (hazardLayer && hazards.length > 0) {
-        const baseTileset = { name: hazards[0], ...configManager.getTileset(hazards[0]) };
-        fillLayerWithBase(hazardLayer, baseTileset);
+        // Re-render everything
+        editor.render();
+        editor.renderMinimap();
+        updateLayersPanel();
+        editor.isDirty = true;
 
-        const numSplodges = hazards.length * 4; // Only 4 splodges per hazard type
-        for (let i = 0; i < numSplodges; i++) {
-            const hazardName = hazards[Math.floor(Math.random() * hazards.length)];
-            const tileset = { name: hazardName, ...configManager.getTileset(hazardName) };
-            const centerX = Math.floor(Math.random() * gridWidth);
-            const centerY = Math.floor(Math.random() * gridHeight);
-            generateSplodge(hazardLayer, tileset, centerX, centerY, 5000, 10000); // Ultra massive
-        }
-    }
+        // Set zoom to fit view
+        editor.setZoom(1.0);
+        editor.offsetX = 0;
+        editor.offsetY = 0;
+        editor.render();
+        editor.renderMinimap();
 
-    // Re-render everything
-    editor.render();
-    editor.renderMinimap();
-    updateLayersPanel();
-    editor.isDirty = true;
-
-    // Set zoom to 100% so tiles are clearly visible
-    editor.setZoom(1.0);
-    // Reset view to top-left corner (0,0) so we can see the tiles
-    editor.offsetX = 0;
-    editor.offsetY = 0;
-    editor.render();
-    editor.renderMinimap();
-
-    document.getElementById('status-message').textContent = 'Test map generated with random splodges!';
-    setTimeout(() => {
-        document.getElementById('status-message').textContent = 'Ready';
-    }, 2000);
+        document.getElementById('status-message').textContent = 'Test map generated with Perlin noise!';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 2000);
     } catch (error) {
         console.error('Test map generation failed:', error);
         alert(`Failed to generate test map: ${error.message}`);

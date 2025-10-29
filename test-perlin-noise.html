@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Perlin Noise Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        canvas {
+            border: 2px solid #444;
+            margin: 10px;
+            image-rendering: pixelated;
+        }
+        .canvas-container {
+            display: inline-block;
+            margin: 10px;
+            vertical-align: top;
+        }
+        .canvas-label {
+            text-align: center;
+            margin-top: 5px;
+            font-size: 14px;
+            color: #9cdcfe;
+        }
+        button {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+        button:hover { background: #1177bb; }
+        #info {
+            margin-top: 20px;
+            padding: 10px;
+            background: #252526;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌊 Perlin Noise Generator Test</h1>
+    <p>Visualizing Perlin noise for terrain generation</p>
+
+    <button onclick="generateAllNoise()">Regenerate All</button>
+
+    <div id="canvases"></div>
+    <div id="info"></div>
+
+    <script src="js/perlin-noise.js"></script>
+    <script>
+        const canvasSize = 256;
+
+        function generateAllNoise() {
+            const canvasesDiv = document.getElementById('canvases');
+            canvasesDiv.innerHTML = '';
+            const info = document.getElementById('info');
+            info.innerHTML = '<h3>Noise Generation Info:</h3>';
+
+            const seed = Date.now();
+
+            // Test 1: Basic Perlin Noise
+            createNoiseCanvas('Basic Perlin', (x, y, noise) => {
+                const value = (noise.noise2D(x / 50, y / 50) + 1) / 2;
+                return grayScale(value);
+            }, seed);
+
+            // Test 2: Octave Noise (multiple frequencies)
+            createNoiseCanvas('Octave Noise (4 octaves)', (x, y, noise) => {
+                const value = (noise.octaveNoise(x / 50, y / 50, 4, 0.5, 2.0) + 1) / 2;
+                return grayScale(value);
+            }, seed + 1);
+
+            // Test 3: Terrain-like (height map)
+            createNoiseCanvas('Terrain Height Map', (x, y, noise) => {
+                const value = (noise.octaveNoise(x / 70, y / 70, 5, 0.55, 2.2) + 1) / 2;
+                return terrainColor(value);
+            }, seed + 2);
+
+            // Test 4: Multi-scale combination
+            createNoiseCanvas('Multi-Scale Combined', (x, y, noise) => {
+                const large = noise.octaveNoise(x / 100, y / 100, 3, 0.5, 2.0);
+                const med = noise.octaveNoise(x / 50, y / 50, 4, 0.5, 2.0);
+                const small = noise.octaveNoise(x / 25, y / 25, 2, 0.6, 2.0);
+                const combined = (large * 0.5 + med * 0.3 + small * 0.2 + 1) / 2;
+                return terrainColor(combined);
+            }, seed + 3);
+
+            // Test 5: Biome-like distribution
+            createNoiseCanvas('Biome Distribution', (x, y, noise) => {
+                const value = (noise.octaveNoise(x / 80, y / 80, 4, 0.5, 2.0) + 1) / 2;
+                return biomeColor(value);
+            }, seed + 4);
+
+            // Test 6: Hazard zones (smaller features)
+            createNoiseCanvas('Hazard Zones', (x, y, noise) => {
+                const value = (noise.octaveNoise(x / 30, y / 30, 4, 0.6, 2.5) + 1) / 2;
+                return hazardColor(value);
+            }, seed + 5);
+
+            info.innerHTML += `<p>Generated at: ${new Date().toLocaleTimeString()}</p>`;
+            info.innerHTML += `<p>Seed: ${seed}</p>`;
+            info.innerHTML += `<p>Canvas size: ${canvasSize}x${canvasSize}</p>`;
+        }
+
+        function createNoiseCanvas(label, colorFunc, seed) {
+            const container = document.createElement('div');
+            container.className = 'canvas-container';
+
+            const canvas = document.createElement('canvas');
+            canvas.width = canvasSize;
+            canvas.height = canvasSize;
+            canvas.style.width = '256px';
+            canvas.style.height = '256px';
+
+            const ctx = canvas.getContext('2d');
+            const imageData = ctx.createImageData(canvasSize, canvasSize);
+            const data = imageData.data;
+
+            const noise = new PerlinNoise(seed);
+
+            for (let y = 0; y < canvasSize; y++) {
+                for (let x = 0; x < canvasSize; x++) {
+                    const idx = (y * canvasSize + x) * 4;
+                    const color = colorFunc(x, y, noise);
+                    data[idx] = color.r;
+                    data[idx + 1] = color.g;
+                    data[idx + 2] = color.b;
+                    data[idx + 3] = 255;
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'canvas-label';
+            labelDiv.textContent = label;
+
+            container.appendChild(canvas);
+            container.appendChild(labelDiv);
+            document.getElementById('canvases').appendChild(container);
+        }
+
+        function grayScale(value) {
+            const gray = Math.floor(value * 255);
+            return { r: gray, g: gray, b: gray };
+        }
+
+        function terrainColor(value) {
+            // Water -> Beach -> Grass -> Forest -> Mountain -> Snow
+            if (value < 0.3) return { r: 0, g: 0, b: 255 };        // Water (blue)
+            if (value < 0.35) return { r: 255, g: 255, b: 0 };     // Beach (yellow)
+            if (value < 0.5) return { r: 0, g: 255, b: 0 };        // Grass (green)
+            if (value < 0.65) return { r: 0, g: 128, b: 0 };       // Forest (dark green)
+            if (value < 0.8) return { r: 139, g: 69, b: 19 };      // Mountain (brown)
+            return { r: 255, g: 255, b: 255 };                     // Snow (white)
+        }
+
+        function biomeColor(value) {
+            // Distribute 8 different biomes evenly
+            const step = 1.0 / 8;
+            if (value < step) return { r: 0, g: 255, b: 0 };       // Grassland
+            if (value < step * 2) return { r: 0, g: 128, b: 0 };   // Forest
+            if (value < step * 3) return { r: 255, g: 255, b: 0 }; // Desert
+            if (value < step * 4) return { r: 255, g: 255, b: 255 }; // Snow
+            if (value < step * 5) return { r: 139, g: 69, b: 19 }; // Mountain
+            if (value < step * 6) return { r: 0, g: 0, b: 255 };   // Ocean
+            if (value < step * 7) return { r: 128, g: 128, b: 128 }; // Tundra
+            return { r: 34, g: 139, b: 34 };                       // Swamp
+        }
+
+        function hazardColor(value) {
+            // Distribute hazards
+            const step = 1.0 / 6;
+            if (value < step) return { r: 0, g: 255, b: 0 };       // None (green)
+            if (value < step * 2) return { r: 255, g: 0, b: 0 };   // Radiation (red)
+            if (value < step * 3) return { r: 0, g: 255, b: 255 }; // Freezing (cyan)
+            if (value < step * 4) return { r: 128, g: 0, b: 128 }; // Toxic (purple)
+            if (value < step * 5) return { r: 255, g: 128, b: 0 }; // Burning (orange)
+            return { r: 255, g: 255, b: 0 };                       // Corrosive (yellow)
+        }
+
+        // Generate on load
+        generateAllNoise();
+    </script>
+</body>
+</html>
