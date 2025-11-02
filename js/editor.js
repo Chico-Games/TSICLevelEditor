@@ -36,6 +36,7 @@ class LevelEditor {
         this.offsetX = 0;
         this.offsetY = 0;
         this.showGrid = true;
+        this.topLayerOpacity = 0.8; // Global opacity for top layer(s)
 
         // Mouse state
         this.mouseX = -1;
@@ -740,11 +741,21 @@ class LevelEditor {
         ctx.scale(this.zoom, this.zoom);
 
         // Render layers in reverse order (first layer in list renders on top)
+        // Bottom layer is always full opacity, top layers use global opacity
+        const visibleLayers = [];
         for (let i = this.layerManager.layers.length - 1; i >= 0; i--) {
             const layer = this.layerManager.layers[i];
-            if (!layer.visible) continue;
+            if (layer.visible) {
+                visibleLayers.push(layer);
+            }
+        }
 
-            ctx.globalAlpha = layer.opacity;
+        for (let i = 0; i < visibleLayers.length; i++) {
+            const layer = visibleLayers[i];
+            const isBottomLayer = (i === visibleLayers.length - 1);
+
+            // Bottom layer always at full opacity, others use global opacity
+            ctx.globalAlpha = isBottomLayer ? 1.0 : this.topLayerOpacity;
             this.renderLayer(ctx, layer);
         }
 
@@ -942,11 +953,21 @@ class LevelEditor {
         const sampleRate = Math.max(1, Math.ceil(this.layerManager.width / 256));
 
         // Render all layers in reverse order (first layer in list renders on top)
+        // Bottom layer is always full opacity, top layers use global opacity
+        const visibleLayers = [];
         for (let i = this.layerManager.layers.length - 1; i >= 0; i--) {
             const layer = this.layerManager.layers[i];
-            if (!layer.visible) continue;
+            if (layer.visible) {
+                visibleLayers.push(layer);
+            }
+        }
 
-            ctx.globalAlpha = layer.opacity;
+        for (let layerIdx = 0; layerIdx < visibleLayers.length; layerIdx++) {
+            const layer = visibleLayers[layerIdx];
+            const isBottomLayer = (layerIdx === visibleLayers.length - 1);
+
+            // Bottom layer always at full opacity, others use global opacity
+            ctx.globalAlpha = isBottomLayer ? 1.0 : this.topLayerOpacity;
 
             const dataMap = layer.tileData;
             if (!dataMap) continue;

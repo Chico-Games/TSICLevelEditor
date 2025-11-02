@@ -804,38 +804,6 @@ function updateLayersPanel() {
         layerHeader.appendChild(layerName);
         layerHeader.appendChild(layerControls);
 
-        // Layer options
-        const layerOptions = document.createElement('div');
-        layerOptions.className = 'layer-options';
-
-        // Opacity
-        const opacityOption = document.createElement('div');
-        opacityOption.className = 'layer-option';
-
-        const opacityLabel = document.createElement('label');
-        opacityLabel.textContent = `Opacity: ${Math.round(layer.opacity * 100)}%`;
-
-        const opacitySlider = document.createElement('input');
-        opacitySlider.type = 'range';
-        opacitySlider.min = '0';
-        opacitySlider.max = '100';
-        opacitySlider.value = layer.opacity * 100;
-        opacitySlider.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent layer selection when clicking slider
-        });
-        opacitySlider.addEventListener('input', (e) => {
-            layer.opacity = e.target.value / 100;
-            opacityLabel.textContent = `Opacity: ${e.target.value}%`;
-            editor.render();
-            editor.renderMinimap();
-            editor.isDirty = true;
-        });
-
-        opacityOption.appendChild(opacityLabel);
-        opacityOption.appendChild(opacitySlider);
-
-        layerOptions.appendChild(opacityOption);
-
         // Click to select layer
         layerItem.addEventListener('click', () => {
             editor.layerManager.setActiveLayer(i);
@@ -865,7 +833,6 @@ function updateLayersPanel() {
         });
 
         layerItem.appendChild(layerHeader);
-        layerItem.appendChild(layerOptions);
         layersList.appendChild(layerItem);
     }
 }
@@ -913,6 +880,18 @@ function initializeToolButtons() {
         const size = parseInt(e.target.value);
         editor.brushSize = size;
         brushSizeLabel.textContent = `Brush Size: ${size}`;
+    });
+
+    // Layer opacity slider
+    const layerOpacitySlider = document.getElementById('layer-opacity');
+    const layerOpacityLabel = document.getElementById('layer-opacity-label');
+
+    layerOpacitySlider.addEventListener('input', (e) => {
+        const opacity = parseInt(e.target.value) / 100;
+        editor.topLayerOpacity = opacity;
+        layerOpacityLabel.textContent = `Top Layer Opacity: ${e.target.value}%`;
+        editor.render();
+        editor.renderMinimap();
     });
 
     // Brush shape selector
