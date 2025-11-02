@@ -124,11 +124,11 @@ class LevelEditor {
             case 'Sky':
                 return '#000000'; // Biome_None - renders transparent
             case 'Height':
-                return '#525d6b'; // Height_2 - Ground floor (default height)
+                return '#525d6b'; // Height_Ground - Ground floor (default height)
             case 'Difficulty':
-                return '#000000'; // Difficulty_Easy equivalent (can use transparent)
+                return '#90ee90'; // Difficulty_Easy - lowest difficulty
             case 'Hazard':
-                return '#1a1a1a'; // Hazard_None - renders transparent
+                return '#1a1a1a'; // Hazard_None - no hazard
             default:
                 return '#000000'; // Default transparent
         }
