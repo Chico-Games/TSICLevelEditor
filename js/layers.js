@@ -26,7 +26,8 @@ class WorldLayer {
         // Offscreen canvas cache for performance (like Photoshop layer caching)
         this.cacheCanvas = null;
         this.cacheCtx = null;
-        this.cacheDirty = true; // Mark as dirty initially
+        this.cacheDirty = true; // Mark as needing full render initially
+        this.dirtyTiles = new Set(); // Track individual dirty tiles for incremental updates
         this.tileSize = 16; // Default, will be updated by editor
     }
 
@@ -48,7 +49,9 @@ class WorldLayer {
         } else {
             this.tileData.delete(key); // Remove if no color
         }
-        this.cacheDirty = true; // Mark cache as needing update
+
+        // INCREMENTAL UPDATE: Only mark this specific tile as dirty
+        this.dirtyTiles.add(key);
         return true;
     }
 
@@ -90,7 +93,9 @@ class WorldLayer {
     clearTile(x, y) {
         const key = `${x},${y}`;
         this.tileData.delete(key);
-        this.cacheDirty = true; // Mark cache as needing update
+
+        // INCREMENTAL UPDATE: Only mark this specific tile as dirty
+        this.dirtyTiles.add(key);
     }
 
     /**
@@ -377,43 +382,67 @@ class WorldLayer {
 
     /**
      * Render this layer to its cache canvas
+     * OPTIMIZATION: Incremental updates - only re-render changed tiles!
      */
     renderToCache() {
-        if (!this.cacheCanvas || !this.cacheDirty) {
-            return; // Cache is clean, no need to re-render
-        }
+        if (!this.cacheCanvas) return;
 
         const ctx = this.cacheCtx;
         const tileSize = this.tileSize;
 
-        // Clear the cache
-        ctx.clearRect(0, 0, this.cacheCanvas.width, this.cacheCanvas.height);
+        // Full render needed (resize, import, etc.)
+        if (this.cacheDirty) {
+            // Clear the cache
+            ctx.clearRect(0, 0, this.cacheCanvas.width, this.cacheCanvas.height);
 
-        // Batch tiles by color for efficient rendering
-        const colorBatches = new Map();
+            // Batch tiles by color for efficient rendering
+            const colorBatches = new Map();
 
-        // Iterate through ALL tiles once (expensive, but cached!)
-        for (const [key, color] of this.tileData.entries()) {
-            if (color && color !== '#000000') {
-                if (!colorBatches.has(color)) {
-                    colorBatches.set(color, []);
+            // Iterate through ALL tiles once (expensive, but only on full render!)
+            for (const [key, color] of this.tileData.entries()) {
+                if (color && color !== '#000000') {
+                    if (!colorBatches.has(color)) {
+                        colorBatches.set(color, []);
+                    }
+                    const [x, y] = key.split(',').map(Number);
+                    colorBatches.get(color).push({ x, y });
                 }
+            }
+
+            // Render all tiles of same color together using Path2D
+            for (const [color, tiles] of colorBatches.entries()) {
+                ctx.fillStyle = color;
+                const path = new Path2D();
+                for (const tile of tiles) {
+                    path.rect(tile.x * tileSize, tile.y * tileSize, tileSize, tileSize);
+                }
+                ctx.fill(path);
+            }
+
+            this.cacheDirty = false;
+            this.dirtyTiles.clear(); // All tiles are now rendered
+        }
+        // Incremental update - only update changed tiles (FAST!)
+        else if (this.dirtyTiles.size > 0) {
+            // Update only the dirty tiles
+            for (const key of this.dirtyTiles) {
                 const [x, y] = key.split(',').map(Number);
-                colorBatches.get(color).push({ x, y });
-            }
-        }
+                const pixelX = x * tileSize;
+                const pixelY = y * tileSize;
 
-        // Render all tiles of same color together using Path2D
-        for (const [color, tiles] of colorBatches.entries()) {
-            ctx.fillStyle = color;
-            const path = new Path2D();
-            for (const tile of tiles) {
-                path.rect(tile.x * tileSize, tile.y * tileSize, tileSize, tileSize);
-            }
-            ctx.fill(path);
-        }
+                // Clear this tile's area
+                ctx.clearRect(pixelX, pixelY, tileSize, tileSize);
 
-        this.cacheDirty = false; // Cache is now clean
+                // Re-render this tile if it has data
+                const color = this.tileData.get(key);
+                if (color && color !== '#000000') {
+                    ctx.fillStyle = color;
+                    ctx.fillRect(pixelX, pixelY, tileSize, tileSize);
+                }
+            }
+
+            this.dirtyTiles.clear(); // All dirty tiles are now updated
+        }
     }
 
     /**
