@@ -357,8 +357,6 @@ select {
     grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
     gap: 6px;
     padding: 8px;
-    max-height: 500px;
-    transition: max-height 0.3s ease-out;
 }
 
 .color-category.collapsed .color-category-content {
@@ -703,6 +701,22 @@ select {
 
 #status-bar span {
     margin-right: 20px;
+}
+
+#status-bar label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: opacity 0.2s;
+}
+
+#autosave-checkbox:disabled {
+    cursor: not-allowed;
+}
+
+label:has(#autosave-checkbox:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 #status-autosave {

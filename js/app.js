@@ -521,37 +521,6 @@ function initializeColorSearch() {
  */
 function initializeLayersPanel() {
     updateLayersPanel();
-
-    // Add layer button
-    document.getElementById('btn-add-layer').addEventListener('click', () => {
-        const layerCount = editor.layerManager.layers.length;
-        editor.saveState();
-
-        // Exit solo mode before adding (indices will change)
-        exitSoloMode();
-
-        editor.layerManager.addLayer(`Layer ${layerCount + 1}`);
-
-        // Auto-select the newly added layer
-        const newIndex = editor.layerManager.layers.length - 1;
-        editor.recentLayerSelections.unshift(newIndex);
-        if (editor.recentLayerSelections.length > 2) {
-            editor.recentLayerSelections.pop(); // Keep only last 2
-        }
-
-        // Update visibility for all layers
-        editor.layerManager.layers.forEach((layer, idx) => {
-            layer.visible = editor.recentLayerSelections.includes(idx);
-        });
-
-        // Set as active layer
-        editor.layerManager.setActiveLayer(newIndex);
-
-        updateLayersPanel();
-        editor.render();
-        editor.renderMinimap();
-        editor.isDirty = true;
-    });
 }
 
 /**
@@ -1591,6 +1560,25 @@ function updateFileNameDisplay() {
         fileNameSpan.textContent = 'No file loaded';
         fileNameSpan.style.color = '#888';
     }
+    updateAutoSaveCheckboxState();
+}
+
+/**
+ * Update autosave checkbox state based on whether a file is loaded
+ */
+function updateAutoSaveCheckboxState() {
+    const checkbox = document.getElementById('autosave-checkbox');
+    if (!checkbox) return;
+
+    if (editor.currentFileName) {
+        // File is loaded, enable checkbox
+        checkbox.disabled = false;
+    } else {
+        // No file loaded, disable checkbox and uncheck it
+        checkbox.disabled = true;
+        checkbox.checked = false;
+        localStorage.setItem('tsic_autosave_enabled', 'false');
+    }
 }
 
 /**
@@ -1696,9 +1684,9 @@ function autoSaveToJSON() {
 function initializeAutoSaveCheckbox() {
     const checkbox = document.getElementById('autosave-checkbox');
 
-    // Restore checkbox state from localStorage
+    // Restore checkbox state from localStorage (only if file is loaded)
     const savedCheckboxState = localStorage.getItem('tsic_autosave_enabled');
-    if (savedCheckboxState === 'true') {
+    if (savedCheckboxState === 'true' && editor.currentFileName) {
         checkbox.checked = true;
     }
 
@@ -1707,16 +1695,6 @@ function initializeAutoSaveCheckbox() {
         localStorage.setItem('tsic_autosave_enabled', e.target.checked.toString());
 
         if (e.target.checked) {
-            if (!editor.currentFileName) {
-                // Try to load from localStorage first
-                const hasFile = loadFileFromLocalStorage();
-                if (!hasFile) {
-                    alert('No file loaded. Please load or save a file first to enable auto-save.');
-                    e.target.checked = false;
-                    localStorage.setItem('tsic_autosave_enabled', 'false');
-                    return;
-                }
-            }
             document.getElementById('status-message').textContent = 'Auto-save enabled';
             setTimeout(() => {
                 document.getElementById('status-message').textContent = 'Ready';
@@ -1748,6 +1726,9 @@ function initializeAutoSaveCheckbox() {
             }
         }
     });
+
+    // Set initial checkbox state
+    updateAutoSaveCheckboxState();
 }
 
 /**

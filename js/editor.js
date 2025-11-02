@@ -636,7 +636,7 @@ class LevelEditor {
         const zoomX = rect.width / gridWidth;
         const zoomY = rect.height / gridHeight;
 
-        this.zoom = Math.min(zoomX, zoomY) * 0.9;
+        this.zoom = Math.min(zoomX, zoomY) * 0.95;
         this.offsetX = (rect.width - gridWidth * this.zoom) / 2;
         this.offsetY = (rect.height - gridHeight * this.zoom) / 2;
 
