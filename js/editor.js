@@ -741,7 +741,7 @@ class LevelEditor {
         ctx.scale(this.zoom, this.zoom);
 
         // Render layers in reverse order (first layer in list renders on top)
-        // Bottom layer is always full opacity, top layers use global opacity
+        // Bottom-most visible layer is always full opacity, top layers use global opacity
         const visibleLayers = [];
         for (let i = this.layerManager.layers.length - 1; i >= 0; i--) {
             const layer = this.layerManager.layers[i];
@@ -752,7 +752,9 @@ class LevelEditor {
 
         for (let i = 0; i < visibleLayers.length; i++) {
             const layer = visibleLayers[i];
-            const isBottomLayer = (i === visibleLayers.length - 1);
+            // First layer rendered (i===0) is the bottom-most, should be opaque
+            // Later layers (i>0) are on top, should use opacity slider
+            const isBottomLayer = (i === 0);
 
             // Bottom layer always at full opacity, others use global opacity
             ctx.globalAlpha = isBottomLayer ? 1.0 : this.topLayerOpacity;
@@ -925,7 +927,7 @@ class LevelEditor {
         const sampleRate = Math.max(1, Math.ceil(this.layerManager.width / 256));
 
         // Render all layers in reverse order (first layer in list renders on top)
-        // Bottom layer is always full opacity, top layers use global opacity
+        // Bottom-most visible layer is always full opacity, top layers use global opacity
         const visibleLayers = [];
         for (let i = this.layerManager.layers.length - 1; i >= 0; i--) {
             const layer = this.layerManager.layers[i];
@@ -936,7 +938,9 @@ class LevelEditor {
 
         for (let layerIdx = 0; layerIdx < visibleLayers.length; layerIdx++) {
             const layer = visibleLayers[layerIdx];
-            const isBottomLayer = (layerIdx === visibleLayers.length - 1);
+            // First layer rendered (layerIdx===0) is the bottom-most, should be opaque
+            // Later layers (layerIdx>0) are on top, should use opacity slider
+            const isBottomLayer = (layerIdx === 0);
 
             // Bottom layer always at full opacity, others use global opacity
             ctx.globalAlpha = isBottomLayer ? 1.0 : this.topLayerOpacity;
