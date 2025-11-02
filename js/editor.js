@@ -779,6 +779,7 @@ class LevelEditor {
 
     /**
      * Render a single layer with viewport culling and batched rendering
+     * OPTIMIZATION: Level-of-Detail (LOD) - sample tiles when zoomed out
      */
     renderLayer(ctx, layer) {
         const dataMap = layer.tileData;
@@ -792,13 +793,22 @@ class LevelEditor {
         const endX = Math.min(layer.width, startX + Math.ceil(this.gridCanvas.width / (this.tileSize * this.zoom)) + 1);
         const endY = Math.min(layer.height, startY + Math.ceil(this.gridCanvas.height / (this.tileSize * this.zoom)) + 1);
 
+        // LOD: Sample rate based on zoom level
+        // When zoomed out, render every Nth tile to reduce iterations
+        // At 100% zoom: every tile (step=1)
+        // At 50% zoom: every tile (step=1)
+        // At 25% zoom: every 2nd tile (step=2)
+        // At 10% zoom: every 4th tile (step=4)
+        const step = this.zoom >= 0.5 ? 1 : this.zoom >= 0.25 ? 2 : 4;
+
         // Batch tiles by color for more efficient rendering
         const colorBatches = new Map();
 
         // CRITICAL FIX: Only iterate through VISIBLE tiles, not all tiles!
         // Instead of iterating through entire Map (262k+ tiles), only check visible range
-        for (let y = startY; y < endY; y++) {
-            for (let x = startX; x < endX; x++) {
+        // OPTIMIZATION: Use step size for LOD when zoomed out
+        for (let y = startY; y < endY; y += step) {
+            for (let x = startX; x < endX; x += step) {
                 const key = `${x},${y}`;
                 const color = dataMap.get(key);
 
@@ -808,7 +818,7 @@ class LevelEditor {
                     if (!colorBatches.has(color)) {
                         colorBatches.set(color, []);
                     }
-                    colorBatches.get(color).push({ x, y });
+                    colorBatches.get(color).push({ x, y, step });
                 }
             }
         }
@@ -821,7 +831,10 @@ class LevelEditor {
             // This is MUCH faster than individual fillRect calls (10x-20x speedup)
             const path = new Path2D();
             for (const tile of tiles) {
-                path.rect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+                // LOD: Draw larger rects when sampling (step > 1)
+                const tileStep = tile.step || 1;
+                path.rect(tile.x * this.tileSize, tile.y * this.tileSize,
+                         this.tileSize * tileStep, this.tileSize * tileStep);
             }
             ctx.fill(path);
         }
