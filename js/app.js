@@ -1337,6 +1337,8 @@ function initializeKeyboardShortcuts() {
                 case 'n':
                     e.preventDefault();
                     if (!editor.isDirty || confirm('Discard unsaved changes?')) {
+                        // Exit solo mode before clearing
+                        exitSoloMode();
                         editor.clearAll();
                         editor.isDirty = false;
                     }
