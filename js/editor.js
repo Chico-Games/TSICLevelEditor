@@ -778,52 +778,24 @@ class LevelEditor {
     }
 
     /**
-     * Render a single layer with viewport culling and batched rendering
+     * Render a single layer using offscreen canvas caching (like Photoshop)
+     * PERFORMANCE: Renders to cache once, then blits cached canvas (extremely fast!)
      */
     renderLayer(ctx, layer) {
-        const dataMap = layer.tileData;
-        if (!dataMap) {
-            return;
+        // Initialize cache canvas if needed
+        if (!layer.cacheCanvas) {
+            layer.initCacheCanvas(this.tileSize);
         }
 
-        // Calculate visible tile bounds for culling
-        const startX = Math.max(0, Math.floor(-this.offsetX / (this.tileSize * this.zoom)));
-        const startY = Math.max(0, Math.floor(-this.offsetY / (this.tileSize * this.zoom)));
-        const endX = Math.min(layer.width, startX + Math.ceil(this.gridCanvas.width / (this.tileSize * this.zoom)) + 1);
-        const endY = Math.min(layer.height, startY + Math.ceil(this.gridCanvas.height / (this.tileSize * this.zoom)) + 1);
-
-        // Batch tiles by color for more efficient rendering
-        const colorBatches = new Map();
-
-        // CRITICAL FIX: Only iterate through VISIBLE tiles, not all tiles!
-        // Instead of iterating through entire Map (262k+ tiles), only check visible range
-        for (let y = startY; y < endY; y++) {
-            for (let x = startX; x < endX; x++) {
-                const key = `${x},${y}`;
-                const color = dataMap.get(key);
-
-                // PERF: Avoid toLowerCase() on every tile - colors are stored lowercase
-                if (color && color !== '#000000') {
-                    // Skip rendering for transparent "none" colors (#000000)
-                    if (!colorBatches.has(color)) {
-                        colorBatches.set(color, []);
-                    }
-                    colorBatches.get(color).push({ x, y });
-                }
-            }
+        // Update cache if dirty (data changed)
+        if (layer.cacheDirty) {
+            layer.renderToCache();
         }
 
-        // Render all tiles of the same color together using Path2D for better performance
-        for (const [color, tiles] of colorBatches.entries()) {
-            ctx.fillStyle = color;
-
-            // CRITICAL PERF: Use Path2D to batch all rects into a single fill operation
-            // This is MUCH faster than individual fillRect calls (10x-20x speedup)
-            const path = new Path2D();
-            for (const tile of tiles) {
-                path.rect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
-            }
-            ctx.fill(path);
+        // SUPER FAST: Just copy the cached canvas! No tile iteration needed!
+        // This is how professional paint programs work (Photoshop, Krita, etc.)
+        if (layer.cacheCanvas) {
+            ctx.drawImage(layer.cacheCanvas, 0, 0);
         }
     }
 

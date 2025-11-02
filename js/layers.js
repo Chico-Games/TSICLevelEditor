@@ -22,6 +22,12 @@ class WorldLayer {
         // Single data map: "x,y" -> color (hex string)
         // The color determines everything via colorMapper
         this.tileData = new Map();
+
+        // Offscreen canvas cache for performance (like Photoshop layer caching)
+        this.cacheCanvas = null;
+        this.cacheCtx = null;
+        this.cacheDirty = true; // Mark as dirty initially
+        this.tileSize = 16; // Default, will be updated by editor
     }
 
     /**
@@ -42,6 +48,7 @@ class WorldLayer {
         } else {
             this.tileData.delete(key); // Remove if no color
         }
+        this.cacheDirty = true; // Mark cache as needing update
         return true;
     }
 
@@ -83,6 +90,7 @@ class WorldLayer {
     clearTile(x, y) {
         const key = `${x},${y}`;
         this.tileData.delete(key);
+        this.cacheDirty = true; // Mark cache as needing update
     }
 
     /**
@@ -90,6 +98,7 @@ class WorldLayer {
      */
     clear() {
         this.tileData.clear();
+        this.cacheDirty = true; // Mark cache as needing update
     }
 
     /**
@@ -310,6 +319,8 @@ class WorldLayer {
                 currentIndex += actualCount;
             }
         }
+
+        this.cacheDirty = true; // Invalidate cache after import
     }
 
     /**
@@ -332,6 +343,77 @@ class WorldLayer {
         }
 
         return newLayer;
+    }
+
+    /**
+     * Initialize or resize the cache canvas
+     */
+    initCacheCanvas(tileSize) {
+        this.tileSize = tileSize;
+        const pixelWidth = this.width * tileSize;
+        const pixelHeight = this.height * tileSize;
+
+        if (!this.cacheCanvas) {
+            this.cacheCanvas = document.createElement('canvas');
+            this.cacheCtx = this.cacheCanvas.getContext('2d', {
+                willReadFrequently: false,
+                alpha: true
+            });
+        }
+
+        if (this.cacheCanvas.width !== pixelWidth || this.cacheCanvas.height !== pixelHeight) {
+            this.cacheCanvas.width = pixelWidth;
+            this.cacheCanvas.height = pixelHeight;
+            this.cacheDirty = true;
+        }
+    }
+
+    /**
+     * Render this layer to its cache canvas
+     */
+    renderToCache() {
+        if (!this.cacheCanvas || !this.cacheDirty) {
+            return; // Cache is clean, no need to re-render
+        }
+
+        const ctx = this.cacheCtx;
+        const tileSize = this.tileSize;
+
+        // Clear the cache
+        ctx.clearRect(0, 0, this.cacheCanvas.width, this.cacheCanvas.height);
+
+        // Batch tiles by color for efficient rendering
+        const colorBatches = new Map();
+
+        // Iterate through ALL tiles once (expensive, but cached!)
+        for (const [key, color] of this.tileData.entries()) {
+            if (color && color !== '#000000') {
+                if (!colorBatches.has(color)) {
+                    colorBatches.set(color, []);
+                }
+                const [x, y] = key.split(',').map(Number);
+                colorBatches.get(color).push({ x, y });
+            }
+        }
+
+        // Render all tiles of same color together using Path2D
+        for (const [color, tiles] of colorBatches.entries()) {
+            ctx.fillStyle = color;
+            const path = new Path2D();
+            for (const tile of tiles) {
+                path.rect(tile.x * tileSize, tile.y * tileSize, tileSize, tileSize);
+            }
+            ctx.fill(path);
+        }
+
+        this.cacheDirty = false; // Cache is now clean
+    }
+
+    /**
+     * Invalidate the cache (mark as dirty)
+     */
+    invalidateCache() {
+        this.cacheDirty = true;
     }
 }
 
