@@ -32,6 +32,7 @@ function generateTestMap() {
         // Clear all existing data first
         editor.layerManager.layers.forEach(layer => {
             layer.tileData = new Map();
+            layer.cacheDirty = true; // CRITICAL: Invalidate cache after clearing
         });
 
         // Get all tilesets organized by category

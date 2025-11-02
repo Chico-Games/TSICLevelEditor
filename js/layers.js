@@ -115,6 +115,13 @@ class WorldLayer {
         this.tileData = newMap;
         this.width = newWidth;
         this.height = newHeight;
+
+        // Cache needs to be resized and re-rendered
+        if (this.cacheCanvas) {
+            this.cacheCanvas.width = newWidth * this.tileSize;
+            this.cacheCanvas.height = newHeight * this.tileSize;
+        }
+        this.cacheDirty = true;
     }
 
     /**
@@ -448,6 +455,9 @@ class LayerManager {
                 layer.tileData.set(key, defaultColor.toLowerCase());
             }
         }
+
+        // Mark cache as dirty after filling
+        layer.cacheDirty = true;
     }
 
     /**

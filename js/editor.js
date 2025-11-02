@@ -1074,6 +1074,9 @@ class LevelEditor {
                 layer.layerType = prevLayer.layerType;
                 layer.worldLayer = prevLayer.worldLayer;
                 layer.required = prevLayer.required;
+
+                // CRITICAL: Invalidate cache after restoring data
+                layer.cacheDirty = true;
             }
         }
 
@@ -1137,6 +1140,9 @@ class LevelEditor {
                 layer.layerType = nextLayer.layerType;
                 layer.worldLayer = nextLayer.worldLayer;
                 layer.required = nextLayer.required;
+
+                // CRITICAL: Invalidate cache after restoring data
+                layer.cacheDirty = true;
             }
         }
 
