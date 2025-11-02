@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Canvas Opacity</title>
+</head>
+<body>
+    <canvas id="test" width="400" height="400" style="border: 1px solid black;"></canvas>
+    <script>
+        const canvas = document.getElementById('test');
+        const ctx = canvas.getContext('2d');
+        
+        // Create two offscreen canvases
+        const layer1 = document.createElement('canvas');
+        layer1.width = 400;
+        layer1.height = 400;
+        const ctx1 = layer1.getContext('2d', { alpha: true });
+        ctx1.fillStyle = 'red';
+        ctx1.fillRect(50, 50, 300, 300);
+        
+        const layer2 = document.createElement('canvas');
+        layer2.width = 400;
+        layer2.height = 400;
+        const ctx2 = layer2.getContext('2d', { alpha: true });
+        ctx2.fillStyle = 'blue';
+        ctx2.fillRect(100, 100, 200, 200);
+        
+        // Draw layer 1 at full opacity
+        ctx.globalAlpha = 1.0;
+        ctx.drawImage(layer1, 0, 0);
+        
+        // Draw layer 2 at 50% opacity
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(layer2, 0, 0);
+        
+        console.log('If you see red with semi-transparent blue on top, opacity works!');
+    </script>
+</body>
+</html>

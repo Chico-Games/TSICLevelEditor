@@ -23,6 +23,12 @@ class LevelEditor {
         this.layerManager = new LayerManager(256, 256);
         this.recentLayerSelections = []; // Track last 2 selected layer indices for auto-visibility
 
+        // Layer solo mode (click active layer to toggle solo/multi view)
+        this.layerSoloMode = false;
+        this.preSoloVisibility = []; // Store visibility before solo mode
+        this.preSoloOpacity = 0.8; // Store opacity before solo mode
+        this.preSoloRecentSelections = []; // Store recent selections before solo mode
+
         // Tool settings
         this.currentTool = tools.pencil;
         this.selectedTileset = null;

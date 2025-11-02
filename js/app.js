@@ -807,19 +807,70 @@ function updateLayersPanel() {
 
         // Click to select layer
         layerItem.addEventListener('click', () => {
+            const wasActive = (editor.layerManager.activeLayerIndex === i);
+
             editor.layerManager.setActiveLayer(i);
 
-            // Update recent selections tracking (keep last 2)
-            editor.recentLayerSelections = editor.recentLayerSelections.filter(idx => idx !== i);
-            editor.recentLayerSelections.unshift(i); // Add to front
-            if (editor.recentLayerSelections.length > 2) {
-                editor.recentLayerSelections.pop(); // Keep only last 2
-            }
+            // TOGGLE BEHAVIOR: Click active layer to toggle solo/multi view
+            if (wasActive) {
+                if (editor.layerSoloMode) {
+                    // EXIT SOLO MODE: Restore previous configuration
+                    editor.layerManager.layers.forEach((layer, idx) => {
+                        layer.visible = editor.preSoloVisibility[idx] || false;
+                    });
+                    editor.topLayerOpacity = editor.preSoloOpacity;
+                    editor.recentLayerSelections = [...editor.preSoloRecentSelections];
+                    editor.layerSoloMode = false;
 
-            // Update visibility for all layers (show only last 2 selected)
-            editor.layerManager.layers.forEach((layer, idx) => {
-                layer.visible = editor.recentLayerSelections.includes(idx);
-            });
+                    // Update UI opacity slider
+                    document.getElementById('layer-opacity').value = Math.round(editor.topLayerOpacity * 100);
+                    document.getElementById('layer-opacity-label').textContent = `Top Layer Opacity: ${Math.round(editor.topLayerOpacity * 100)}%`;
+                } else {
+                    // ENTER SOLO MODE: Save current config, show only this layer, 100% opacity
+                    editor.preSoloVisibility = editor.layerManager.layers.map(l => l.visible);
+                    editor.preSoloOpacity = editor.topLayerOpacity;
+                    editor.preSoloRecentSelections = [...editor.recentLayerSelections];
+
+                    // Show only this layer
+                    editor.layerManager.layers.forEach((layer, idx) => {
+                        layer.visible = (idx === i);
+                    });
+                    editor.recentLayerSelections = [i];
+                    editor.topLayerOpacity = 1.0;
+                    editor.layerSoloMode = true;
+
+                    // Update UI opacity slider
+                    document.getElementById('layer-opacity').value = 100;
+                    document.getElementById('layer-opacity-label').textContent = `Top Layer Opacity: 100%`;
+                }
+            } else {
+                // SWITCHING LAYERS: Exit solo mode if active, then normal behavior
+                if (editor.layerSoloMode) {
+                    // Restore from solo mode first
+                    editor.layerManager.layers.forEach((layer, idx) => {
+                        layer.visible = editor.preSoloVisibility[idx] || false;
+                    });
+                    editor.topLayerOpacity = editor.preSoloOpacity;
+                    editor.recentLayerSelections = [...editor.preSoloRecentSelections];
+                    editor.layerSoloMode = false;
+
+                    // Update UI opacity slider
+                    document.getElementById('layer-opacity').value = Math.round(editor.topLayerOpacity * 100);
+                    document.getElementById('layer-opacity-label').textContent = `Top Layer Opacity: ${Math.round(editor.topLayerOpacity * 100)}%`;
+                }
+
+                // Normal layer switching: Update recent selections (show last 2)
+                editor.recentLayerSelections = editor.recentLayerSelections.filter(idx => idx !== i);
+                editor.recentLayerSelections.unshift(i); // Add to front
+                if (editor.recentLayerSelections.length > 2) {
+                    editor.recentLayerSelections.pop(); // Keep only last 2
+                }
+
+                // Update visibility for all layers (show only last 2 selected)
+                editor.layerManager.layers.forEach((layer, idx) => {
+                    layer.visible = editor.recentLayerSelections.includes(idx);
+                });
+            }
 
             // Filter colors and ensure valid color for new layer
             const activeLayer = editor.layerManager.getActiveLayer();
