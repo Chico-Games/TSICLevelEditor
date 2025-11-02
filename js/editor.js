@@ -21,6 +21,7 @@ class LevelEditor {
 
         // Layer manager
         this.layerManager = new LayerManager(256, 256);
+        this.recentLayerSelections = []; // Track last 2 selected layer indices for auto-visibility
 
         // Tool settings
         this.currentTool = tools.pencil;
@@ -53,8 +54,6 @@ class LevelEditor {
         this.undoStack = [];
         this.redoStack = [];
         this.maxHistorySize = 50;
-        this.saveStateTimeout = null;
-        this.pendingSaveState = false;
 
         // Auto-save
         this.autoSaveInterval = null;
@@ -230,8 +229,9 @@ class LevelEditor {
             this.updateGridPosition();
 
             if (this.gridX >= 0 && this.gridY >= 0) {
-                // Defer saveState to avoid blocking initial click
-                this.deferredSaveState();
+                // CRITICAL FIX: Save state BEFORE drawing starts, not after!
+                // We must capture the state before any modifications
+                this.saveState();
                 this.currentTool.onMouseDown(this, this.gridX, this.gridY, e);
                 this.requestRender();
                 this.isDirty = true;
@@ -299,16 +299,6 @@ class LevelEditor {
             if (this.needsLayerPanelUpdate && typeof window.updateLayersPanel === 'function') {
                 window.updateLayersPanel();
                 this.needsLayerPanelUpdate = false;
-            }
-
-            // CRITICAL: Save state AFTER drawing completes, not during!
-            // deferredSaveState() just sets a flag, actual save happens here
-            if (this.pendingSaveState) {
-                // Save in next event loop to keep UI responsive
-                setTimeout(() => {
-                    this.saveStateNow();
-                    this.pendingSaveState = false;
-                }, 0);
             }
         }
 
@@ -1013,36 +1003,9 @@ class LevelEditor {
     }
 
     /**
-     * Save state for undo (deferred to avoid blocking user input)
-     * PERFORMANCE: For large levels (512x512 filled), this can take 1-2 seconds!
-     * We defer it so the tool starts drawing immediately
-     */
-    deferredSaveState() {
-        // Only schedule one save per operation
-        if (this.pendingSaveState) return;
-        this.pendingSaveState = true;
-
-        // CRITICAL: Don't schedule timeout at all - let onMouseUp handle it
-        // This prevents saveState from firing DURING drawing, which causes the hitch
-        // The save will be executed immediately after drawing completes (see onMouseUp)
-
-        // No timeout needed - onMouseUp will call saveStateNow() when drawing finishes
-        // This ensures the save happens AFTER drawing, not during
-    }
-
-    /**
-     * Save state for undo (immediate version for when we need it right away)
+     * Save state for undo
      */
     saveState() {
-        // Cancel any pending deferred save
-        this.pendingSaveState = false;
-        this.saveStateNow();
-    }
-
-    /**
-     * Actually perform the save (called by deferred or immediate save)
-     */
-    saveStateNow() {
         const state = this.layerManager.exportData();
         this.undoStack.push(JSON.stringify(state));
 
@@ -1060,11 +1023,21 @@ class LevelEditor {
     undo() {
         if (this.undoStack.length === 0) return;
 
+        // Save current visibility state before undo
+        const visibilityState = this.layerManager.layers.map(l => l.visible);
+
         const currentState = this.layerManager.exportData();
         this.redoStack.push(JSON.stringify(currentState));
 
         const previousState = this.undoStack.pop();
         this.layerManager.importData(JSON.parse(previousState), configManager);
+
+        // Restore visibility state after undo (visibility is UI state, not data state)
+        this.layerManager.layers.forEach((layer, idx) => {
+            if (idx < visibilityState.length) {
+                layer.visible = visibilityState[idx];
+            }
+        });
 
         this.render();
         this.renderMinimap();
@@ -1078,11 +1051,21 @@ class LevelEditor {
     redo() {
         if (this.redoStack.length === 0) return;
 
+        // Save current visibility state before redo
+        const visibilityState = this.layerManager.layers.map(l => l.visible);
+
         const currentState = this.layerManager.exportData();
         this.undoStack.push(JSON.stringify(currentState));
 
         const nextState = this.redoStack.pop();
         this.layerManager.importData(JSON.parse(nextState), configManager);
+
+        // Restore visibility state after redo (visibility is UI state, not data state)
+        this.layerManager.layers.forEach((layer, idx) => {
+            if (idx < visibilityState.length) {
+                layer.visible = visibilityState[idx];
+            }
+        });
 
         this.render();
         this.renderMinimap();
