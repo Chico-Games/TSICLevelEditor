@@ -209,82 +209,82 @@
     "Height_0": {
       "color": "#0a0a0a",
       "value": 0,
-      "tag": "Height.Underground.Deep",
+      "tag": "Height.0",
       "category": "Height",
-      "displayName": "Deep Underground",
-      "description": "Deep underground (Level 0)"
+      "displayName": "0",
+      "description": "Height level 0"
     },
     "Height_1": {
       "color": "#1a1a2e",
       "value": 1,
-      "tag": "Height.Underground",
+      "tag": "Height.1",
       "category": "Height",
-      "displayName": "Underground",
-      "description": "Underground level (Level 1)"
+      "displayName": "1",
+      "description": "Height level 1"
     },
     "Height_2": {
       "color": "#525d6b",
       "value": 2,
-      "tag": "Height.Ground",
+      "tag": "Height.2",
       "category": "Height",
-      "displayName": "Ground Floor",
-      "description": "Ground floor (Level 2)"
+      "displayName": "2",
+      "description": "Height level 2"
     },
     "Height_3": {
       "color": "#778994",
       "value": 3,
-      "tag": "Height.Ground.Mid",
+      "tag": "Height.3",
       "category": "Height",
-      "displayName": "Ground (Mid)",
-      "description": "Mid ground level (Level 3)"
+      "displayName": "3",
+      "description": "Height level 3"
     },
     "Height_4": {
       "color": "#9db5bd",
       "value": 4,
-      "tag": "Height.Elevated",
+      "tag": "Height.4",
       "category": "Height",
-      "displayName": "Elevated",
-      "description": "Elevated platform (Level 4)"
+      "displayName": "4",
+      "description": "Height level 4"
     },
     "Height_5": {
       "color": "#b0cbd1",
       "value": 5,
-      "tag": "Height.Elevated.Mid",
+      "tag": "Height.5",
       "category": "Height",
-      "displayName": "Elevated (Mid)",
-      "description": "Mid elevated level (Level 5)"
+      "displayName": "5",
+      "description": "Height level 5"
     },
     "Height_6": {
       "color": "#c3e1e6",
       "value": 6,
-      "tag": "Height.Upper",
+      "tag": "Height.6",
       "category": "Height",
-      "displayName": "Upper Floor",
-      "description": "Upper floor (Level 6)"
+      "displayName": "6",
+      "description": "Height level 6"
     },
     "Height_7": {
       "color": "#d6f5fa",
       "value": 7,
-      "tag": "Height.Upper.High",
+      "tag": "Height.7",
       "category": "Height",
-      "displayName": "Upper (High)",
-      "description": "High upper level (Level 7)"
+      "displayName": "7",
+      "description": "Height level 7"
     },
     "Height_8": {
       "color": "#e8f7fa",
       "value": 8,
-      "tag": "Height.Ceiling",
+      "tag": "Height.8",
       "category": "Height",
-      "displayName": "Ceiling",
-      "description": "Ceiling level (Level 8)"
+      "displayName": "8",
+      "description": "Height level 8"
     },
     "Height_9": {
       "color": "#ffffff",
       "value": 9,
-      "tag": "Height.Sky",
+      "tag": "Height.9",
       "category": "Height",
-      "displayName": "Sky",
-      "description": "Sky/maximum height (Level 9)"
+      "displayName": "9",
+      "description": "Height level 9"
     }
   },
 

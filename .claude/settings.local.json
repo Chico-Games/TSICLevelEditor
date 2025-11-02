@@ -22,7 +22,8 @@
       "Bash(start test_manual.html)",
       "Bash(start \"test-results\\playwright-Biome-Level-Edi-338ae--move-selection-by-dragging-chromium\\test-failed-1.png\")",
       "Bash(start \"test-results\\playwright-Biome-Level-Edi-df275-er-data-across-all-6-layers-chromium\\test-failed-1.png\")",
-      "Bash(npx http-server:*)"
+      "Bash(npx http-server:*)",
+      "Bash(start http://localhost:8080)"
     ],
     "deny": [],
     "ask": []
