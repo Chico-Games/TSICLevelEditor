@@ -11,6 +11,18 @@ window.editor = editor;
 window.configManager = window.configManager || configManager;
 
 /**
+ * Helper function to exit solo mode cleanly
+ */
+function exitSoloMode() {
+    if (!editor || !editor.layerSoloMode) return;
+
+    editor.layerSoloMode = false;
+    editor.preSoloVisibility = [];
+    editor.preSoloOpacity = 0.8;
+    editor.preSoloRecentSelections = [];
+}
+
+/**
  * Generate test map using Perlin noise for realistic terrain
  */
 function generateTestMap() {
@@ -510,6 +522,10 @@ function initializeLayersPanel() {
     document.getElementById('btn-add-layer').addEventListener('click', () => {
         const layerCount = editor.layerManager.layers.length;
         editor.saveState();
+
+        // Exit solo mode before adding (indices will change)
+        exitSoloMode();
+
         editor.layerManager.addLayer(`Layer ${layerCount + 1}`);
 
         // Auto-select the newly added layer
@@ -776,6 +792,10 @@ function updateLayersPanel() {
                 e.stopPropagation();
                 if (confirm(`Delete layer "${layer.name}"?`)) {
                     editor.saveState();
+
+                    // Exit solo mode before deleting (indices will change)
+                    exitSoloMode();
+
                     editor.layerManager.removeLayer(i);
 
                     // Update recent layer selections after deletion
@@ -819,7 +839,9 @@ function updateLayersPanel() {
                         layer.visible = editor.preSoloVisibility[idx] || false;
                     });
                     editor.topLayerOpacity = editor.preSoloOpacity;
-                    editor.recentLayerSelections = [...editor.preSoloRecentSelections];
+                    editor.recentLayerSelections = editor.preSoloRecentSelections.length > 0
+                        ? [...editor.preSoloRecentSelections]
+                        : [i]; // Fallback to current layer if empty
                     editor.layerSoloMode = false;
 
                     // Update UI opacity slider
@@ -851,7 +873,9 @@ function updateLayersPanel() {
                         layer.visible = editor.preSoloVisibility[idx] || false;
                     });
                     editor.topLayerOpacity = editor.preSoloOpacity;
-                    editor.recentLayerSelections = [...editor.preSoloRecentSelections];
+                    editor.recentLayerSelections = editor.preSoloRecentSelections.length > 0
+                        ? [...editor.preSoloRecentSelections]
+                        : [i]; // Fallback to current layer if empty
                     editor.layerSoloMode = false;
 
                     // Update UI opacity slider
@@ -967,6 +991,9 @@ function initializeToolbar() {
             return;
         }
 
+        // Exit solo mode before clearing
+        exitSoloMode();
+
         editor.clearAll();
 
         // Reset visibility to show first layer only
@@ -1062,6 +1089,9 @@ function initializeToolbar() {
 
                         document.getElementById('status-message').textContent = `Loaded: ${file.name}`;
                     }
+
+                    // Exit solo mode if active (layer count/indices may have changed)
+                    exitSoloMode();
 
                     // Initialize layer visibility after loading file
                     const activeIdx = editor.layerManager.activeLayerIndex;
