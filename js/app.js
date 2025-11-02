@@ -326,17 +326,21 @@ async function init() {
     // Start auto-save
     startAutoSave();
 
-    // Auto-load test JSON if it exists (for e2e testing) - do this before loadAutoSave
+    // Auto-load test JSON if it exists (for e2e testing) - do this before loading from localStorage
     await loadTestJSON();
 
     // Load from localStorage if available (only if no test JSON was loaded)
     if (!editor.currentFileName) {
-        loadAutoSave();
+        const loaded = loadFileFromLocalStorage();
+        if (!loaded) {
+            // Fall back to old autosave format if it exists
+            loadAutoSave();
+        }
     }
 
     // Update status
     if (!editor.currentFileName) {
-        document.getElementById('status-message').textContent = 'Ready';
+        document.getElementById('status-message').textContent = 'Ready - No file loaded';
     }
 }
 
@@ -1105,6 +1109,9 @@ function initializeToolbar() {
                     updateLayersPanel();
                     editor.isDirty = false;
 
+                    // Save loaded file to localStorage for auto-loading next time
+                    saveFileToLocalStorage(event.target.result, editor.currentFileName);
+
                 } catch (error) {
                     console.error('Import error:', error);
                     alert('Error loading file: ' + error.message);
@@ -1410,15 +1417,27 @@ function saveLevel() {
     );
 
     const json = JSON.stringify(rleData); // Minified for smallest file size
+
+    // Save to localStorage for autosave
+    saveFileToLocalStorage(json, editor.currentFileName || `${mapName}.json`);
+
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${mapName}_${Date.now()}.json`;
+    // Use current filename if exists, otherwise create new with timestamp
+    const downloadName = editor.currentFileName || `${mapName}_${Date.now()}.json`;
+    a.download = downloadName;
     a.click();
 
     URL.revokeObjectURL(url);
+
+    // Remember this filename for future saves
+    if (!editor.currentFileName) {
+        editor.currentFileName = downloadName;
+        updateFileNameDisplay();
+    }
 
     editor.isDirty = false;
     document.getElementById('status-message').textContent = 'Level saved (base64-RLE format)';
@@ -1556,7 +1575,68 @@ function updateFileNameDisplay() {
 }
 
 /**
- * Auto-save to JSON file (when checkbox is enabled)
+ * Save file data to localStorage
+ */
+function saveFileToLocalStorage(jsonData, filename) {
+    try {
+        localStorage.setItem('tsic_currentFile_data', jsonData);
+        localStorage.setItem('tsic_currentFile_name', filename);
+        localStorage.setItem('tsic_currentFile_timestamp', Date.now().toString());
+        console.log(`Saved ${filename} to localStorage (${(jsonData.length / 1024).toFixed(1)} KB)`);
+    } catch (error) {
+        console.error('Error saving to localStorage:', error);
+        if (error.name === 'QuotaExceededError') {
+            alert('Storage quota exceeded. File is too large to auto-save. Please use manual save/load.');
+        }
+    }
+}
+
+/**
+ * Load file data from localStorage
+ */
+function loadFileFromLocalStorage() {
+    try {
+        const jsonData = localStorage.getItem('tsic_currentFile_data');
+        const filename = localStorage.getItem('tsic_currentFile_name');
+        const timestamp = localStorage.getItem('tsic_currentFile_timestamp');
+
+        if (jsonData && filename) {
+            const data = JSON.parse(jsonData);
+            const timeStr = timestamp ? new Date(parseInt(timestamp)).toLocaleString() : 'unknown';
+
+            console.log(`Found saved file: ${filename} from ${timeStr}`);
+
+            // Auto-load without confirmation
+            editor.importLevel(data);
+            editor.currentFileName = filename;
+
+            // Initialize layer visibility after loading
+            const activeIdx = editor.layerManager.activeLayerIndex;
+            editor.recentLayerSelections = [activeIdx];
+            editor.layerManager.layers.forEach((layer, idx) => {
+                layer.visible = (idx === activeIdx);
+            });
+
+            editor.render();
+            editor.renderMinimap();
+            updateLayersPanel();
+            updateFileNameDisplay();
+
+            document.getElementById('status-message').textContent = `Loaded: ${filename}`;
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 2000);
+
+            return true;
+        }
+    } catch (error) {
+        console.error('Error loading from localStorage:', error);
+    }
+    return false;
+}
+
+/**
+ * Auto-save to localStorage (when checkbox is enabled)
  */
 function autoSaveToJSON() {
     if (!editor.currentFileName) {
@@ -1571,19 +1651,11 @@ function autoSaveToJSON() {
         // Generate RLE data
         const rleData = editor.layerManager.exportRLEData(baseFileName, 'Auto-saved level', Date.now());
 
-        // Download JSON file
-        const json = JSON.stringify(rleData); // Minified for smaller file size
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
+        // Save to localStorage instead of downloading
+        const json = JSON.stringify(rleData);
+        saveFileToLocalStorage(json, editor.currentFileName);
 
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = editor.currentFileName;
-        a.click();
-
-        URL.revokeObjectURL(url);
-
-        document.getElementById('status-autosave').textContent = '💾 Saved';
+        document.getElementById('status-autosave').textContent = '💾 Auto-saved';
         setTimeout(() => {
             document.getElementById('status-autosave').textContent = '';
         }, 2000);
@@ -1604,14 +1676,33 @@ function autoSaveToJSON() {
 function initializeAutoSaveCheckbox() {
     const checkbox = document.getElementById('autosave-checkbox');
 
+    // Restore checkbox state from localStorage
+    const savedCheckboxState = localStorage.getItem('tsic_autosave_enabled');
+    if (savedCheckboxState === 'true') {
+        checkbox.checked = true;
+    }
+
     checkbox.addEventListener('change', (e) => {
+        // Save checkbox state to localStorage
+        localStorage.setItem('tsic_autosave_enabled', e.target.checked.toString());
+
         if (e.target.checked) {
             if (!editor.currentFileName) {
-                alert('No file loaded. Please load a file first to enable auto-save.');
-                e.target.checked = false;
-                return;
+                // Try to load from localStorage first
+                const hasFile = loadFileFromLocalStorage();
+                if (!hasFile) {
+                    alert('No file loaded. Please load or save a file first to enable auto-save.');
+                    e.target.checked = false;
+                    localStorage.setItem('tsic_autosave_enabled', 'false');
+                    return;
+                }
             }
-            document.getElementById('status-message').textContent = 'Auto-save to JSON enabled';
+            document.getElementById('status-message').textContent = 'Auto-save enabled';
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 2000);
+        } else {
+            document.getElementById('status-message').textContent = 'Auto-save disabled';
             setTimeout(() => {
                 document.getElementById('status-message').textContent = 'Ready';
             }, 2000);
