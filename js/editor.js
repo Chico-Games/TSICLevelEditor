@@ -787,8 +787,8 @@ class LevelEditor {
             layer.initCacheCanvas(this.tileSize);
         }
 
-        // Update cache if dirty (data changed)
-        if (layer.cacheDirty) {
+        // Update cache if dirty (full render) OR if there are dirty tiles (incremental)
+        if (layer.cacheDirty || layer.dirtyTiles.size > 0) {
             layer.renderToCache();
         }
 
