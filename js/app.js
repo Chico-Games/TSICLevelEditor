@@ -1206,28 +1206,24 @@ function initializeKeyboardShortcuts() {
             return;
         }
 
-        // [ and ] for changing opacity of active layer
+        // [ and ] for changing top layer opacity
         if (e.key === '[' || e.code === 'BracketLeft') {
             e.preventDefault();
-            const layer = editor.layerManager.getActiveLayer();
-            if (layer) {
-                layer.opacity = Math.max(0, layer.opacity - 0.1);
-                editor.render();
-                editor.renderMinimap();
-                updateLayersPanel();
-            }
+            editor.topLayerOpacity = Math.max(0, editor.topLayerOpacity - 0.1);
+            document.getElementById('layer-opacity').value = Math.round(editor.topLayerOpacity * 100);
+            document.getElementById('layer-opacity-label').textContent = `Top Layer Opacity: ${Math.round(editor.topLayerOpacity * 100)}%`;
+            editor.render();
+            editor.renderMinimap();
             return;
         }
 
         if (e.key === ']' || e.code === 'BracketRight') {
             e.preventDefault();
-            const layer = editor.layerManager.getActiveLayer();
-            if (layer) {
-                layer.opacity = Math.min(1, layer.opacity + 0.1);
-                editor.render();
-                editor.renderMinimap();
-                updateLayersPanel();
-            }
+            editor.topLayerOpacity = Math.min(1, editor.topLayerOpacity + 0.1);
+            document.getElementById('layer-opacity').value = Math.round(editor.topLayerOpacity * 100);
+            document.getElementById('layer-opacity-label').textContent = `Top Layer Opacity: ${Math.round(editor.topLayerOpacity * 100)}%`;
+            editor.render();
+            editor.renderMinimap();
             return;
         }
 
