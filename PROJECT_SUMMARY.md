@@ -1,4 +1,4 @@
-# Project Summary: Biome Level Editor
+# Project Summary: TSIC Level Editor
 
 ## What Was Built
 

@@ -296,7 +296,7 @@ test.describe('Color Search', () => {
 
             // Should not crash
             const pageTitle = await page.title();
-            expect(pageTitle).toBe('Biome Level Editor');
+            expect(pageTitle).toBe('TSIC Level Editor');
         }
     });
 

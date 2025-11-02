@@ -1,4 +1,4 @@
-# Biome Level Editor
+# TSIC Level Editor
 
 A lightweight, browser-based tile editor for creating biome-based levels for Unreal Engine. Built with pure HTML5, CSS3, and vanilla JavaScript - no build process required!
 

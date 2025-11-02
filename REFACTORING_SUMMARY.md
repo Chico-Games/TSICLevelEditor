@@ -1,7 +1,7 @@
 # Single Data Type System Refactoring - Summary
 
 ## Overview
-Successfully refactored the Biome Level Editor from a complex multi-data-type system (4 separate maps per layer) to a simplified single data type system where each layer has one unified `tileData` map.
+Successfully refactored the TSIC Level Editor from a complex multi-data-type system (4 separate maps per layer) to a simplified single data type system where each layer has one unified `tileData` map.
 
 ## Changes Made
 

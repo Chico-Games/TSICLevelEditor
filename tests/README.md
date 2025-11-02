@@ -1,6 +1,6 @@
-# Test Suite for Biome Level Editor
+# Test Suite for TSIC Level Editor
 
-This directory contains automated tests for the Biome Level Editor.
+This directory contains automated tests for the TSIC Level Editor.
 
 ## Quick Start
 
