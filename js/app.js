@@ -208,6 +208,12 @@ function generateTestMap() {
             generatePerlinLayer(hazardLayer, hazards, 50, 4, 0.6, 2.5, baseSeed + 5000);
         }
 
+        // Reset visibility to show first layer only
+        editor.recentLayerSelections = [0];
+        editor.layerManager.layers.forEach((layer, idx) => {
+            layer.visible = (idx === 0);
+        });
+
         // Re-render everything
         editor.render();
         editor.renderMinimap();
@@ -281,6 +287,14 @@ async function init() {
     initializeToolbar();
     initializeKeyboardShortcuts();
     initializeAutoSaveCheckbox();
+
+    // Initialize layer visibility (show only first layer)
+    if (editor.layerManager.layers.length > 0) {
+        editor.recentLayerSelections = [0];
+        editor.layerManager.layers.forEach((layer, idx) => {
+            layer.visible = (idx === 0);
+        });
+    }
 
     // Select first color by default
     const tilesets = configManager.getTilesets();
@@ -496,8 +510,25 @@ function initializeLayersPanel() {
         const layerCount = editor.layerManager.layers.length;
         editor.saveState();
         editor.layerManager.addLayer(`Layer ${layerCount + 1}`);
+
+        // Auto-select the newly added layer
+        const newIndex = editor.layerManager.layers.length - 1;
+        editor.recentLayerSelections.unshift(newIndex);
+        if (editor.recentLayerSelections.length > 2) {
+            editor.recentLayerSelections.pop(); // Keep only last 2
+        }
+
+        // Update visibility for all layers
+        editor.layerManager.layers.forEach((layer, idx) => {
+            layer.visible = editor.recentLayerSelections.includes(idx);
+        });
+
+        // Set as active layer
+        editor.layerManager.setActiveLayer(newIndex);
+
         updateLayersPanel();
         editor.render();
+        editor.renderMinimap();
         editor.isDirty = true;
     });
 }
@@ -690,9 +721,13 @@ function updateLayersPanel() {
         const layer = layers[i];
 
         const isActive = i === editor.layerManager.activeLayerIndex;
+        const isVisible = editor.recentLayerSelections.includes(i);
 
         const layerItem = document.createElement('div');
-        layerItem.className = 'layer-item' + (isActive ? ' active' : '');
+        let className = 'layer-item';
+        if (isActive) className += ' active';
+        if (isVisible) className += ' layer-visible';
+        layerItem.className = className;
 
         // Layer header
         const layerHeader = document.createElement('div');
@@ -741,6 +776,22 @@ function updateLayersPanel() {
                 if (confirm(`Delete layer "${layer.name}"?`)) {
                     editor.saveState();
                     editor.layerManager.removeLayer(i);
+
+                    // Update recent layer selections after deletion
+                    editor.recentLayerSelections = editor.recentLayerSelections
+                        .filter(idx => idx !== i) // Remove deleted layer
+                        .map(idx => idx > i ? idx - 1 : idx); // Adjust indices after deletion
+
+                    // Ensure at least one layer is visible
+                    if (editor.recentLayerSelections.length === 0 && editor.layerManager.layers.length > 0) {
+                        editor.recentLayerSelections = [0];
+                    }
+
+                    // Update visibility for all layers
+                    editor.layerManager.layers.forEach((layer, idx) => {
+                        layer.visible = editor.recentLayerSelections.includes(idx);
+                    });
+
                     updateLayersPanel();
                     editor.render();
                     editor.renderMinimap();
@@ -756,69 +807,6 @@ function updateLayersPanel() {
         // Layer options
         const layerOptions = document.createElement('div');
         layerOptions.className = 'layer-options';
-
-        // Visibility
-        const visibilityOption = document.createElement('div');
-        visibilityOption.className = 'layer-option';
-
-        const visibilityCheckbox = document.createElement('input');
-        visibilityCheckbox.type = 'checkbox';
-        visibilityCheckbox.id = `layer-visible-${i}`;
-        visibilityCheckbox.checked = layer.visible;
-        visibilityCheckbox.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent layer selection when clicking checkbox
-        });
-        visibilityCheckbox.addEventListener('change', (e) => {
-            layer.visible = e.target.checked;
-            editor.render();
-            editor.renderMinimap();
-            editor.isDirty = true;
-        });
-
-        const visibilityLabel = document.createElement('label');
-        visibilityLabel.htmlFor = `layer-visible-${i}`;
-        visibilityLabel.textContent = 'Visible';
-        visibilityLabel.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent layer selection when clicking label
-        });
-
-        visibilityOption.appendChild(visibilityCheckbox);
-        visibilityOption.appendChild(visibilityLabel);
-
-        // Show Only button
-        const showOnlyOption = document.createElement('div');
-        showOnlyOption.className = 'layer-option';
-
-        const showOnlyBtn = document.createElement('button');
-        showOnlyBtn.textContent = 'Show Only';
-        showOnlyBtn.className = 'btn-show-only';
-        showOnlyBtn.title = 'Hide all other layers';
-        showOnlyBtn.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent layer selection when clicking button
-
-            // Check if this layer is already the only visible one
-            const visibleLayers = layers.filter(l => l.visible);
-            const isOnlyVisible = visibleLayers.length === 1 && visibleLayers[0] === layers[i];
-
-            if (isOnlyVisible) {
-                // If this is already the only visible layer, show all layers
-                layers.forEach(l => {
-                    l.visible = true;
-                });
-            } else {
-                // Hide all layers except this one
-                layers.forEach((l, index) => {
-                    l.visible = (index === i);
-                });
-            }
-
-            editor.render();
-            editor.renderMinimap();
-            updateLayersPanel();
-            editor.isDirty = true;
-        });
-
-        showOnlyOption.appendChild(showOnlyBtn);
 
         // Opacity
         const opacityOption = document.createElement('div');
@@ -846,13 +834,23 @@ function updateLayersPanel() {
         opacityOption.appendChild(opacityLabel);
         opacityOption.appendChild(opacitySlider);
 
-        layerOptions.appendChild(visibilityOption);
-        layerOptions.appendChild(showOnlyOption);
         layerOptions.appendChild(opacityOption);
 
         // Click to select layer
         layerItem.addEventListener('click', () => {
             editor.layerManager.setActiveLayer(i);
+
+            // Update recent selections tracking (keep last 2)
+            editor.recentLayerSelections = editor.recentLayerSelections.filter(idx => idx !== i);
+            editor.recentLayerSelections.unshift(i); // Add to front
+            if (editor.recentLayerSelections.length > 2) {
+                editor.recentLayerSelections.pop(); // Keep only last 2
+            }
+
+            // Update visibility for all layers (show only last 2 selected)
+            editor.layerManager.layers.forEach((layer, idx) => {
+                layer.visible = editor.recentLayerSelections.includes(idx);
+            });
 
             // Filter colors and ensure valid color for new layer
             const activeLayer = editor.layerManager.getActiveLayer();
@@ -862,6 +860,8 @@ function updateLayersPanel() {
             }
 
             updateLayersPanel();
+            editor.render();
+            editor.renderMinimap();
         });
 
         layerItem.appendChild(layerHeader);
@@ -937,10 +937,20 @@ function initializeToolbar() {
         }
 
         editor.clearAll();
+
+        // Reset visibility to show first layer only
+        editor.recentLayerSelections = [0];
+        editor.layerManager.layers.forEach((layer, idx) => {
+            layer.visible = (idx === 0);
+        });
+
         editor.undoStack = [];
         editor.redoStack = [];
         editor.updateUndoRedoButtons();
         editor.isDirty = false;
+        updateLayersPanel(); // Refresh layer panel to show correct visibility
+        editor.render();
+        editor.renderMinimap();
         document.getElementById('status-message').textContent = 'New level created';
     });
 
@@ -1022,6 +1032,13 @@ function initializeToolbar() {
                         document.getElementById('status-message').textContent = `Loaded: ${file.name}`;
                     }
 
+                    // Initialize layer visibility after loading file
+                    const activeIdx = editor.layerManager.activeLayerIndex;
+                    editor.recentLayerSelections = [activeIdx];
+                    editor.layerManager.layers.forEach((layer, idx) => {
+                        layer.visible = (idx === activeIdx);
+                    });
+
                     editor.render();
                     editor.renderMinimap();
                     updateLayersPanel();
@@ -1100,12 +1117,12 @@ function initializeToolbar() {
     // Undo/Redo
     document.getElementById('btn-undo').addEventListener('click', () => {
         editor.undo();
-        updateLayersPanel(); // Refresh layer warnings after undo
+        updateLayersPanel(); // Refresh layer panel to show correct highlighting
     });
 
     document.getElementById('btn-redo').addEventListener('click', () => {
         editor.redo();
-        updateLayersPanel(); // Refresh layer warnings after redo
+        updateLayersPanel(); // Refresh layer panel to show correct highlighting
     });
 
     // Update grid size inputs (if they exist)
@@ -1242,17 +1259,17 @@ function initializeKeyboardShortcuts() {
                     e.preventDefault();
                     if (e.shiftKey) {
                         editor.redo();
-                        updateLayersPanel(); // Refresh layer warnings after redo
+                        updateLayersPanel();
                     } else {
                         editor.undo();
-                        updateLayersPanel(); // Refresh layer warnings after undo
+                        updateLayersPanel();
                     }
                     break;
 
                 case 'y':
                     e.preventDefault();
                     editor.redo();
-                    updateLayersPanel(); // Refresh layer warnings after redo
+                    updateLayersPanel();
                     break;
 
                 case 's':
@@ -1375,6 +1392,14 @@ function loadAutoSave() {
 
             if (confirm(`Load auto-saved level from ${timeStr}?`)) {
                 editor.importLevel(data);
+
+                // Initialize layer visibility after loading
+                const activeIdx = editor.layerManager.activeLayerIndex;
+                editor.recentLayerSelections = [activeIdx];
+                editor.layerManager.layers.forEach((layer, idx) => {
+                    layer.visible = (idx === activeIdx);
+                });
+
                 editor.render();
                 editor.renderMinimap();
                 updateLayersPanel();
@@ -1435,6 +1460,13 @@ async function loadTestJSON() {
             updateFileNameDisplay();
             document.getElementById('status-message').textContent = 'Test data loaded (legacy format)';
         }
+
+        // Initialize layer visibility after loading test data
+        const activeIdx = editor.layerManager.activeLayerIndex;
+        editor.recentLayerSelections = [activeIdx];
+        editor.layerManager.layers.forEach((layer, idx) => {
+            layer.visible = (idx === activeIdx);
+        });
 
         editor.render();
         editor.renderMinimap();

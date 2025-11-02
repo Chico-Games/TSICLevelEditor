@@ -539,7 +539,7 @@ class LayerManager {
             activeLayerIndex: this.activeLayerIndex,
             layers: this.layers.map(layer => ({
                 name: layer.name,
-                visible: layer.visible,
+                // visible: layer.visible,  // REMOVED: visibility is UI state, not data state
                 opacity: layer.opacity,
                 locked: layer.locked,
                 editable: layer.editable,

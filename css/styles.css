@@ -619,6 +619,17 @@ select {
     background-color: #3c3c3c;
 }
 
+.layer-item.layer-visible {
+    border-color: #50c878;
+    background-color: #2d3d2d;
+}
+
+.layer-item.layer-visible.active {
+    border-color: #4a9eff;
+    background-color: #3c4c3c;
+    box-shadow: 0 0 8px rgba(80, 200, 120, 0.3);
+}
+
 .layer-item.layer-hover {
     background-color: #4a4a2a;
     border-color: #ffd700;
@@ -673,17 +684,9 @@ select {
     width: 100px;
 }
 
-.btn-show-only {
-    padding: 4px 8px;
-    font-size: 11px;
-    background-color: #4a9eff;
-    color: #fff;
-    border: none;
-    width: 100%;
-}
-
-.btn-show-only:hover {
-    background-color: #3a8eef;
+.layer-option input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
 }
 
 /* Status Bar */

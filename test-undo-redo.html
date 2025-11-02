@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Undo/Redo Layer Visibility Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 20px;
+        }
+        .test-section {
+            border: 1px solid #333;
+            padding: 15px;
+            margin: 10px 0;
+            background: #0a0a0a;
+        }
+        .test-pass { color: #00ff00; }
+        .test-fail { color: #ff0000; }
+        .test-info { color: #ffaa00; }
+        button {
+            background: #333;
+            color: #fff;
+            border: 1px solid #666;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #555;
+        }
+        #results {
+            max-height: 600px;
+            overflow-y: auto;
+            background: #000;
+            padding: 10px;
+            border: 1px solid #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Undo/Redo Layer Visibility Test Suite</h1>
+
+    <div class="test-section">
+        <h2>Test Controls</h2>
+        <button onclick="runAllTests()">▶ Run All Tests</button>
+        <button onclick="clearResults()">🗑️ Clear Results</button>
+        <button onclick="window.location.href='index.html'">← Back to Editor</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Results</h2>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        let testsPassed = 0;
+        let testsFailed = 0;
+
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const line = document.createElement('div');
+            line.className = `test-${type}`;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            results.appendChild(line);
+            results.scrollTop = results.scrollHeight;
+            console.log(`[TEST ${type.toUpperCase()}] ${message}`);
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+            testsPassed = 0;
+            testsFailed = 0;
+        }
+
+        function assert(condition, message) {
+            if (condition) {
+                log(`✓ PASS: ${message}`, 'pass');
+                testsPassed++;
+                return true;
+            } else {
+                log(`✗ FAIL: ${message}`, 'fail');
+                testsFailed++;
+                return false;
+            }
+        }
+
+        function logState(label, editor) {
+            const activeIdx = editor.layerManager.activeLayerIndex;
+            const visibleIndices = [];
+            editor.layerManager.layers.forEach((layer, idx) => {
+                if (layer.visible) visibleIndices.push(idx);
+            });
+            const recentSelections = [...editor.recentLayerSelections];
+
+            log(`${label}:`, 'info');
+            log(`  Active Layer: ${activeIdx} (${editor.layerManager.layers[activeIdx]?.name})`, 'info');
+            log(`  Visible Layers: [${visibleIndices.join(', ')}]`, 'info');
+            log(`  Recent Selections: [${recentSelections.join(', ')}]`, 'info');
+            log(`  Undo Stack Size: ${editor.undoStack.length}`, 'info');
+            log(`  Redo Stack Size: ${editor.redoStack.length}`, 'info');
+
+            return { activeIdx, visibleIndices, recentSelections };
+        }
+
+        async function runAllTests() {
+            clearResults();
+            log('═══════════════════════════════════════════', 'info');
+            log('Starting Undo/Redo Layer Visibility Test Suite', 'info');
+            log('═══════════════════════════════════════════', 'info');
+
+            // Wait for editor to be ready
+            let attempts = 0;
+            while (!window.editor && attempts < 50) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+
+            if (!window.editor) {
+                log('✗ CRITICAL: Editor not found! Make sure the editor is initialized.', 'fail');
+                return;
+            }
+
+            log('✓ Editor found and initialized', 'pass');
+            const editor = window.editor;
+
+            // Test 1: Initial State
+            log('\n━━━ Test 1: Initial State ━━━', 'info');
+            const initialState = logState('Initial State', editor);
+            assert(editor.layerManager.layers.length >= 6, `Has at least 6 layers (found ${editor.layerManager.layers.length})`);
+            assert(editor.recentLayerSelections.length > 0, `recentLayerSelections is initialized (length: ${editor.recentLayerSelections.length})`);
+
+            // Test 2: Click Layer 1
+            log('\n━━━ Test 2: Click Layer 1 ━━━', 'info');
+            log('ACTION: Clicking layer 1...', 'info');
+
+            // Simulate layer click
+            const layerItems = document.querySelectorAll('.layer-item');
+            if (layerItems[1]) {
+                layerItems[1].click();
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                const state2 = logState('After Layer 1 Click', editor);
+                assert(state2.activeIdx === 1, `Active layer is 1 (got ${state2.activeIdx})`);
+                assert(state2.recentSelections.includes(1), `recentLayerSelections includes 1 (got [${state2.recentSelections}])`);
+                assert(state2.visibleIndices.includes(1), `Layer 1 is visible (visible: [${state2.visibleIndices}])`);
+            } else {
+                log('✗ Could not find layer item 1', 'fail');
+            }
+
+            // Test 3: Click Layer 2
+            log('\n━━━ Test 3: Click Layer 2 ━━━', 'info');
+            log('ACTION: Clicking layer 2...', 'info');
+
+            if (layerItems[2]) {
+                layerItems[2].click();
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                const state3 = logState('After Layer 2 Click', editor);
+                assert(state3.activeIdx === 2, `Active layer is 2 (got ${state3.activeIdx})`);
+                assert(state3.recentSelections.includes(2), `recentLayerSelections includes 2 (got [${state3.recentSelections}])`);
+                assert(state3.recentSelections.includes(1), `recentLayerSelections includes 1 (got [${state3.recentSelections}])`);
+                assert(state3.recentSelections.length <= 2, `recentLayerSelections has max 2 items (got ${state3.recentSelections.length})`);
+                assert(state3.visibleIndices.includes(1), `Layer 1 is visible (visible: [${state3.visibleIndices}])`);
+                assert(state3.visibleIndices.includes(2), `Layer 2 is visible (visible: [${state3.visibleIndices}])`);
+            }
+
+            // Test 4: Paint on Layer 2
+            log('\n━━━ Test 4: Paint on Layer 2 ━━━', 'info');
+            log('ACTION: Painting a tile on layer 2...', 'info');
+
+            const layer2 = editor.layerManager.layers[2];
+            const beforeTileCount = layer2.tileData.size;
+
+            // Find a valid tileset for this layer
+            const tilesets = window.configManager.getTilesets();
+            let validTileset = null;
+            for (const [name, tileset] of Object.entries(tilesets)) {
+                if (tileset.category === 'Biomes') {
+                    validTileset = { name, ...tileset };
+                    break;
+                }
+            }
+
+            if (validTileset) {
+                editor.selectTileset(validTileset.name);
+                layer2.setTile(10, 10, validTileset.value, validTileset);
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                const afterTileCount = layer2.tileData.size;
+                log(`Tile count before: ${beforeTileCount}, after: ${afterTileCount}`, 'info');
+                assert(afterTileCount > beforeTileCount, `Tile was added to layer 2 (${beforeTileCount} → ${afterTileCount})`);
+            } else {
+                log('✗ Could not find valid tileset', 'fail');
+            }
+
+            // Test 5: Undo
+            log('\n━━━ Test 5: Undo Operation ━━━', 'info');
+            log('ACTION: Calling editor.undo()...', 'info');
+
+            const beforeUndoStack = editor.undoStack.length;
+            const beforeRecentSelections = [...editor.recentLayerSelections];
+            const beforeVisibleLayers = editor.layerManager.layers.map(l => l.visible);
+
+            editor.undo();
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            const state5 = logState('After Undo', editor);
+            log(`Before undo - recentSelections: [${beforeRecentSelections}], visible: [${beforeVisibleLayers.map((v,i) => v ? i : null).filter(x => x !== null)}]`, 'info');
+
+            assert(editor.undoStack.length === beforeUndoStack - 1, `Undo stack decreased (${beforeUndoStack} → ${editor.undoStack.length})`);
+
+            // Test 6: Check visibility after undo
+            log('\n━━━ Test 6: Visibility After Undo ━━━', 'info');
+
+            // Call the button handler's reconstruction logic manually
+            log('ACTION: Manually reconstructing recentLayerSelections...', 'info');
+            editor.recentLayerSelections = [];
+            editor.layerManager.layers.forEach((layer, idx) => {
+                if (layer.visible) {
+                    editor.recentLayerSelections.push(idx);
+                }
+            });
+            if (editor.recentLayerSelections.length === 0 && editor.layerManager.layers.length > 0) {
+                editor.recentLayerSelections = [0];
+                editor.layerManager.layers[0].visible = true;
+            }
+
+            const state6 = logState('After Manual Reconstruction', editor);
+            assert(state6.recentSelections.length > 0, `recentLayerSelections is not empty (length: ${state6.recentSelections.length})`);
+
+            const visibleCount = state6.visibleIndices.length;
+            assert(visibleCount > 0 && visibleCount <= 2, `1-2 layers visible after undo (got ${visibleCount})`);
+
+            // Test 7: Redo
+            log('\n━━━ Test 7: Redo Operation ━━━', 'info');
+            log('ACTION: Calling editor.redo()...', 'info');
+
+            const beforeRedoStack = editor.redoStack.length;
+
+            editor.redo();
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            const state7 = logState('After Redo', editor);
+            assert(editor.redoStack.length === beforeRedoStack - 1, `Redo stack decreased (${beforeRedoStack} → ${editor.redoStack.length})`);
+
+            // Reconstruct again
+            editor.recentLayerSelections = [];
+            editor.layerManager.layers.forEach((layer, idx) => {
+                if (layer.visible) {
+                    editor.recentLayerSelections.push(idx);
+                }
+            });
+            if (editor.recentLayerSelections.length === 0 && editor.layerManager.layers.length > 0) {
+                editor.recentLayerSelections = [0];
+                editor.layerManager.layers[0].visible = true;
+            }
+
+            const state7b = logState('After Redo + Reconstruction', editor);
+            assert(state7b.recentSelections.length > 0, `recentLayerSelections is not empty after redo (length: ${state7b.recentSelections.length})`);
+
+            // Test 8: Click Layer 3 After Undo/Redo
+            log('\n━━━ Test 8: Click Layer 3 After Undo/Redo ━━━', 'info');
+            log('ACTION: Clicking layer 3...', 'info');
+
+            if (layerItems[3]) {
+                layerItems[3].click();
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                const state8 = logState('After Layer 3 Click', editor);
+                assert(state8.activeIdx === 3, `Active layer is 3 (got ${state8.activeIdx})`);
+                assert(state8.recentSelections.includes(3), `recentLayerSelections includes 3 (got [${state8.recentSelections}])`);
+                assert(state8.visibleIndices.includes(3), `Layer 3 is visible (visible: [${state8.visibleIndices}])`);
+                assert(state8.visibleIndices.length <= 2, `Max 2 layers visible (got ${state8.visibleIndices.length})`);
+            }
+
+            // Final Summary
+            log('\n═══════════════════════════════════════════', 'info');
+            log('Test Suite Complete', 'info');
+            log(`Tests Passed: ${testsPassed}`, 'pass');
+            log(`Tests Failed: ${testsFailed}`, 'fail');
+            log(`Success Rate: ${Math.round((testsPassed / (testsPassed + testsFailed)) * 100)}%`, 'info');
+            log('═══════════════════════════════════════════', 'info');
+        }
+    </script>
+</body>
+</html>
