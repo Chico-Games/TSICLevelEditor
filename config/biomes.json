@@ -35,6 +35,14 @@
       "displayName": "Warehouse",
       "description": "Storage/loading dock"
     },
+    "Biome_SCPBase": {
+      "color": "#2563EB",
+      "value": 4,
+      "tag": "Biome.SCPBase",
+      "category": "Biomes",
+      "displayName": "SCP Base",
+      "description": "Main SCP base area"
+    },
     "Biome_SCPBaseEntrance": {
       "color": "#3B82F6",
       "value": 5,
@@ -66,6 +74,22 @@
       "category": "Biomes",
       "displayName": "Backrooms",
       "description": "Liminal space areas"
+    },
+    "Biome_SCPBaseExit": {
+      "color": "#1E40AF",
+      "value": 9,
+      "tag": "Biome.SCPBaseExit",
+      "category": "Biomes",
+      "displayName": "SCP Exit",
+      "description": "Exit point from SCP base"
+    },
+    "Biome_SCPBasePower": {
+      "color": "#FBBF24",
+      "value": 10,
+      "tag": "Biome.SCPBasePower",
+      "category": "Biomes",
+      "displayName": "SCP Power",
+      "description": "SCP base power room"
     },
     "Biome_AbandonedCamp": {
       "color": "#8B4513",
@@ -114,6 +138,30 @@
       "category": "Biomes",
       "displayName": "Bathroom",
       "description": "Restroom facilities"
+    },
+    "Biome_CarPark": {
+      "color": "#6B7280",
+      "value": 17,
+      "tag": "Biome.CarPark",
+      "category": "Biomes",
+      "displayName": "Car Park",
+      "description": "Main parking area"
+    },
+    "Biome_CarParkEntrance": {
+      "color": "#9CA3AF",
+      "value": 18,
+      "tag": "Biome.CarParkEntrance",
+      "category": "Biomes",
+      "displayName": "Car Park Entrance",
+      "description": "Entry point to car park"
+    },
+    "Biome_CarParkExit": {
+      "color": "#4B5563",
+      "value": 19,
+      "tag": "Biome.CarParkExit",
+      "category": "Biomes",
+      "displayName": "Car Park Exit",
+      "description": "Exit point from car park"
     },
     "Biome_StaffRoom": {
       "color": "#DEB887",
@@ -406,16 +454,22 @@
       "ShowFloor": 1,
       "Restaurant": 2,
       "Warehouse": 3,
+      "SCPBase": 4,
       "SCPBaseEntrance": 5,
       "Map": 6,
       "HelpPoint": 7,
       "Backrooms": 8,
+      "SCPBaseExit": 9,
+      "SCPBasePower": 10,
       "AbandonedCamp": 11,
       "Kids": 12,
       "Gardening": 13,
       "SkyEmpty": 14,
       "SkyCeiling": 15,
       "Bathroom": 16,
+      "CarPark": 17,
+      "CarParkEntrance": 18,
+      "CarParkExit": 19,
       "StaffRoom": 20,
       "Blocked": 21,
       "Pit": 22
