@@ -440,11 +440,58 @@ class RectangleTool extends Tool {
         const layer = editor.layerManager.getActiveLayer();
         if (!layer || layer.locked) return;
 
+        // Apply modifier keys
+        const coords = this.applyModifiers(editor, x0, y0, x1, y1);
+
         const tilesToSet = editor.brushShape === 'circle'
-            ? this.getEllipseTiles(editor, x0, y0, x1, y1)
-            : this.getRectangleTiles(editor, x0, y0, x1, y1);
+            ? this.getEllipseTiles(editor, coords.x0, coords.y0, coords.x1, coords.y1)
+            : this.getRectangleTiles(editor, coords.x0, coords.y0, coords.x1, coords.y1);
 
         editor.setTiles(tilesToSet);
+    }
+
+    /**
+     * Apply modifier keys to shape coordinates
+     * Shift: Make perfect square/circle
+     * Ctrl/Cmd: Draw from center
+     */
+    applyModifiers(editor, x0, y0, x1, y1) {
+        let newX0 = x0;
+        let newY0 = y0;
+        let newX1 = x1;
+        let newY1 = y1;
+
+        // Shift: Force square/circle (equal width and height)
+        if (editor.shiftPressed) {
+            const width = Math.abs(x1 - x0);
+            const height = Math.abs(y1 - y0);
+            const size = Math.max(width, height);
+
+            // Extend in the direction of the mouse
+            if (x1 >= x0) {
+                newX1 = x0 + size;
+            } else {
+                newX1 = x0 - size;
+            }
+
+            if (y1 >= y0) {
+                newY1 = y0 + size;
+            } else {
+                newY1 = y0 - size;
+            }
+        }
+
+        // Ctrl/Cmd: Draw from center (start point becomes center)
+        if (editor.ctrlPressed) {
+            const dx = newX1 - x0;
+            const dy = newY1 - y0;
+            newX0 = x0 - dx;
+            newY0 = y0 - dy;
+            newX1 = x0 + dx;
+            newY1 = y0 + dy;
+        }
+
+        return { x0: newX0, y0: newY0, x1: newX1, y1: newY1 };
     }
 
     getRectangleTiles(editor, x0, y0, x1, y1) {
@@ -552,10 +599,13 @@ class RectangleTool extends Tool {
             return [];
         }
 
-        const minX = Math.min(this.startX, x);
-        const maxX = Math.max(this.startX, x);
-        const minY = Math.min(this.startY, y);
-        const maxY = Math.max(this.startY, y);
+        // Apply modifier keys to preview
+        const coords = this.applyModifiers(editor, this.startX, this.startY, x, y);
+
+        const minX = Math.min(coords.x0, coords.x1);
+        const maxX = Math.max(coords.x0, coords.x1);
+        const minY = Math.min(coords.y0, coords.y1);
+        const maxY = Math.max(coords.y0, coords.y1);
 
         const preview = [];
 

@@ -753,50 +753,7 @@ function updateLayersPanel() {
             layerName.appendChild(warningIcon);
         }
 
-        const layerControls = document.createElement('div');
-        layerControls.className = 'layer-controls';
-
-        // Delete button (only if more than one layer)
-        if (layers.length > 1) {
-            const deleteBtn = document.createElement('button');
-            deleteBtn.textContent = '×';
-            deleteBtn.title = 'Delete Layer';
-            deleteBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (confirm(`Delete layer "${layer.name}"?`)) {
-                    editor.saveState();
-
-                    // Exit solo mode before deleting (indices will change)
-                    exitSoloMode();
-
-                    editor.layerManager.removeLayer(i);
-
-                    // Update recent layer selections after deletion
-                    editor.recentLayerSelections = editor.recentLayerSelections
-                        .filter(idx => idx !== i) // Remove deleted layer
-                        .map(idx => idx > i ? idx - 1 : idx); // Adjust indices after deletion
-
-                    // Ensure at least one layer is visible
-                    if (editor.recentLayerSelections.length === 0 && editor.layerManager.layers.length > 0) {
-                        editor.recentLayerSelections = [0];
-                    }
-
-                    // Update visibility for all layers
-                    editor.layerManager.layers.forEach((layer, idx) => {
-                        layer.visible = editor.recentLayerSelections.includes(idx);
-                    });
-
-                    updateLayersPanel();
-                    editor.render();
-                    editor.renderMinimap();
-                    editor.isDirty = true;
-                }
-            });
-            layerControls.appendChild(deleteBtn);
-        }
-
         layerHeader.appendChild(layerName);
-        layerHeader.appendChild(layerControls);
 
         // Click to select layer
         layerItem.addEventListener('click', () => {
@@ -1273,6 +1230,24 @@ function initializeKeyboardShortcuts() {
             return;
         }
 
+        // Track Shift key (for perfect circles/squares in shape tool)
+        if (e.key === 'Shift') {
+            editor.shiftPressed = true;
+            // Trigger preview update if currently drawing
+            if (editor.currentTool && editor.currentTool.isDrawing) {
+                editor.render();
+            }
+        }
+
+        // Track Ctrl/Cmd key (for center-based drawing in shape tool)
+        if (e.key === 'Control' || e.key === 'Meta') {
+            editor.ctrlPressed = true;
+            // Trigger preview update if currently drawing
+            if (editor.currentTool && editor.currentTool.isDrawing) {
+                editor.render();
+            }
+        }
+
         // [ and ] for changing top layer opacity
         if (e.key === '[' || e.code === 'BracketLeft') {
             e.preventDefault();
@@ -1381,11 +1356,29 @@ function initializeKeyboardShortcuts() {
         }
     });
 
-    // Handle space key release for pan mode
+    // Handle key releases
     document.addEventListener('keyup', (e) => {
         if (e.key === ' ') {
             editor.spacePressed = false;
             document.getElementById('canvas-container').style.cursor = 'crosshair';
+        }
+
+        // Release Shift key
+        if (e.key === 'Shift') {
+            editor.shiftPressed = false;
+            // Trigger preview update if currently drawing
+            if (editor.currentTool && editor.currentTool.isDrawing) {
+                editor.render();
+            }
+        }
+
+        // Release Ctrl/Cmd key
+        if (e.key === 'Control' || e.key === 'Meta') {
+            editor.ctrlPressed = false;
+            // Trigger preview update if currently drawing
+            if (editor.currentTool && editor.currentTool.isDrawing) {
+                editor.render();
+            }
         }
     });
 }

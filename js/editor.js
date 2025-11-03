@@ -54,6 +54,10 @@ class LevelEditor {
         this.panStartX = 0;
         this.panStartY = 0;
 
+        // Keyboard modifier state
+        this.shiftPressed = false;
+        this.ctrlPressed = false;
+
         // Minimap drag state
         this.isMinimapDragging = false;
 
@@ -220,8 +224,8 @@ class LevelEditor {
         this.mouseX = e.clientX - rect.left;
         this.mouseY = e.clientY - rect.top;
 
-        // Middle mouse or Space+Left mouse for panning
-        if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+        // Middle mouse button or Space+Left click for panning
+        if (e.button === 1 || (e.button === 0 && this.spacePressed)) {
             this.isPanning = true;
             this.panStartX = this.mouseX - this.offsetX;
             this.panStartY = this.mouseY - this.offsetY;
