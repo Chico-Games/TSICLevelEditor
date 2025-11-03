@@ -621,6 +621,101 @@ function clearInvalidDataTypes(layer) {
 }
 
 /**
+ * Render a single layer thumbnail (async, non-blocking)
+ */
+async function renderLayerThumbnail(layerIndex) {
+    const canvas = document.querySelector(`.layer-thumbnail[data-layer-index="${layerIndex}"]`);
+    if (!canvas) return;
+
+    const layer = editor.layerManager.layers[layerIndex];
+    if (!layer) return;
+
+    const ctx = canvas.getContext('2d');
+    const thumbnailSize = 64;
+    const gridSize = editor.layerManager.width;
+
+    // Clear canvas
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, thumbnailSize, thumbnailSize);
+
+    // Calculate scale factor (how many grid cells per thumbnail pixel)
+    const scale = gridSize / thumbnailSize;
+
+    // Use ImageData for faster pixel manipulation
+    const imageData = ctx.createImageData(thumbnailSize, thumbnailSize);
+    const data = imageData.data;
+
+    // Render in chunks to avoid blocking
+    const chunkSize = 16; // Process 16 rows at a time
+    for (let startY = 0; startY < thumbnailSize; startY += chunkSize) {
+        // Yield to browser between chunks
+        if (startY > 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        const endY = Math.min(startY + chunkSize, thumbnailSize);
+
+        for (let ty = startY; ty < endY; ty++) {
+            for (let tx = 0; tx < thumbnailSize; tx++) {
+                // Sample the grid at this position
+                const gx = Math.floor(tx * scale);
+                const gy = Math.floor(ty * scale);
+
+                // Get color directly from tileData (more performant)
+                const key = `${gx},${gy}`;
+                const color = layer.tileData.get(key);
+
+                // Set pixel color
+                const pixelIndex = (ty * thumbnailSize + tx) * 4;
+                if (color) {
+                    // Parse hex color
+                    const r = parseInt(color.slice(1, 3), 16);
+                    const g = parseInt(color.slice(3, 5), 16);
+                    const b = parseInt(color.slice(5, 7), 16);
+                    data[pixelIndex] = r;
+                    data[pixelIndex + 1] = g;
+                    data[pixelIndex + 2] = b;
+                    data[pixelIndex + 3] = 255;
+                } else {
+                    // Transparent/empty
+                    data[pixelIndex] = 26;
+                    data[pixelIndex + 1] = 26;
+                    data[pixelIndex + 2] = 26;
+                    data[pixelIndex + 3] = 255;
+                }
+            }
+        }
+    }
+
+    // Draw the final image
+    ctx.putImageData(imageData, 0, 0);
+}
+
+/**
+ * Render all layer thumbnails asynchronously
+ */
+async function renderAllLayerThumbnails() {
+    const layers = editor.layerManager.layers;
+
+    // Render thumbnails one at a time to avoid blocking
+    for (let i = 0; i < layers.length; i++) {
+        await renderLayerThumbnail(i);
+    }
+}
+
+/**
+ * Update a single layer thumbnail (call this when a layer changes)
+ */
+function updateLayerThumbnail(layerIndex) {
+    // Use requestIdleCallback for low priority updates
+    if (window.requestIdleCallback) {
+        requestIdleCallback(() => renderLayerThumbnail(layerIndex), { timeout: 500 });
+    } else {
+        setTimeout(() => renderLayerThumbnail(layerIndex), 100);
+    }
+}
+
+/**
  * Filter color palette to show only colors valid for the current layer
  */
 function filterColorsByLayer(layerType) {
@@ -758,7 +853,15 @@ function updateLayersPanel() {
             layerName.appendChild(warningIcon);
         }
 
+        // Add thumbnail canvas
+        const thumbnail = document.createElement('canvas');
+        thumbnail.className = 'layer-thumbnail';
+        thumbnail.width = 64;
+        thumbnail.height = 64;
+        thumbnail.dataset.layerIndex = i;
+
         layerHeader.appendChild(layerName);
+        layerHeader.appendChild(thumbnail);
 
         // Click to select layer
         layerItem.addEventListener('click', () => {
@@ -846,6 +949,9 @@ function updateLayersPanel() {
         layerItem.appendChild(layerHeader);
         layersList.appendChild(layerItem);
     }
+
+    // Render thumbnails asynchronously
+    requestIdleCallback(() => renderAllLayerThumbnails(), { timeout: 100 });
 }
 
 /**
@@ -2003,6 +2109,12 @@ function initializeAutoSaveCheckbox() {
                 editor.autoSaveDebounce = setTimeout(() => {
                     autoSaveCurrentProject();
                 }, 1000); // Wait 1 second after last change
+
+                // Update thumbnail for active layer (debounced)
+                clearTimeout(editor.thumbnailDebounce);
+                editor.thumbnailDebounce = setTimeout(() => {
+                    updateLayerThumbnail(editor.layerManager.activeLayerIndex);
+                }, 500); // Update thumbnail 500ms after last change
             }
         }
     });

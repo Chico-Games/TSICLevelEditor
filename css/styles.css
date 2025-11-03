@@ -205,7 +205,7 @@ select {
 /* Panels */
 #left-panel,
 #right-panel {
-    width: 250px;
+    width: 280px;
     background-color: #1e1e1e;
     border-right: 1px solid #444;
     overflow-y: auto;
@@ -744,6 +744,18 @@ select {
 .layer-name {
     font-size: 13px;
     font-weight: 500;
+    flex: 1;
+}
+
+.layer-thumbnail {
+    width: 64px;
+    height: 64px;
+    border: 1px solid #555;
+    border-radius: 3px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background-color: #1a1a1a;
+    flex-shrink: 0;
 }
 
 .layer-controls {
