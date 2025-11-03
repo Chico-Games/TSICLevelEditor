@@ -759,12 +759,16 @@ class LevelEditor {
         ctx.translate(this.offsetX, this.offsetY);
         ctx.scale(this.zoom, this.zoom);
 
-        // Render layers in reverse order (first layer in list renders on top)
+        // Render layers in selection order (most recently selected on top)
         // Bottom-most visible layer is always full opacity, top layers use global opacity
         const visibleLayers = [];
-        for (let i = this.layerManager.layers.length - 1; i >= 0; i--) {
-            const layer = this.layerManager.layers[i];
-            if (layer.visible) {
+
+        // Sort visible layers by recent selection order
+        // Start with oldest selections, end with most recent (so most recent renders on top)
+        for (let i = this.recentLayerSelections.length - 1; i >= 0; i--) {
+            const layerIndex = this.recentLayerSelections[i];
+            const layer = this.layerManager.layers[layerIndex];
+            if (layer && layer.visible) {
                 visibleLayers.push(layer);
             }
         }
