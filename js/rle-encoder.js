@@ -5,20 +5,20 @@
 
 class RLEEncoder {
     /**
-     * Encode layer data to RLE format
+     * Encode layer data to RLE format (async)
      * @param {Layer} layer - Layer object with data maps
      * @param {number} worldSize - World width/height
      * @returns {object} - RLE encoded layer data
      */
-    encodeLayer(layer, worldSize) {
+    async encodeLayer(layer, worldSize) {
         const totalTiles = worldSize * worldSize;
 
         return {
             layer_type: this.getLayerType(layer),
-            biome_data: this.encodeDataArray(layer, 'biome', totalTiles),
-            height_data: this.encodeDataArray(layer, 'height', totalTiles),
-            difficulty_data: this.encodeDataArray(layer, 'difficulty', totalTiles),
-            hazard_data: this.encodeDataArray(layer, 'hazard', totalTiles)
+            biome_data: await this.encodeDataArray(layer, 'biome', totalTiles),
+            height_data: await this.encodeDataArray(layer, 'height', totalTiles),
+            difficulty_data: await this.encodeDataArray(layer, 'difficulty', totalTiles),
+            hazard_data: await this.encodeDataArray(layer, 'hazard', totalTiles)
         };
     }
 
@@ -42,13 +42,13 @@ class RLEEncoder {
     }
 
     /**
-     * Encode a single data type array to RLE format
+     * Encode a single data type array to RLE format (async with chunking)
      * @param {Layer} layer - Layer object
      * @param {string} dataType - 'biome', 'height', 'difficulty', or 'hazard'
      * @param {number} totalTiles - Total number of tiles (worldSize²)
      * @returns {array} - RLE encoded array of {value, count}
      */
-    encodeDataArray(layer, dataType, totalTiles) {
+    async encodeDataArray(layer, dataType, totalTiles) {
         const dataMap = layer.getDataMap(dataType);
         if (!dataMap) {
             // Return single entry with layer's default value for entire grid
@@ -67,11 +67,12 @@ class RLEEncoder {
             values[index] = data.value || 0;
         }
 
-        // RLE encode the values array
+        // RLE encode the values array with chunking
         const rleArray = [];
         let currentValue = values[0];
         let count = 1;
 
+        const chunkSize = 10000; // Process 10k tiles at a time
         for (let i = 1; i < values.length; i++) {
             if (values[i] === currentValue) {
                 count++;
@@ -79,6 +80,11 @@ class RLEEncoder {
                 rleArray.push({ value: currentValue, count });
                 currentValue = values[i];
                 count = 1;
+            }
+
+            // Yield to browser every chunk
+            if (i % chunkSize === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
 
@@ -89,13 +95,13 @@ class RLEEncoder {
     }
 
     /**
-     * Encode complete level to TSIC JSON-RLE format
+     * Encode complete level to TSIC JSON-RLE format (async)
      * @param {object} levelData - Level data with gridSize and layers
      * @param {string} levelName - Name for the level
      * @param {string} description - Level description
      * @returns {object} - TSIC compliant JSON-RLE data
      */
-    encodeLevel(levelData, levelName = 'Untitled Level', description = '') {
+    async encodeLevel(levelData, levelName = 'Untitled Level', description = '') {
         const worldSize = levelData.gridSize.width;
 
         // Generate seed from current timestamp
@@ -108,7 +114,7 @@ class RLEEncoder {
                 world_size: worldSize,
                 maze_generation_seed: seed
             },
-            layers: levelData.layers.map(layer => this.encodeLayer(layer, worldSize))
+            layers: await Promise.all(levelData.layers.map(layer => this.encodeLayer(layer, worldSize)))
         };
     }
 

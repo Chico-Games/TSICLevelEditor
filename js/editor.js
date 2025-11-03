@@ -1205,23 +1205,32 @@ class LevelEditor {
     }
 
     /**
-     * Clear all layers and refill with defaults
+     * Clear all layers and refill with defaults (async)
      */
-    clearAll() {
+    async clearAll() {
         this.saveState();
         this.layerManager.clearAll();
+
+        // Show status message
+        document.getElementById('status-message').textContent = 'Clearing all layers...';
+        await new Promise(resolve => setTimeout(resolve, 0));
 
         // Refill each layer with its default color
         for (const layer of this.layerManager.layers) {
             const defaultColor = this.getDefaultColorForLayer(layer.layerType);
             if (defaultColor) {
-                this.layerManager.fillLayerWithDefault(layer, defaultColor);
+                await this.layerManager.fillLayerWithDefault(layer, defaultColor);
             }
         }
 
         this.render();
         this.renderMinimap();
         this.isDirty = true;
+
+        document.getElementById('status-message').textContent = 'Cleared all layers';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
     }
 
     /**

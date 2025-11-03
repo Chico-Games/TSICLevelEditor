@@ -25,7 +25,7 @@ function exitSoloMode() {
 /**
  * Generate test map using Perlin noise for realistic terrain
  */
-function generateTestMap() {
+async function generateTestMap() {
     try {
         if (!editor) {
             console.error('Editor not initialized');
@@ -38,6 +38,12 @@ function generateTestMap() {
             alert('Perlin noise generator not available. Please reload the page.');
             return;
         }
+
+        // Show loading message
+        document.getElementById('status-message').textContent = 'Generating test map...';
+
+        // Yield to allow UI update
+        await new Promise(resolve => setTimeout(resolve, 10));
 
         editor.saveState();
 
@@ -82,9 +88,9 @@ function generateTestMap() {
         const baseSeed = Date.now();
 
         /**
-         * Generate a layer using Perlin noise with color thresholds
+         * Generate a layer using Perlin noise with color thresholds (async with chunking)
          */
-        function generatePerlinLayer(layer, colorNames, scale, octaves = 4, persistence = 0.5, lacunarity = 2.0, seed = null) {
+        async function generatePerlinLayer(layer, colorNames, scale, octaves = 4, persistence = 0.5, lacunarity = 2.0, seed = null) {
             if (!layer || !colorNames || colorNames.length === 0) return;
 
             const noise = new PerlinNoise(seed || (baseSeed + Math.random() * 1000));
@@ -106,27 +112,38 @@ function generateTestMap() {
 
             console.log(`[TestMap] Generating ${layer.name} with ${colorRanges.length} color ranges, scale=${scale}`);
 
-            // Generate noise map and apply to layer
+            // Generate noise map and apply to layer (chunked for async)
             let tilesSet = 0;
-            for (let y = 0; y < gridHeight; y++) {
-                for (let x = 0; x < gridWidth; x++) {
-                    const sampleX = x / scale;
-                    const sampleY = y / scale;
+            const chunkSize = 32; // Process 32 rows at a time
 
-                    const noiseValue = (noise.octaveNoise(sampleX, sampleY, octaves, persistence, lacunarity) + 1) / 2;
+            for (let startY = 0; startY < gridHeight; startY += chunkSize) {
+                // Yield to browser every chunk
+                if (startY > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
 
-                    // Find appropriate color range
-                    let selectedTileset = colorRanges[0].tileset;
-                    for (const range of colorRanges) {
-                        if (noiseValue >= range.threshold) {
-                            selectedTileset = range.tileset;
-                        } else {
-                            break;
+                const endY = Math.min(startY + chunkSize, gridHeight);
+
+                for (let y = startY; y < endY; y++) {
+                    for (let x = 0; x < gridWidth; x++) {
+                        const sampleX = x / scale;
+                        const sampleY = y / scale;
+
+                        const noiseValue = (noise.octaveNoise(sampleX, sampleY, octaves, persistence, lacunarity) + 1) / 2;
+
+                        // Find appropriate color range
+                        let selectedTileset = colorRanges[0].tileset;
+                        for (const range of colorRanges) {
+                            if (noiseValue >= range.threshold) {
+                                selectedTileset = range.tileset;
+                            } else {
+                                break;
+                            }
                         }
-                    }
 
-                    layer.setTile(x, y, selectedTileset.value || 0, selectedTileset);
-                    tilesSet++;
+                        layer.setTile(x, y, selectedTileset.value || 0, selectedTileset);
+                        tilesSet++;
+                    }
                 }
             }
 
@@ -134,9 +151,9 @@ function generateTestMap() {
         }
 
         /**
-         * Generate multi-scale noise layer (combination of large and small features)
+         * Generate multi-scale noise layer (combination of large and small features - async with chunking)
          */
-        function generateMultiScaleLayer(layer, colorNames, baseScale, seed = null) {
+        async function generateMultiScaleLayer(layer, colorNames, baseScale, seed = null) {
             if (!layer || !colorNames || colorNames.length === 0) return;
 
             const noise = new PerlinNoise(seed || (baseSeed + Math.random() * 1000));
@@ -158,29 +175,40 @@ function generateTestMap() {
 
             console.log(`[TestMap] Generating multi-scale ${layer.name} with ${colorRanges.length} colors`);
 
-            // Generate combined noise
-            for (let y = 0; y < gridHeight; y++) {
-                for (let x = 0; x < gridWidth; x++) {
-                    // Combine multiple scales for interesting variation
-                    const largeFeat = noise.octaveNoise(x / (baseScale * 2), y / (baseScale * 2), 3, 0.5, 2.0);
-                    const medFeat = noise.octaveNoise(x / baseScale, y / baseScale, 4, 0.5, 2.0);
-                    const smallFeat = noise.octaveNoise(x / (baseScale * 0.5), y / (baseScale * 0.5), 2, 0.6, 2.0);
+            // Generate combined noise (chunked for async)
+            const chunkSize = 32; // Process 32 rows at a time
 
-                    // Weighted combination
-                    const combined = (largeFeat * 0.5 + medFeat * 0.3 + smallFeat * 0.2);
-                    const noiseValue = (combined + 1) / 2;
+            for (let startY = 0; startY < gridHeight; startY += chunkSize) {
+                // Yield to browser every chunk
+                if (startY > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
 
-                    // Apply color
-                    let selectedTileset = colorRanges[0].tileset;
-                    for (const range of colorRanges) {
-                        if (noiseValue >= range.threshold) {
-                            selectedTileset = range.tileset;
-                        } else {
-                            break;
+                const endY = Math.min(startY + chunkSize, gridHeight);
+
+                for (let y = startY; y < endY; y++) {
+                    for (let x = 0; x < gridWidth; x++) {
+                        // Combine multiple scales for interesting variation
+                        const largeFeat = noise.octaveNoise(x / (baseScale * 2), y / (baseScale * 2), 3, 0.5, 2.0);
+                        const medFeat = noise.octaveNoise(x / baseScale, y / baseScale, 4, 0.5, 2.0);
+                        const smallFeat = noise.octaveNoise(x / (baseScale * 0.5), y / (baseScale * 0.5), 2, 0.6, 2.0);
+
+                        // Weighted combination
+                        const combined = (largeFeat * 0.5 + medFeat * 0.3 + smallFeat * 0.2);
+                        const noiseValue = (combined + 1) / 2;
+
+                        // Apply color
+                        let selectedTileset = colorRanges[0].tileset;
+                        for (const range of colorRanges) {
+                            if (noiseValue >= range.threshold) {
+                                selectedTileset = range.tileset;
+                            } else {
+                                break;
+                            }
                         }
-                    }
 
-                    layer.setTile(x, y, selectedTileset.value || 0, selectedTileset);
+                        layer.setTile(x, y, selectedTileset.value || 0, selectedTileset);
+                    }
                 }
             }
         }
@@ -188,37 +216,37 @@ function generateTestMap() {
         // Generate Floor layer - Large features (continents, oceans)
         const floorLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'floor') || layers[0];
         if (floorLayer && biomes.length > 0) {
-            generateMultiScaleLayer(floorLayer, biomes, 80, baseSeed);
+            await generateMultiScaleLayer(floorLayer, biomes, 80, baseSeed);
         }
 
         // Generate Underground layer - Medium features (caves, tunnels)
         const undergroundLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'underground');
         if (undergroundLayer && biomes.length > 0) {
-            generateMultiScaleLayer(undergroundLayer, biomes, 60, baseSeed + 1000);
+            await generateMultiScaleLayer(undergroundLayer, biomes, 60, baseSeed + 1000);
         }
 
         // Generate Sky layer - Large, smooth features (weather patterns)
         const skyLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'sky');
         if (skyLayer && biomes.length > 0) {
-            generatePerlinLayer(skyLayer, biomes, 100, 3, 0.4, 2.0, baseSeed + 2000);
+            await generatePerlinLayer(skyLayer, biomes, 100, 3, 0.4, 2.0, baseSeed + 2000);
         }
 
         // Generate Height layer - Elevation (mountains, valleys)
         const heightLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'height');
         if (heightLayer && heights.length > 0) {
-            generatePerlinLayer(heightLayer, heights, 70, 5, 0.55, 2.2, baseSeed + 3000);
+            await generatePerlinLayer(heightLayer, heights, 70, 5, 0.55, 2.2, baseSeed + 3000);
         }
 
         // Generate Difficulty layer - Combat zones
         const difficultyLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'difficulty');
         if (difficultyLayer && difficulties.length > 0) {
-            generatePerlinLayer(difficultyLayer, difficulties, 90, 3, 0.5, 2.0, baseSeed + 4000);
+            await generatePerlinLayer(difficultyLayer, difficulties, 90, 3, 0.5, 2.0, baseSeed + 4000);
         }
 
         // Generate Hazard layer - Environmental hazards
         const hazardLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'hazard');
         if (hazardLayer && hazards.length > 0) {
-            generatePerlinLayer(hazardLayer, hazards, 50, 4, 0.6, 2.5, baseSeed + 5000);
+            await generatePerlinLayer(hazardLayer, hazards, 50, 4, 0.6, 2.5, baseSeed + 5000);
         }
 
         // Reset visibility to show first layer only

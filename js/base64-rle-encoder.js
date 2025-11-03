@@ -15,14 +15,17 @@
 
 class Base64RLEEncoder {
     /**
-     * Encode RLE data to base64 string
+     * Encode RLE data to base64 string (async with chunking)
      * @param {Array<[number, number]>} rleData - Array of [paletteIndex, count] pairs
      * @returns {string} - Base64 encoded string
      */
-    encodeToBase64(rleData) {
+    async encodeToBase64(rleData) {
         // Calculate approximate size
         let estimatedSize = rleData.length * 2; // Conservative estimate
         const bytes = [];
+
+        const chunkSize = 1000;
+        let processedCount = 0;
 
         for (const [colorIndex, runLength] of rleData) {
             if (colorIndex < 0 || colorIndex > 7) {
@@ -57,6 +60,12 @@ class Base64RLEEncoder {
                     value >>= 7;
                 }
                 bytes.push(value & 0x7F);
+            }
+
+            // Yield to browser every chunk
+            processedCount++;
+            if (processedCount % chunkSize === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
 
@@ -140,7 +149,7 @@ class Base64RLEEncoder {
     }
 
     /**
-     * Encode layer to base64-RLE format
+     * Encode layer to base64-RLE format (async)
      * @param {Array<[number, number]>} rleData - RLE data
      * @param {Array<string>} palette - Color palette
      * @param {string} layerType - Layer type
@@ -148,8 +157,8 @@ class Base64RLEEncoder {
      * @param {number} height - Grid height
      * @returns {object} - Layer data with base64-encoded RLE
      */
-    encodeLayer(rleData, palette, layerType, width, height) {
-        const base64Data = this.encodeToBase64(rleData);
+    async encodeLayer(rleData, palette, layerType, width, height) {
+        const base64Data = await this.encodeToBase64(rleData);
 
         return {
             layer_type: layerType,

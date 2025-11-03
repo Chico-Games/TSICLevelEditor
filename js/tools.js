@@ -263,7 +263,7 @@ class BucketTool extends Tool {
         this.floodFill(editor, x, y);
     }
 
-    floodFill(editor, startX, startY) {
+    async floodFill(editor, startX, startY) {
         const layer = editor.layerManager.getActiveLayer();
 
         // Check if no color is selected
@@ -297,9 +297,17 @@ class BucketTool extends Tool {
             return;
         }
 
+        // Show status message for large fills
+        document.getElementById('status-message').textContent = 'Filling...';
+        await new Promise(resolve => setTimeout(resolve, 0));
+
         const stack = [{ x: startX, y: startY }];
         const visited = new Set();
         const tilesToSet = [];
+
+        // Process in chunks to avoid blocking UI
+        const chunkSize = 1000;
+        let processedCount = 0;
 
         while (stack.length > 0) {
             const { x, y } = stack.pop();
@@ -321,9 +329,21 @@ class BucketTool extends Tool {
             stack.push({ x: x - 1, y });
             stack.push({ x, y: y + 1 });
             stack.push({ x, y: y - 1 });
+
+            // Yield to browser every chunk
+            processedCount++;
+            if (processedCount % chunkSize === 0) {
+                document.getElementById('status-message').textContent = `Filling... (${tilesToSet.length} tiles)`;
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
         }
 
         editor.setTiles(tilesToSet);
+
+        document.getElementById('status-message').textContent = `Filled ${tilesToSet.length} tiles`;
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
     }
 }
 
@@ -1257,7 +1277,7 @@ class WandTool extends Tool {
         }
     }
 
-    floodFillSelect(editor, startX, startY) {
+    async floodFillSelect(editor, startX, startY) {
         const layer = editor.layerManager.getActiveLayer();
         if (!layer) {
             document.getElementById('status-message').textContent = 'No active layer';
@@ -1278,6 +1298,10 @@ class WandTool extends Tool {
             return;
         }
 
+        // Show status message for large selections
+        document.getElementById('status-message').textContent = 'Selecting...';
+        await new Promise(resolve => setTimeout(resolve, 0));
+
         // Check if diagonal mode is enabled
         const diagonalCheckbox = document.getElementById('wand-diagonal');
         const includeDiagonals = diagonalCheckbox ? diagonalCheckbox.checked : false;
@@ -1285,6 +1309,10 @@ class WandTool extends Tool {
         const stack = [{ x: startX, y: startY }];
         const visited = new Set();
         this.selectedTiles = [];
+
+        // Process in chunks to avoid blocking UI
+        const chunkSize = 1000;
+        let processedCount = 0;
 
         while (stack.length > 0) {
             const { x, y } = stack.pop();
@@ -1313,6 +1341,13 @@ class WandTool extends Tool {
                 stack.push({ x: x + 1, y: y - 1 });
                 stack.push({ x: x - 1, y: y + 1 });
                 stack.push({ x: x - 1, y: y - 1 });
+            }
+
+            // Yield to browser every chunk
+            processedCount++;
+            if (processedCount % chunkSize === 0) {
+                document.getElementById('status-message').textContent = `Selecting... (${this.selectedTiles.length} tiles)`;
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
 
