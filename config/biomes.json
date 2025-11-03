@@ -51,7 +51,7 @@
     "Biome_SCPBaseEntrance": {
       "color": "#3B82F6",
       "value": 5,
-      "icon": "🚪",
+      "icon": "⬇️",
       "tag": "Biome.SCPBaseEntrance",
       "category": "Biomes",
       "displayName": "SCP Entrance",
@@ -78,7 +78,7 @@
     "Biome_Backrooms": {
       "color": "#E5D68A",
       "value": 8,
-      "icon": "🚪",
+      "icon": "🌫️",
       "tag": "Biome.Backrooms",
       "category": "Biomes",
       "displayName": "Backrooms",
@@ -87,7 +87,7 @@
     "Biome_SCPBaseExit": {
       "color": "#1E40AF",
       "value": 9,
-      "icon": "🚪",
+      "icon": "⬆️",
       "tag": "Biome.SCPBaseExit",
       "category": "Biomes",
       "displayName": "SCP Exit",
@@ -177,7 +177,7 @@
     "Biome_CarParkExit": {
       "color": "#4B5563",
       "value": 19,
-      "icon": "🚙",
+      "icon": "🚕",
       "tag": "Biome.CarParkExit",
       "category": "Biomes",
       "displayName": "Car Park Exit",
