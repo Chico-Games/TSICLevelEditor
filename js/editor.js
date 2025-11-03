@@ -42,6 +42,9 @@ class LevelEditor {
         this.offsetX = 0;
         this.offsetY = 0;
         this.showGrid = true;
+        this.showGuides = true; // Show composition guide lines
+        this.guideHorizontal = 2; // Number of horizontal divisions
+        this.guideVertical = 2; // Number of vertical divisions
         this.topLayerOpacity = 1.0; // Global opacity for top layer(s)
 
         // Mouse state
@@ -796,6 +799,11 @@ class LevelEditor {
             this.renderGrid(ctx);
         }
 
+        // Render guide lines (composition grid)
+        if (this.showGuides) {
+            this.renderGuideLines(ctx);
+        }
+
         ctx.restore();
 
         // Update statistics
@@ -853,6 +861,37 @@ class LevelEditor {
         }
 
         ctx.stroke();
+    }
+
+    /**
+     * Render guide lines (composition grid/viewfinder)
+     */
+    renderGuideLines(ctx) {
+        const gridWidth = this.layerManager.width * this.tileSize;
+        const gridHeight = this.layerManager.height * this.tileSize;
+
+        ctx.strokeStyle = 'rgba(255, 165, 0, 0.6)'; // Orange with transparency
+        ctx.lineWidth = 2 / this.zoom;
+        ctx.setLineDash([10 / this.zoom, 10 / this.zoom]); // Dashed line
+
+        ctx.beginPath();
+
+        // Horizontal guide lines
+        for (let i = 1; i < this.guideHorizontal; i++) {
+            const y = (gridHeight / this.guideHorizontal) * i;
+            ctx.moveTo(0, y);
+            ctx.lineTo(gridWidth, y);
+        }
+
+        // Vertical guide lines
+        for (let i = 1; i < this.guideVertical; i++) {
+            const x = (gridWidth / this.guideVertical) * i;
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, gridHeight);
+        }
+
+        ctx.stroke();
+        ctx.setLineDash([]); // Reset to solid line
     }
 
     /**

@@ -1304,6 +1304,30 @@ function initializeToolbar() {
         editor.render();
     });
 
+    // Show guide lines
+    document.getElementById('show-guides').addEventListener('change', (e) => {
+        editor.showGuides = e.target.checked;
+        editor.render();
+    });
+
+    // Horizontal guide divisions
+    document.getElementById('guide-horizontal').addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        if (value >= 1 && value <= 10) {
+            editor.guideHorizontal = value;
+            editor.render();
+        }
+    });
+
+    // Vertical guide divisions
+    document.getElementById('guide-vertical').addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        if (value >= 1 && value <= 10) {
+            editor.guideVertical = value;
+            editor.render();
+        }
+    });
+
     // Undo/Redo
     document.getElementById('btn-undo').addEventListener('click', () => {
         editor.undo();
