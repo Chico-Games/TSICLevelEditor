@@ -100,6 +100,101 @@ select {
     color: #aaa;
 }
 
+/* Segmented Control */
+.segmented-control {
+    display: inline-flex;
+    border: 1px solid #555;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.segmented-control .segment {
+    background-color: #3c3c3c;
+    color: #e0e0e0;
+    border: none;
+    border-right: 1px solid #555;
+    padding: 6px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color 0.2s;
+    border-radius: 0;
+}
+
+.segmented-control .segment:last-child {
+    border-right: none;
+}
+
+.segmented-control .segment:hover {
+    background-color: #4a4a4a;
+}
+
+.segmented-control .segment.active {
+    background-color: #0066cc;
+    color: #fff;
+}
+
+.segmented-control .segment.active:hover {
+    background-color: #0052a3;
+}
+
+/* Project Selector Section */
+#project-selector-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#project-dropdown {
+    background-color: #3c3c3c;
+    color: #e0e0e0;
+    border: 1px solid #555;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    min-width: 200px;
+    cursor: pointer;
+}
+
+#project-dropdown:focus {
+    outline: none;
+    border-color: #0066cc;
+}
+
+#project-name-input {
+    background-color: #3c3c3c;
+    color: #e0e0e0;
+    border: 1px solid #555;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    min-width: 200px;
+}
+
+#project-name-input:focus {
+    outline: none;
+    border-color: #0066cc;
+}
+
+#project-name-input::placeholder {
+    color: #666;
+}
+
+/* Loading Spinner */
+.loading-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #555;
+    border-top: 2px solid #0066cc;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
 /* Main Container */
 #main-container {
     display: flex;

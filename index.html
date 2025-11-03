@@ -13,10 +13,22 @@
             <h1>TSIC Level Editor</h1>
         </div>
 
+        <div class="toolbar-section" id="project-selector-section">
+            <label>Project:</label>
+            <select id="project-dropdown">
+                <option value="">New Project...</option>
+            </select>
+            <div id="project-loading-spinner" class="loading-spinner" style="display: none;"></div>
+            <input type="text" id="project-name-input" placeholder="Enter project name..." style="display: none;">
+            <button id="btn-create-project" style="display: none;">Create</button>
+            <button id="btn-cancel-new-project" style="display: none;">Cancel</button>
+        </div>
+
         <div class="toolbar-section">
-            <button id="btn-new" title="New Level (Ctrl+N)">New</button>
-            <button id="btn-load" title="Open Level">Open</button>
-            <button id="btn-save" title="Save Level (Ctrl+S)">Save</button>
+            <button id="btn-new" title="New Project">New</button>
+            <button id="btn-import" title="Import Level from JSON">Import</button>
+            <button id="btn-export" title="Export Level to JSON">Export</button>
+            <button id="btn-delete-project" title="Delete Current Project" style="display: none;">Delete</button>
             <button id="btn-load-test-map" title="Generate Test Map with Splodges">Load Test Map</button>
             <input type="file" id="file-input" accept=".json" style="display: none;">
         </div>
@@ -50,6 +62,11 @@
     <!-- Tool Options Bar -->
     <div id="tool-options">
         <div class="option-group">
+            <button id="btn-undo" title="Undo (Ctrl+Z)">↶ Undo</button>
+            <button id="btn-redo" title="Redo (Ctrl+Y)">↷ Redo</button>
+        </div>
+
+        <div class="option-group">
             <label id="brush-size-label">Brush Size: 1</label>
             <input type="range" id="brush-size" min="1" max="50" value="1" style="width: 150px;">
         </div>
@@ -61,18 +78,17 @@
 
         <div class="option-group">
             <label>Brush Shape:</label>
-            <select id="brush-shape">
-                <option value="square">Square</option>
-                <option value="circle">Circle</option>
-            </select>
+            <div class="segmented-control" id="brush-shape-control">
+                <button class="segment active" data-value="square">Square</button>
+                <button class="segment" data-value="circle">Circle</button>
+            </div>
         </div>
 
         <div class="option-group" id="shape-options" style="display: none;">
-            <label>Fill Mode:</label>
-            <select id="fill-mode">
-                <option value="filled">Filled</option>
-                <option value="outline">Outline</option>
-            </select>
+            <label>
+                <input type="checkbox" id="fill-mode" checked>
+                Filled
+            </label>
         </div>
 
         <div class="option-group" id="wand-options" style="display: none;">
@@ -80,11 +96,6 @@
                 <input type="checkbox" id="wand-diagonal">
                 Include Diagonals
             </label>
-        </div>
-
-        <div class="option-group">
-            <button id="btn-undo" title="Undo (Ctrl+Z)">↶ Undo</button>
-            <button id="btn-redo" title="Redo (Ctrl+Y)">↷ Redo</button>
         </div>
     </div>
 
@@ -202,12 +213,8 @@
     <div id="status-bar">
         <span id="status-position">X: 0, Y: 0</span>
         <span id="status-hover-info"></span>
-        <span id="status-filename">No file loaded</span>
+        <span id="status-filename">No project loaded</span>
         <span id="status-message">Ready</span>
-        <label style="margin-left: 10px;">
-            <input type="checkbox" id="autosave-checkbox">
-            Auto-save to JSON
-        </label>
         <span id="status-autosave"></span>
     </div>
 

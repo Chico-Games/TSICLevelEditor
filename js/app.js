@@ -326,21 +326,26 @@ async function init() {
     // Start auto-save
     startAutoSave();
 
-    // Auto-load test JSON if it exists (for e2e testing) - do this before loading from localStorage
+    // Auto-load test JSON if it exists (for e2e testing) - do this before loading projects
     await loadTestJSON();
 
-    // Load from localStorage if available (only if no test JSON was loaded)
+    // Initialize project system (only if no test JSON was loaded)
     if (!editor.currentFileName) {
-        const loaded = loadFileFromLocalStorage();
-        if (!loaded) {
-            // Fall back to old autosave format if it exists
-            loadAutoSave();
+        // Populate project dropdown
+        updateProjectDropdown();
+
+        // Load active project if one exists
+        const activeProject = getActiveProject();
+        if (activeProject) {
+            loadProjectByName(activeProject);
+        } else {
+            updateProjectUI(); // Update UI for no project state
         }
     }
 
     // Update status
     if (!editor.currentFileName) {
-        document.getElementById('status-message').textContent = 'Ready - No file loaded';
+        document.getElementById('status-message').textContent = 'Ready - No project loaded';
     }
 }
 
@@ -900,14 +905,23 @@ function initializeToolButtons() {
         editor.renderMinimap();
     });
 
-    // Brush shape selector
-    document.getElementById('brush-shape').addEventListener('change', (e) => {
-        editor.brushShape = e.target.value;
+    // Brush shape segmented control
+    document.querySelectorAll('#brush-shape-control .segment').forEach(button => {
+        button.addEventListener('click', (e) => {
+            // Remove active class from all segments
+            document.querySelectorAll('#brush-shape-control .segment').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            // Add active class to clicked segment
+            e.target.classList.add('active');
+            // Update editor brush shape
+            editor.brushShape = e.target.dataset.value;
+        });
     });
 
-    // Fill mode
+    // Fill mode checkbox
     document.getElementById('fill-mode').addEventListener('change', (e) => {
-        editor.fillMode = e.target.value;
+        editor.fillMode = e.target.checked ? 'filled' : 'outline';
     });
 }
 
@@ -916,43 +930,72 @@ function initializeToolButtons() {
  */
 function initializeToolbar() {
     // New
+    // New Project - Show name input UI
     document.getElementById('btn-new').addEventListener('click', () => {
-        if (editor.isDirty && !confirm('Discard unsaved changes?')) {
+        // Show name input, hide dropdown
+        document.getElementById('project-dropdown').style.display = 'none';
+        document.getElementById('project-name-input').style.display = 'inline-block';
+        document.getElementById('btn-create-project').style.display = 'inline-block';
+        document.getElementById('btn-cancel-new-project').style.display = 'inline-block';
+        document.getElementById('project-name-input').value = '';
+        document.getElementById('project-name-input').focus();
+    });
+
+    // Create Project
+    document.getElementById('btn-create-project').addEventListener('click', () => {
+        createNewProject();
+    });
+
+    // Cancel New Project
+    document.getElementById('btn-cancel-new-project').addEventListener('click', () => {
+        // Hide name input, show dropdown
+        document.getElementById('project-dropdown').style.display = 'inline-block';
+        document.getElementById('project-name-input').style.display = 'none';
+        document.getElementById('btn-create-project').style.display = 'none';
+        document.getElementById('btn-cancel-new-project').style.display = 'none';
+    });
+
+    // Project Dropdown Change
+    document.getElementById('project-dropdown').addEventListener('change', (e) => {
+        const projectName = e.target.value;
+
+        if (!projectName) {
+            // User selected "New Project..." option
+            document.getElementById('btn-new').click();
             return;
         }
 
-        // Exit solo mode before clearing
-        exitSoloMode();
-
-        editor.clearAll();
-
-        // CRITICAL: Clear filename to prevent overwriting old file
-        editor.currentFileName = null;
-        updateFileNameDisplay();
-
-        // Clear localStorage so new map doesn't auto-load old file on refresh
-        localStorage.removeItem('tsic_currentFile_data');
-        localStorage.removeItem('tsic_currentFile_name');
-        localStorage.removeItem('tsic_currentFile_timestamp');
-
-        // Reset visibility to show first layer only
-        editor.recentLayerSelections = [0];
-        editor.layerManager.layers.forEach((layer, idx) => {
-            layer.visible = (idx === 0);
-        });
-
-        editor.undoStack = [];
-        editor.redoStack = [];
-        editor.updateUndoRedoButtons();
-        editor.isDirty = false;
-        updateLayersPanel(); // Refresh layer panel to show correct visibility
-        editor.render();
-        editor.renderMinimap();
-        document.getElementById('status-message').textContent = 'New level created';
+        // Load selected project
+        loadProjectByName(projectName);
     });
 
-    // Load
-    document.getElementById('btn-load').addEventListener('click', () => {
+    // Delete Project
+    document.getElementById('btn-delete-project').addEventListener('click', () => {
+        const projectName = getActiveProject();
+        if (!projectName) return;
+
+        if (confirm(`Delete project "${projectName}"? This cannot be undone.`)) {
+            deleteProjectFromCache(projectName);
+
+            // Clear editor and deactivate project
+            exitSoloMode();
+            editor.clearAll();
+            editor.currentFileName = null;
+            setActiveProject(null);
+
+            // Update UI
+            updateProjectDropdown();
+            updateProjectUI();
+
+            document.getElementById('status-message').textContent = `Deleted: ${projectName}`;
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 2000);
+        }
+    });
+
+    // Import
+    document.getElementById('btn-import').addEventListener('click', () => {
         document.getElementById('file-input').click();
     });
 
@@ -967,8 +1010,12 @@ function initializeToolbar() {
     document.getElementById('file-input').addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (file) {
+            const spinner = document.getElementById('project-loading-spinner');
             const reader = new FileReader();
             reader.onload = (event) => {
+                // Show spinner
+                spinner.style.display = 'inline-block';
+
                 try {
                     const data = JSON.parse(event.target.result);
 
@@ -1013,18 +1060,14 @@ function initializeToolbar() {
                         editor.layerManager.resize(worldSize, worldSize);
                         editor.resizeCanvas();
 
-                        // Set current filename
-                        editor.currentFileName = file.name;
-                        updateFileNameDisplay();
+                        // Filename handled by import
 
                         document.getElementById('status-message').textContent = `Loaded JSON-RLE: ${data.metadata.name} (${worldSize}×${worldSize})`;
                     } else {
                         // Legacy format import
                         editor.importLevel(data);
 
-                        // Set current filename
-                        editor.currentFileName = file.name;
-                        updateFileNameDisplay();
+                        // Filename handled by import
 
                         document.getElementById('status-message').textContent = `Loaded: ${file.name}`;
                     }
@@ -1044,13 +1087,23 @@ function initializeToolbar() {
                     updateLayersPanel();
                     editor.isDirty = false;
 
-                    // Save loaded file to localStorage for auto-loading next time
-                    saveFileToLocalStorage(event.target.result, editor.currentFileName);
+                    // Import into cache - get project name from file
+                    const projectName = file.name.replace(/\.json$/, '');
+                    const projectData = JSON.parse(event.target.result);
+                    saveProjectToCache(projectName, projectData);
+
+                    // Update UI
+                    updateProjectDropdown();
+                    updateProjectUI();
+                    autoSaveCurrentProject(); // Initial save to cache
 
                 } catch (error) {
                     console.error('Import error:', error);
                     alert('Error loading file: ' + error.message);
                     document.getElementById('status-message').textContent = 'Import failed';
+                } finally {
+                    // Hide spinner
+                    spinner.style.display = 'none';
                 }
             };
             reader.readAsText(file);
@@ -1058,9 +1111,9 @@ function initializeToolbar() {
         e.target.value = '';
     });
 
-    // Save
-    document.getElementById('btn-save').addEventListener('click', () => {
-        saveLevel();
+    // Export
+    document.getElementById('btn-export').addEventListener('click', () => {
+        exportLevel();
     });
 
     // Grid size resize
@@ -1291,32 +1344,17 @@ function initializeKeyboardShortcuts() {
 
                 case 's':
                     e.preventDefault();
-                    saveLevel();
+                    exportLevel();
                     break;
 
                 case 'n':
                     e.preventDefault();
-                    if (!editor.isDirty || confirm('Discard unsaved changes?')) {
-                        // Exit solo mode before clearing
-                        exitSoloMode();
-
-                        // CRITICAL: Clear filename to prevent overwriting old file
-                        editor.currentFileName = null;
-                        updateFileNameDisplay();
-
-                        // Clear localStorage so new map doesn't auto-load old file on refresh
-                        localStorage.removeItem('tsic_currentFile_data');
-                        localStorage.removeItem('tsic_currentFile_name');
-                        localStorage.removeItem('tsic_currentFile_timestamp');
-
-                        editor.clearAll();
-                        editor.isDirty = false;
-                    }
+                    document.getElementById('btn-new').click();
                     break;
 
                 case 'o':
                     e.preventDefault();
-                    document.getElementById('btn-load').click();
+                    document.getElementById('btn-import').click();
                     break;
 
                 case 'c':
@@ -1386,42 +1424,35 @@ function initializeKeyboardShortcuts() {
 /**
  * Save level to file (using RLE format)
  */
-function saveLevel() {
-    // Use regular RLE format for consistency with autosave (still very compact)
-    const mapName = editor.currentFileName ?
-        editor.currentFileName.replace(/\.json$/, '') :
-        'TSIC_Mall';
+function exportLevel() {
+    // Get project name from active project or use default
+    const projectName = getActiveProject() || 'TSIC_Mall';
+    const fullFileName = projectName.endsWith('.json') ? projectName : `${projectName}.json`;
+
+    // Generate RLE data
     const rleData = editor.layerManager.exportRLEData(
-        mapName,
+        projectName,
         'Generated by TSIC Level Editor',
         Date.now()
     );
 
     const json = JSON.stringify(rleData); // Minified for smallest file size
 
-    // Save to localStorage for autosave
-    saveFileToLocalStorage(json, editor.currentFileName || `${mapName}.json`);
-
+    // Download file
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
     a.href = url;
-    // Use current filename if exists, otherwise create new with timestamp
-    const downloadName = editor.currentFileName || `${mapName}_${Date.now()}.json`;
-    a.download = downloadName;
+    a.download = fullFileName;
     a.click();
 
     URL.revokeObjectURL(url);
 
-    // Remember this filename for future saves
-    if (!editor.currentFileName) {
-        editor.currentFileName = downloadName;
-        updateFileNameDisplay();
-    }
-
-    editor.isDirty = false;
-    document.getElementById('status-message').textContent = 'Level saved';
+    document.getElementById('status-message').textContent = `Exported: ${fullFileName}`;
+    setTimeout(() => {
+        document.getElementById('status-message').textContent = 'Ready';
+    }, 2000);
 }
 
 /**
@@ -1541,166 +1572,403 @@ async function loadTestJSON() {
     }
 }
 
-/**
- * Update filename display
- */
-function updateFileNameDisplay() {
-    const fileNameSpan = document.getElementById('status-filename');
-    if (editor.currentFileName) {
-        fileNameSpan.textContent = `File: ${editor.currentFileName}`;
-        fileNameSpan.style.color = '#00ff00';
-    } else {
-        fileNameSpan.textContent = 'No file loaded';
-        fileNameSpan.style.color = '#888';
-    }
-    updateAutoSaveCheckboxState();
-}
+// Old file name display functions removed - replaced by updateProjectUI()
+
+// Old single-file localStorage functions removed - replaced by multi-project cache system
+
+// ============================================================================
+// MULTI-PROJECT CACHE SYSTEM
+// ============================================================================
 
 /**
- * Update autosave checkbox state based on whether a file is loaded
+ * Get all projects from cache
+ * @returns {Object} Projects object {projectName: {data, timestamp}, ...}
  */
-function updateAutoSaveCheckboxState() {
-    const checkbox = document.getElementById('autosave-checkbox');
-    if (!checkbox) return;
-
-    if (editor.currentFileName) {
-        // File is loaded, enable checkbox
-        checkbox.disabled = false;
-    } else {
-        // No file loaded, disable checkbox and uncheck it
-        checkbox.disabled = true;
-        checkbox.checked = false;
-        localStorage.setItem('tsic_autosave_enabled', 'false');
-    }
-}
-
-/**
- * Save file data to localStorage
- */
-function saveFileToLocalStorage(jsonData, filename) {
+function getAllProjectsFromCache() {
     try {
-        localStorage.setItem('tsic_currentFile_data', jsonData);
-        localStorage.setItem('tsic_currentFile_name', filename);
-        localStorage.setItem('tsic_currentFile_timestamp', Date.now().toString());
-        console.log(`Saved ${filename} to localStorage (${(jsonData.length / 1024).toFixed(1)} KB)`);
+        const projectsJson = localStorage.getItem('tsic_projects');
+        return projectsJson ? JSON.parse(projectsJson) : {};
     } catch (error) {
-        console.error('Error saving to localStorage:', error);
+        console.error('Error loading projects from cache:', error);
+        return {};
+    }
+}
+
+/**
+ * Save all projects to cache
+ * @param {Object} projects - Projects object
+ */
+function saveAllProjectsToCache(projects) {
+    try {
+        localStorage.setItem('tsic_projects', JSON.stringify(projects));
+    } catch (error) {
+        console.error('Error saving projects to cache:', error);
         if (error.name === 'QuotaExceededError') {
-            alert('Storage quota exceeded. File is too large to auto-save. Please use manual save/load.');
+            throw new Error('Storage quota exceeded. Please delete some projects or export them to files.');
         }
+        throw error;
     }
 }
 
 /**
- * Load file data from localStorage
+ * Get the active project name
+ * @returns {string|null} Active project name or null
  */
-function loadFileFromLocalStorage() {
-    try {
-        const jsonData = localStorage.getItem('tsic_currentFile_data');
-        const filename = localStorage.getItem('tsic_currentFile_name');
-        const timestamp = localStorage.getItem('tsic_currentFile_timestamp');
+function getActiveProject() {
+    return localStorage.getItem('tsic_activeProject');
+}
 
-        if (jsonData && filename) {
-            const data = JSON.parse(jsonData);
-            const timeStr = timestamp ? new Date(parseInt(timestamp)).toLocaleString() : 'unknown';
-
-            console.log(`Found saved file: ${filename} from ${timeStr}`);
-
-            // Auto-load without confirmation
-            editor.importLevel(data);
-            editor.currentFileName = filename;
-            editor.isDirty = false; // File was just loaded, not modified yet
-
-            // Initialize layer visibility after loading
-            const activeIdx = editor.layerManager.activeLayerIndex;
-            editor.recentLayerSelections = [activeIdx];
-            editor.layerManager.layers.forEach((layer, idx) => {
-                layer.visible = (idx === activeIdx);
-            });
-
-            editor.render();
-            editor.renderMinimap();
-            updateLayersPanel();
-            updateFileNameDisplay();
-
-            document.getElementById('status-message').textContent = `Loaded: ${filename}`;
-            setTimeout(() => {
-                document.getElementById('status-message').textContent = 'Ready';
-            }, 2000);
-
-            return true;
-        }
-    } catch (error) {
-        console.error('Error loading from localStorage:', error);
+/**
+ * Set the active project name
+ * @param {string} projectName - Project name to set as active
+ */
+function setActiveProject(projectName) {
+    if (projectName) {
+        localStorage.setItem('tsic_activeProject', projectName);
+    } else {
+        localStorage.removeItem('tsic_activeProject');
     }
+}
+
+/**
+ * Save a project to cache
+ * @param {string} projectName - Name of the project
+ * @param {Object} data - Level data object (RLE format)
+ */
+function saveProjectToCache(projectName, data) {
+    const projects = getAllProjectsFromCache();
+
+    projects[projectName] = {
+        data: data,
+        timestamp: Date.now()
+    };
+
+    saveAllProjectsToCache(projects);
+    setActiveProject(projectName);
+
+    console.log(`Saved project "${projectName}" to cache`);
+}
+
+/**
+ * Load a project from cache
+ * @param {string} projectName - Name of the project to load
+ * @returns {Object|null} Project data or null if not found
+ */
+function loadProjectFromCache(projectName) {
+    const projects = getAllProjectsFromCache();
+
+    if (projects[projectName]) {
+        return projects[projectName].data;
+    }
+
+    return null;
+}
+
+/**
+ * Get list of all project names
+ * @returns {Array<string>} Array of project names
+ */
+function getAllCachedProjectNames() {
+    const projects = getAllProjectsFromCache();
+    return Object.keys(projects).sort();
+}
+
+/**
+ * Delete a project from cache
+ * @param {string} projectName - Name of project to delete
+ */
+function deleteProjectFromCache(projectName) {
+    const projects = getAllProjectsFromCache();
+
+    if (projects[projectName]) {
+        delete projects[projectName];
+        saveAllProjectsToCache(projects);
+
+        // If this was the active project, clear active
+        if (getActiveProject() === projectName) {
+            setActiveProject(null);
+        }
+
+        console.log(`Deleted project "${projectName}" from cache`);
+        return true;
+    }
+
     return false;
 }
 
 /**
- * Auto-save to localStorage (when checkbox is enabled)
+ * Rename a project in cache
+ * @param {string} oldName - Current project name
+ * @param {string} newName - New project name
+ * @returns {boolean} Success
  */
-function autoSaveToJSON() {
-    if (!editor.currentFileName) {
-        console.warn('No filename set for auto-save');
-        return;
+function renameProjectInCache(oldName, newName) {
+    if (oldName === newName) return true;
+
+    const projects = getAllProjectsFromCache();
+
+    if (!projects[oldName]) {
+        console.error(`Project "${oldName}" not found`);
+        return false;
     }
 
+    if (projects[newName]) {
+        console.error(`Project "${newName}" already exists`);
+        return false;
+    }
+
+    projects[newName] = projects[oldName];
+    delete projects[oldName];
+
+    saveAllProjectsToCache(projects);
+
+    // Update active project if this was it
+    if (getActiveProject() === oldName) {
+        setActiveProject(newName);
+    }
+
+    console.log(`Renamed project "${oldName}" to "${newName}"`);
+    return true;
+}
+
+/**
+ * Migrate old single-file localStorage to new multi-project system
+ * This runs once on page load if old data exists
+ */
+function migrateOldStorageToCache() {
     try {
-        // Get the map name from filename (remove extension and size suffix)
-        const baseFileName = editor.currentFileName.replace(/\.json$/, '').replace(/_\d+$/, '');
+        const oldData = localStorage.getItem('tsic_currentFile_data');
+        const oldFilename = localStorage.getItem('tsic_currentFile_name');
 
-        // Generate RLE data
-        const rleData = editor.layerManager.exportRLEData(baseFileName, 'Auto-saved level', Date.now());
+        if (oldData && oldFilename) {
+            console.log('Migrating old localStorage format to new multi-project cache...');
 
-        // Save to localStorage instead of downloading
-        const json = JSON.stringify(rleData);
-        saveFileToLocalStorage(json, editor.currentFileName);
+            const data = JSON.parse(oldData);
+            const projectName = oldFilename.replace(/\.json$/, '');
 
-        document.getElementById('status-autosave').textContent = '💾 Auto-saved';
-        setTimeout(() => {
-            document.getElementById('status-autosave').textContent = '';
-        }, 2000);
+            // Save to new format
+            saveProjectToCache(projectName, data);
 
-        editor.isDirty = false;
+            // Remove old keys
+            localStorage.removeItem('tsic_currentFile_data');
+            localStorage.removeItem('tsic_currentFile_name');
+            localStorage.removeItem('tsic_currentFile_timestamp');
+
+            console.log(`Migrated "${projectName}" to new cache system`);
+            return projectName;
+        }
     } catch (error) {
-        console.error('Auto-save error:', error);
-        document.getElementById('status-autosave').textContent = '❌ Save failed';
-        setTimeout(() => {
-            document.getElementById('status-autosave').textContent = '';
-        }, 3000);
+        console.error('Error during migration:', error);
+    }
+
+    return null;
+}
+
+/**
+ * Update project dropdown with cached projects
+ */
+function updateProjectDropdown() {
+    const dropdown = document.getElementById('project-dropdown');
+    const projectNames = getAllCachedProjectNames();
+    const activeProject = getActiveProject();
+
+    // Clear existing options except "New Project..."
+    dropdown.innerHTML = '<option value="">New Project...</option>';
+
+    // Add all cached projects
+    projectNames.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        if (name === activeProject) {
+            option.selected = true;
+        }
+        dropdown.appendChild(option);
+    });
+}
+
+/**
+ * Update UI based on active project state
+ */
+function updateProjectUI() {
+    const activeProject = getActiveProject();
+    const deleteBtn = document.getElementById('btn-delete-project');
+    const statusFilename = document.getElementById('status-filename');
+
+    if (activeProject) {
+        deleteBtn.style.display = 'inline-block';
+        statusFilename.textContent = activeProject;
+        editor.currentFileName = activeProject;
+    } else {
+        deleteBtn.style.display = 'none';
+        statusFilename.textContent = 'No project loaded';
+        editor.currentFileName = null;
     }
 }
 
 /**
- * Initialize autosave checkbox handler
+ * Create a new project
  */
-function initializeAutoSaveCheckbox() {
-    const checkbox = document.getElementById('autosave-checkbox');
+function createNewProject() {
+    const input = document.getElementById('project-name-input');
+    const projectName = input.value.trim();
 
-    // Restore checkbox state from localStorage (only if file is loaded)
-    const savedCheckboxState = localStorage.getItem('tsic_autosave_enabled');
-    if (savedCheckboxState === 'true' && editor.currentFileName) {
-        checkbox.checked = true;
+    if (!projectName) {
+        alert('Please enter a project name');
+        return;
     }
 
-    checkbox.addEventListener('change', (e) => {
-        // Save checkbox state to localStorage
-        localStorage.setItem('tsic_autosave_enabled', e.target.checked.toString());
+    // Check if project already exists
+    const existing = getAllCachedProjectNames();
+    if (existing.includes(projectName)) {
+        alert(`Project "${projectName}" already exists. Please choose a different name.`);
+        return;
+    }
 
-        if (e.target.checked) {
-            document.getElementById('status-message').textContent = 'Auto-save enabled';
-            setTimeout(() => {
-                document.getElementById('status-message').textContent = 'Ready';
-            }, 2000);
-        } else {
-            document.getElementById('status-message').textContent = 'Auto-save disabled';
-            setTimeout(() => {
-                document.getElementById('status-message').textContent = 'Ready';
-            }, 2000);
-        }
+    // Clear editor
+    exitSoloMode();
+    editor.clearAll();
+
+    // Reset visibility to show first layer only
+    editor.recentLayerSelections = [0];
+    editor.layerManager.layers.forEach((layer, idx) => {
+        layer.visible = (idx === 0);
     });
 
-    // Hook into editor's isDirty setter to trigger auto-save
+    editor.undoStack = [];
+    editor.redoStack = [];
+    editor.updateUndoRedoButtons();
+    editor.isDirty = false;
+    updateLayersPanel();
+    editor.render();
+    editor.renderMinimap();
+
+    // Save to cache immediately
+    const rleData = editor.layerManager.exportRLEData(
+        projectName,
+        'Generated by TSIC Level Editor',
+        Date.now()
+    );
+    saveProjectToCache(projectName, rleData);
+
+    // Hide name input, show dropdown
+    document.getElementById('project-dropdown').style.display = 'inline-block';
+    document.getElementById('project-name-input').style.display = 'none';
+    document.getElementById('btn-create-project').style.display = 'none';
+    document.getElementById('btn-cancel-new-project').style.display = 'none';
+
+    // Update UI
+    updateProjectDropdown();
+    updateProjectUI();
+
+    document.getElementById('status-message').textContent = `Created: ${projectName}`;
+    setTimeout(() => {
+        document.getElementById('status-message').textContent = 'Ready';
+    }, 2000);
+}
+
+/**
+ * Load a project by name
+ */
+function loadProjectByName(projectName) {
+    const spinner = document.getElementById('project-loading-spinner');
+
+    // Show spinner
+    spinner.style.display = 'inline-block';
+
+    const projectData = loadProjectFromCache(projectName);
+
+    if (!projectData) {
+        spinner.style.display = 'none';
+        alert(`Project "${projectName}" not found in cache`);
+        return;
+    }
+
+    try {
+        // Import RLE data
+        editor.layerManager.importRLEData(projectData, configManager);
+
+        // Resize canvas to match imported world size
+        const worldSize = projectData.metadata.world_size;
+        editor.layerManager.resize(worldSize, worldSize);
+        editor.resizeCanvas();
+
+        // Set current filename
+        editor.currentFileName = projectName;
+        setActiveProject(projectName);
+
+        // Exit solo mode if active
+        exitSoloMode();
+
+        // Initialize layer visibility after loading
+        const activeIdx = editor.layerManager.activeLayerIndex;
+        editor.recentLayerSelections = [activeIdx];
+        editor.layerManager.layers.forEach((layer, idx) => {
+            layer.visible = (idx === activeIdx);
+        });
+
+        editor.render();
+        editor.renderMinimap();
+        updateLayersPanel();
+        updateProjectUI();
+        editor.isDirty = false;
+
+        document.getElementById('status-message').textContent = `Loaded: ${projectName}`;
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 2000);
+    } catch (error) {
+        console.error('Error loading project:', error);
+        alert('Error loading project: ' + error.message);
+    } finally {
+        // Hide spinner
+        spinner.style.display = 'none';
+    }
+}
+
+/**
+ * Auto-save current project to cache (always-on)
+ */
+function autoSaveCurrentProject() {
+    const projectName = getActiveProject();
+    if (!projectName) {
+        return; // No active project
+    }
+
+    try {
+        // Generate RLE data
+        const rleData = editor.layerManager.exportRLEData(
+            projectName,
+            'Generated by TSIC Level Editor',
+            Date.now()
+        );
+
+        // Save to cache
+        saveProjectToCache(projectName, rleData);
+
+        // Update status bar briefly
+        document.getElementById('status-autosave').textContent = '💾 Auto-saved';
+        setTimeout(() => {
+            document.getElementById('status-autosave').textContent = '';
+        }, 1500);
+
+        editor.isDirty = false;
+    } catch (error) {
+        console.error('Auto-save error:', error);
+        if (error.message.includes('quota exceeded')) {
+            document.getElementById('status-autosave').textContent = '❌ Cache full';
+            setTimeout(() => {
+                document.getElementById('status-autosave').textContent = '';
+            }, 3000);
+        }
+    }
+}
+
+/**
+ * Initialize always-on auto-save system
+ */
+function initializeAutoSaveCheckbox() {
+    // Hook into editor's isDirty setter to trigger auto-save (always-on)
     let originalIsDirty = false;
     Object.defineProperty(editor, 'isDirty', {
         get() {
@@ -1709,19 +1977,16 @@ function initializeAutoSaveCheckbox() {
         set(value) {
             originalIsDirty = value;
 
-            // Auto-save when dirty and checkbox is checked
-            if (value && checkbox.checked && editor.currentFileName) {
+            // Auto-save when dirty and a project is active (always-on)
+            if (value && getActiveProject()) {
                 // Debounce auto-save to avoid too many saves
                 clearTimeout(editor.autoSaveDebounce);
                 editor.autoSaveDebounce = setTimeout(() => {
-                    autoSaveToJSON();
+                    autoSaveCurrentProject();
                 }, 1000); // Wait 1 second after last change
             }
         }
     });
-
-    // Set initial checkbox state
-    updateAutoSaveCheckboxState();
 }
 
 /**

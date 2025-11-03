@@ -352,7 +352,10 @@ class LineTool extends Tool {
         const layer = editor.layerManager.getActiveLayer();
         if (!layer || layer.locked) return;
 
-        const points = this.getLinePoints(x0, y0, x1, y1);
+        // Apply Shift constraint for straight lines
+        const coords = this.constrainLine(editor, x0, y0, x1, y1);
+
+        const points = this.getLinePoints(coords.x0, coords.y0, coords.x1, coords.y1);
         const tilesToSet = [];
 
         for (const point of points) {
@@ -361,6 +364,35 @@ class LineTool extends Tool {
         }
 
         editor.setTiles(tilesToSet);
+    }
+
+    /**
+     * Constrain line to horizontal, vertical, or 45° angles when Shift is pressed
+     */
+    constrainLine(editor, x0, y0, x1, y1) {
+        if (!editor.shiftPressed) {
+            return { x0, y0, x1, y1 };
+        }
+
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+
+        // Determine which constraint (horizontal, vertical, or 45°)
+        if (absDx > absDy * 2) {
+            // Horizontal line
+            return { x0, y0, x1, y1: y0 };
+        } else if (absDy > absDx * 2) {
+            // Vertical line
+            return { x0, y0, x1: x0, y1 };
+        } else {
+            // 45° diagonal line
+            const size = Math.min(absDx, absDy);
+            const newX1 = x0 + (dx > 0 ? size : -size);
+            const newY1 = y0 + (dy > 0 ? size : -size);
+            return { x0, y0, x1: newX1, y1: newY1 };
+        }
     }
 
     getLinePoints(x0, y0, x1, y1) {
@@ -398,7 +430,10 @@ class LineTool extends Tool {
             return [];
         }
 
-        const points = this.getLinePoints(this.startX, this.startY, x, y);
+        // Apply Shift constraint for preview
+        const coords = this.constrainLine(editor, this.startX, this.startY, x, y);
+
+        const points = this.getLinePoints(coords.x0, coords.y0, coords.x1, coords.y1);
         const preview = [];
 
         for (const point of points) {
@@ -565,7 +600,7 @@ class RectangleTool extends Tool {
         const adjustedRx = rx + 0.5;
         const adjustedRy = ry + 0.5;
 
-        // Threshold for outline thickness (1.0 works well for most cases)
+        // Threshold for outline thickness (0.8 works well for most cases)
         const threshold = 0.8;
 
         // Pre-calculate squares for efficiency
