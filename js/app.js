@@ -1128,6 +1128,25 @@ function initializeToolbar() {
                 try {
                     const data = JSON.parse(event.target.result);
 
+                    // Check for name collision before importing
+                    const projectName = file.name.replace(/\.json$/, '');
+                    const existingProjects = getAllCachedProjectNames();
+                    if (existingProjects.includes(projectName)) {
+                        const overwrite = confirm(
+                            `A project named "${projectName}" already exists in the cache.\n\n` +
+                            `Importing will overwrite the existing project.\n\n` +
+                            `Do you want to continue?`
+                        );
+                        if (!overwrite) {
+                            spinner.style.display = 'none';
+                            document.getElementById('status-message').textContent = 'Import cancelled';
+                            setTimeout(() => {
+                                document.getElementById('status-message').textContent = 'Ready';
+                            }, 2000);
+                            return; // Cancel import
+                        }
+                    }
+
                     // Check if it's a JSON-RLE file (has metadata and layers)
                     if (data.metadata && data.layers) {
                         // Validate the RLE data before importing using dynamic validator
@@ -1196,10 +1215,8 @@ function initializeToolbar() {
                     updateLayersPanel();
                     editor.isDirty = false;
 
-                    // Import into cache - get project name from file
-                    const projectName = file.name.replace(/\.json$/, '');
-                    const projectData = JSON.parse(event.target.result);
-                    saveProjectToCache(projectName, projectData);
+                    // Import into cache (projectName already declared above)
+                    saveProjectToCache(projectName, data);
 
                     // Update UI
                     updateProjectDropdown();
