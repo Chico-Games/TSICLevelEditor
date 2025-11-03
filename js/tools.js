@@ -493,32 +493,58 @@ class RectangleTool extends Tool {
             // Filled ellipse using region check
             for (let y = minY; y <= maxY; y++) {
                 for (let x = minX; x <= maxX; x++) {
-                    const dx = (x - centerX) / radiusX;
-                    const dy = (y - centerY) / radiusY;
+                    const dx = (x - centerX) / (radiusX || 1);
+                    const dy = (y - centerY) / (radiusY || 1);
                     if (dx * dx + dy * dy <= 1) {
                         tilesToSet.push({ x, y });
                     }
                 }
             }
         } else {
-            // Outline ellipse using midpoint algorithm
-            const tiles = new Set();
+            // Outline using distance-based threshold approach
+            // This produces smoother visual results than Bresenham, especially for small circles
+            this.distanceBasedOutline(centerX, centerY, radiusX, radiusY, minX, maxX, minY, maxY, tilesToSet);
+        }
 
-            // Draw ellipse using parametric equation for better outline
-            const steps = Math.max(Math.abs(maxX - minX), Math.abs(maxY - minY)) * 4;
-            for (let i = 0; i <= steps; i++) {
-                const angle = (i / steps) * 2 * Math.PI;
-                const x = Math.round(centerX + radiusX * Math.cos(angle));
-                const y = Math.round(centerY + radiusY * Math.sin(angle));
-                const key = `${x},${y}`;
-                if (!tiles.has(key) && x >= minX && x <= maxX && y >= minY && y <= maxY) {
-                    tiles.add(key);
+        return tilesToSet;
+    }
+
+    /**
+     * Distance-based outline drawing - produces smooth circles without artifacts
+     * Uses threshold approach recommended for pixel art
+     */
+    distanceBasedOutline(cx, cy, rx, ry, minX, maxX, minY, maxY, tilesToSet) {
+        // Add 0.5 to radii for better visual results (Red Blob Games technique)
+        const adjustedRx = rx + 0.5;
+        const adjustedRy = ry + 0.5;
+
+        // Threshold for outline thickness (1.0 works well for most cases)
+        const threshold = 0.8;
+
+        // Pre-calculate squares for efficiency
+        const rx2 = adjustedRx * adjustedRx;
+        const ry2 = adjustedRy * adjustedRy;
+
+        // Scan bounding box
+        for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
+            for (let x = Math.floor(minX); x <= Math.ceil(maxX); x++) {
+                const dx = x - cx;
+                const dy = y - cy;
+
+                // Calculate normalized distance (avoid sqrt by comparing squares)
+                // For ellipse: (dx/rx)² + (dy/ry)² = 1 at the edge
+                const normalizedDist2 = (dx * dx) / rx2 + (dy * dy) / ry2;
+
+                // Draw if close to edge (between inner and outer threshold)
+                const innerThreshold = (1 - threshold / adjustedRx);
+                const outerThreshold = (1 + threshold / adjustedRx);
+
+                if (normalizedDist2 >= innerThreshold * innerThreshold &&
+                    normalizedDist2 <= outerThreshold * outerThreshold) {
                     tilesToSet.push({ x, y });
                 }
             }
         }
-
-        return tilesToSet;
     }
 
     getPreview(editor, x, y) {
@@ -534,17 +560,18 @@ class RectangleTool extends Tool {
         const preview = [];
 
         if (editor.brushShape === 'circle') {
-            // Circle/ellipse preview
+            // Circle/ellipse preview - use same distance-based approach
             const centerX = (minX + maxX) / 2;
             const centerY = (minY + maxY) / 2;
             const radiusX = (maxX - minX) / 2;
             const radiusY = (maxY - minY) / 2;
 
             if (editor.fillMode === 'filled') {
+                // Filled ellipse preview
                 for (let py = minY; py <= maxY; py++) {
                     for (let px = minX; px <= maxX; px++) {
-                        const dx = (px - centerX) / radiusX;
-                        const dy = (py - centerY) / radiusY;
+                        const dx = (px - centerX) / (radiusX || 1);
+                        const dy = (py - centerY) / (radiusY || 1);
                         if (dx * dx + dy * dy <= 1 &&
                             px >= 0 && px < editor.layerManager.width &&
                             py >= 0 && py < editor.layerManager.height) {
@@ -553,18 +580,15 @@ class RectangleTool extends Tool {
                     }
                 }
             } else {
-                const tiles = new Set();
-                const steps = Math.max(Math.abs(maxX - minX), Math.abs(maxY - minY)) * 4;
-                for (let i = 0; i <= steps; i++) {
-                    const angle = (i / steps) * 2 * Math.PI;
-                    const px = Math.round(centerX + radiusX * Math.cos(angle));
-                    const py = Math.round(centerY + radiusY * Math.sin(angle));
-                    const key = `${px},${py}`;
-                    if (!tiles.has(key) &&
-                        px >= 0 && px < editor.layerManager.width &&
-                        py >= 0 && py < editor.layerManager.height) {
-                        tiles.add(key);
-                        preview.push({ x: px, y: py });
+                // Outline preview - use distance-based approach
+                const tempTiles = [];
+                this.distanceBasedOutline(centerX, centerY, radiusX, radiusY, minX, maxX, minY, maxY, tempTiles);
+
+                // Filter to bounds
+                for (const tile of tempTiles) {
+                    if (tile.x >= 0 && tile.x < editor.layerManager.width &&
+                        tile.y >= 0 && tile.y < editor.layerManager.height) {
+                        preview.push(tile);
                     }
                 }
             }
