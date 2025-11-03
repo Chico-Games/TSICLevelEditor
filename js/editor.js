@@ -31,6 +31,7 @@ class LevelEditor {
 
         // Tool settings
         this.currentTool = tools.pencil;
+        this.previousTool = null; // Track previous tool for eyedropper auto-switch
         this.selectedTileset = null;
         this.brushSize = 1;
         this.brushShape = 'square';
@@ -63,11 +64,6 @@ class LevelEditor {
 
         // Minimap drag state
         this.isMinimapDragging = false;
-
-        // Undo/Redo stacks
-        this.undoStack = [];
-        this.redoStack = [];
-        this.maxHistorySize = 50;
 
         // Auto-save
         this.autoSaveInterval = null;
@@ -583,6 +579,11 @@ class LevelEditor {
                 }
             }
 
+            // Save previous tool when switching to eyedropper (but not if we're already on eyedropper)
+            if (toolName === 'eyedropper' && this.currentTool.name !== 'eyedropper') {
+                this.previousTool = this.currentTool.name;
+            }
+
             this.currentTool = tools[toolName];
 
             // Show/hide shape options
@@ -1062,96 +1063,50 @@ class LevelEditor {
     }
 
     /**
-     * Save state for undo (optimized: clone Maps directly instead of JSON export)
+     * Save state for undo (per-layer: only saves active layer's state)
      * PERFORMANCE: Direct Map cloning is 10-100x faster than exportData + JSON.stringify
      */
     saveState() {
+        const layer = this.layerManager.getActiveLayer();
+        if (!layer) return;
+
+        // Save state to the active layer's own undo stack
         const state = {
-            width: this.layerManager.width,
-            height: this.layerManager.height,
-            activeLayerIndex: this.layerManager.activeLayerIndex,
-            layers: this.layerManager.layers.map(layer => ({
-                name: layer.name,
-                opacity: layer.opacity,
-                locked: layer.locked,
-                editable: layer.editable,
-                layerType: layer.layerType,
-                worldLayer: layer.worldLayer,
-                required: layer.required,
-                // Deep clone the Map - much faster than exporting to array + JSON
-                tileData: new Map(layer.tileData)
-            }))
+            // Deep clone the Map - much faster than exporting to array + JSON
+            tileData: new Map(layer.tileData)
         };
 
-        this.undoStack.push(state);
+        layer.undoStack.push(state);
 
-        if (this.undoStack.length > this.maxHistorySize) {
-            this.undoStack.shift();
+        if (layer.undoStack.length > layer.maxHistorySize) {
+            layer.undoStack.shift();
         }
 
-        this.redoStack = [];
+        layer.redoStack = [];
         this.updateUndoRedoButtons();
     }
 
     /**
-     * Undo last action (optimized: restore Maps directly)
+     * Undo last action (per-layer: only restores active layer)
      */
     undo() {
-        if (this.undoStack.length === 0) return;
-
-        // Save current visibility state before undo
-        const visibilityState = this.layerManager.layers.map(l => l.visible);
+        const layer = this.layerManager.getActiveLayer();
+        if (!layer || layer.undoStack.length === 0) return;
 
         // Save current state to redo stack (using optimized Map cloning)
         const currentState = {
-            width: this.layerManager.width,
-            height: this.layerManager.height,
-            activeLayerIndex: this.layerManager.activeLayerIndex,
-            layers: this.layerManager.layers.map(layer => ({
-                name: layer.name,
-                opacity: layer.opacity,
-                locked: layer.locked,
-                editable: layer.editable,
-                layerType: layer.layerType,
-                worldLayer: layer.worldLayer,
-                required: layer.required,
-                tileData: new Map(layer.tileData)
-            }))
+            tileData: new Map(layer.tileData)
         };
-        this.redoStack.push(currentState);
+        layer.redoStack.push(currentState);
 
         // Restore previous state directly from Maps
-        const previousState = this.undoStack.pop();
+        const previousState = layer.undoStack.pop();
 
-        // Restore layer data directly
-        for (let i = 0; i < this.layerManager.layers.length; i++) {
-            if (i < previousState.layers.length) {
-                const layer = this.layerManager.layers[i];
-                const prevLayer = previousState.layers[i];
+        // Clone the Map data
+        layer.tileData = new Map(previousState.tileData);
 
-                // Clone the Map data
-                layer.tileData = new Map(prevLayer.tileData);
-
-                // Restore other properties
-                layer.name = prevLayer.name;
-                layer.opacity = prevLayer.opacity;
-                layer.locked = prevLayer.locked;
-                layer.editable = prevLayer.editable;
-                layer.layerType = prevLayer.layerType;
-                layer.worldLayer = prevLayer.worldLayer;
-                layer.required = prevLayer.required;
-
-                // CRITICAL: Invalidate cache after restoring data
-                layer.cacheDirty = true;
-            }
-        }
-
-        // Restore visibility state after undo (visibility is UI state, not data state)
-        this.layerManager.layers.forEach((layer, idx) => {
-            if (idx < visibilityState.length) {
-                layer.visible = visibilityState[idx];
-            }
-        });
+        // CRITICAL: Invalidate cache after restoring data
+        layer.cacheDirty = true;
 
         this.render();
         this.renderMinimap();
@@ -1160,64 +1115,26 @@ class LevelEditor {
     }
 
     /**
-     * Redo last undone action (optimized: restore Maps directly)
+     * Redo last undone action (per-layer: only restores active layer)
      */
     redo() {
-        if (this.redoStack.length === 0) return;
-
-        // Save current visibility state before redo
-        const visibilityState = this.layerManager.layers.map(l => l.visible);
+        const layer = this.layerManager.getActiveLayer();
+        if (!layer || layer.redoStack.length === 0) return;
 
         // Save current state to undo stack (using optimized Map cloning)
         const currentState = {
-            width: this.layerManager.width,
-            height: this.layerManager.height,
-            activeLayerIndex: this.layerManager.activeLayerIndex,
-            layers: this.layerManager.layers.map(layer => ({
-                name: layer.name,
-                opacity: layer.opacity,
-                locked: layer.locked,
-                editable: layer.editable,
-                layerType: layer.layerType,
-                worldLayer: layer.worldLayer,
-                required: layer.required,
-                tileData: new Map(layer.tileData)
-            }))
+            tileData: new Map(layer.tileData)
         };
-        this.undoStack.push(currentState);
+        layer.undoStack.push(currentState);
 
         // Restore next state directly from Maps
-        const nextState = this.redoStack.pop();
+        const nextState = layer.redoStack.pop();
 
-        // Restore layer data directly
-        for (let i = 0; i < this.layerManager.layers.length; i++) {
-            if (i < nextState.layers.length) {
-                const layer = this.layerManager.layers[i];
-                const nextLayer = nextState.layers[i];
+        // Clone the Map data
+        layer.tileData = new Map(nextState.tileData);
 
-                // Clone the Map data
-                layer.tileData = new Map(nextLayer.tileData);
-
-                // Restore other properties
-                layer.name = nextLayer.name;
-                layer.opacity = nextLayer.opacity;
-                layer.locked = nextLayer.locked;
-                layer.editable = nextLayer.editable;
-                layer.layerType = nextLayer.layerType;
-                layer.worldLayer = nextLayer.worldLayer;
-                layer.required = nextLayer.required;
-
-                // CRITICAL: Invalidate cache after restoring data
-                layer.cacheDirty = true;
-            }
-        }
-
-        // Restore visibility state after redo (visibility is UI state, not data state)
-        this.layerManager.layers.forEach((layer, idx) => {
-            if (idx < visibilityState.length) {
-                layer.visible = visibilityState[idx];
-            }
-        });
+        // CRITICAL: Invalidate cache after restoring data
+        layer.cacheDirty = true;
 
         this.render();
         this.renderMinimap();
@@ -1226,11 +1143,18 @@ class LevelEditor {
     }
 
     /**
-     * Update undo/redo button states
+     * Update undo/redo button states (per-layer: checks active layer's stacks)
      */
     updateUndoRedoButtons() {
-        document.getElementById('btn-undo').disabled = this.undoStack.length === 0;
-        document.getElementById('btn-redo').disabled = this.redoStack.length === 0;
+        const layer = this.layerManager.getActiveLayer();
+        if (!layer) {
+            document.getElementById('btn-undo').disabled = true;
+            document.getElementById('btn-redo').disabled = true;
+            return;
+        }
+
+        document.getElementById('btn-undo').disabled = layer.undoStack.length === 0;
+        document.getElementById('btn-redo').disabled = layer.redoStack.length === 0;
     }
 
     /**

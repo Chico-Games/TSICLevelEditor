@@ -29,6 +29,11 @@ class WorldLayer {
         this.cacheDirty = true; // Mark as needing full render initially
         this.dirtyTiles = new Set(); // Track individual dirty tiles for incremental updates
         this.tileSize = 16; // Default, will be updated by editor
+
+        // Per-layer undo/redo stacks
+        this.undoStack = [];
+        this.redoStack = [];
+        this.maxHistorySize = 50;
     }
 
     /**

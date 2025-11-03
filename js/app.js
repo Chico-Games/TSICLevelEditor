@@ -952,6 +952,7 @@ function updateLayersPanel() {
             updateLayersPanel();
             editor.render();
             editor.renderMinimap();
+            editor.updateUndoRedoButtons(); // Update buttons for new active layer
         });
 
         layerItem.appendChild(layerHeader);
@@ -960,6 +961,9 @@ function updateLayersPanel() {
 
     // Render thumbnails asynchronously
     requestIdleCallback(() => renderAllLayerThumbnails(), { timeout: 100 });
+
+    // Update undo/redo button states for the active layer
+    editor.updateUndoRedoButtons();
 }
 
 /**
@@ -2006,10 +2010,11 @@ async function createNewProject() {
         editor.recentLayerSelections = [0];
         editor.layerManager.layers.forEach((layer, idx) => {
             layer.visible = (idx === 0);
+            // Clear per-layer undo/redo stacks
+            layer.undoStack = [];
+            layer.redoStack = [];
         });
 
-        editor.undoStack = [];
-        editor.redoStack = [];
         editor.updateUndoRedoButtons();
         editor.isDirty = false;
         updateLayersPanel();

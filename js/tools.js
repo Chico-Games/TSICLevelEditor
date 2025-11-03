@@ -744,6 +744,16 @@ class EyedropperTool extends Tool {
                 document.getElementById('status-message').textContent = 'Ready';
             }, 1500);
         }
+
+        // Switch back to previous tool after picking (default to pencil if no previous tool)
+        const toolToRestore = editor.previousTool || 'pencil';
+        editor.setTool(toolToRestore);
+
+        // Update UI to show the correct active tool button
+        const toolButtons = document.querySelectorAll('.tool-btn');
+        toolButtons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tool === toolToRestore);
+        });
     }
 }
 
