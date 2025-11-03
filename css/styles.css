@@ -486,6 +486,17 @@ select {
     border: 2px solid #555;
     border-radius: 4px;
     margin-bottom: 5px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.color-icon {
+    font-size: 20px;
+    text-shadow: 0 0 2px rgba(0, 0, 0, 0.8), 0 0 4px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+    user-select: none;
 }
 
 .color-name {

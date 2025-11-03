@@ -6,6 +6,7 @@
     "Biome_None": {
       "color": "#000000",
       "value": 0,
+      "icon": "⬛",
       "tag": "Biome.None",
       "category": "Biomes",
       "displayName": "None",
@@ -14,6 +15,7 @@
     "Biome_ShowFloor": {
       "color": "#FF6B6B",
       "value": 1,
+      "icon": "🏬",
       "tag": "Biome.ShowFloor",
       "category": "Biomes",
       "displayName": "Show Floor",
@@ -22,6 +24,7 @@
     "Biome_Restaurant": {
       "color": "#F7DC6F",
       "value": 2,
+      "icon": "🍽️",
       "tag": "Biome.Restaurant",
       "category": "Biomes",
       "displayName": "Restaurant",
@@ -30,6 +33,7 @@
     "Biome_Warehouse": {
       "color": "#4ECDC4",
       "value": 3,
+      "icon": "📦",
       "tag": "Biome.Warehouse",
       "category": "Biomes",
       "displayName": "Warehouse",
@@ -38,6 +42,7 @@
     "Biome_SCPBase": {
       "color": "#2563EB",
       "value": 4,
+      "icon": "🔬",
       "tag": "Biome.SCPBase",
       "category": "Biomes",
       "displayName": "SCP Base",
@@ -46,6 +51,7 @@
     "Biome_SCPBaseEntrance": {
       "color": "#3B82F6",
       "value": 5,
+      "icon": "🚪",
       "tag": "Biome.SCPBaseEntrance",
       "category": "Biomes",
       "displayName": "SCP Entrance",
@@ -54,6 +60,7 @@
     "Biome_Map": {
       "color": "#F59E0B",
       "value": 6,
+      "icon": "🗺️",
       "tag": "Biome.Map",
       "category": "Biomes",
       "displayName": "Map Kiosk",
@@ -62,6 +69,7 @@
     "Biome_HelpPoint": {
       "color": "#BB8FCE",
       "value": 7,
+      "icon": "❓",
       "tag": "Biome.HelpPoint",
       "category": "Biomes",
       "displayName": "Help Point",
@@ -70,6 +78,7 @@
     "Biome_Backrooms": {
       "color": "#E5D68A",
       "value": 8,
+      "icon": "🚪",
       "tag": "Biome.Backrooms",
       "category": "Biomes",
       "displayName": "Backrooms",
@@ -78,6 +87,7 @@
     "Biome_SCPBaseExit": {
       "color": "#1E40AF",
       "value": 9,
+      "icon": "🚪",
       "tag": "Biome.SCPBaseExit",
       "category": "Biomes",
       "displayName": "SCP Exit",
@@ -86,6 +96,7 @@
     "Biome_SCPBasePower": {
       "color": "#FBBF24",
       "value": 10,
+      "icon": "⚡",
       "tag": "Biome.SCPBasePower",
       "category": "Biomes",
       "displayName": "SCP Power",
@@ -94,6 +105,7 @@
     "Biome_AbandonedCamp": {
       "color": "#8B4513",
       "value": 11,
+      "icon": "🏕️",
       "tag": "Biome.AbandonedCamp",
       "category": "Biomes",
       "displayName": "Abandoned Camp",
@@ -102,6 +114,7 @@
     "Biome_Kids": {
       "color": "#FF69B4",
       "value": 12,
+      "icon": "🧸",
       "tag": "Biome.Kids",
       "category": "Biomes",
       "displayName": "Kids Area",
@@ -110,6 +123,7 @@
     "Biome_Gardening": {
       "color": "#22C55E",
       "value": 13,
+      "icon": "🌱",
       "tag": "Biome.Gardening",
       "category": "Biomes",
       "displayName": "Garden Center",
@@ -118,6 +132,7 @@
     "Biome_SkyEmpty": {
       "color": "#D3D3D3",
       "value": 14,
+      "icon": "☁️",
       "tag": "Biome.SkyEmpty",
       "category": "Biomes",
       "displayName": "Sky (Empty)",
@@ -126,6 +141,7 @@
     "Biome_SkyCeiling": {
       "color": "#87CEEB",
       "value": 15,
+      "icon": "🏠",
       "tag": "Biome.SkyCeiling",
       "category": "Biomes",
       "displayName": "Sky (Ceiling)",
@@ -134,6 +150,7 @@
     "Biome_Bathroom": {
       "color": "#AED6F1",
       "value": 16,
+      "icon": "🚻",
       "tag": "Biome.Bathroom",
       "category": "Biomes",
       "displayName": "Bathroom",
@@ -142,6 +159,7 @@
     "Biome_CarPark": {
       "color": "#6B7280",
       "value": 17,
+      "icon": "🅿️",
       "tag": "Biome.CarPark",
       "category": "Biomes",
       "displayName": "Car Park",
@@ -150,6 +168,7 @@
     "Biome_CarParkEntrance": {
       "color": "#9CA3AF",
       "value": 18,
+      "icon": "🚗",
       "tag": "Biome.CarParkEntrance",
       "category": "Biomes",
       "displayName": "Car Park Entrance",
@@ -158,6 +177,7 @@
     "Biome_CarParkExit": {
       "color": "#4B5563",
       "value": 19,
+      "icon": "🚙",
       "tag": "Biome.CarParkExit",
       "category": "Biomes",
       "displayName": "Car Park Exit",
@@ -166,6 +186,7 @@
     "Biome_StaffRoom": {
       "color": "#DEB887",
       "value": 20,
+      "icon": "👔",
       "tag": "Biome.StaffRoom",
       "category": "Biomes",
       "displayName": "Staff Room",
@@ -174,6 +195,7 @@
     "Biome_Blocked": {
       "color": "#2F2F2F",
       "value": 21,
+      "icon": "🚫",
       "tag": "Biome.Blocked",
       "category": "Biomes",
       "displayName": "Blocked",
@@ -182,6 +204,7 @@
     "Biome_Pit": {
       "color": "#2F1B0C",
       "value": 22,
+      "icon": "🕳️",
       "tag": "Biome.Pit",
       "category": "Biomes",
       "displayName": "Pit",
@@ -191,6 +214,7 @@
     "Difficulty_Easy": {
       "color": "#90EE90",
       "value": 0,
+      "icon": "😊",
       "tag": "Difficulty.Easy",
       "category": "Difficulty",
       "displayName": "Easy",
@@ -199,6 +223,7 @@
     "Difficulty_Normal": {
       "color": "#FFD700",
       "value": 1,
+      "icon": "😐",
       "tag": "Difficulty.Normal",
       "category": "Difficulty",
       "displayName": "Normal",
@@ -207,6 +232,7 @@
     "Difficulty_Hard": {
       "color": "#FF8C00",
       "value": 2,
+      "icon": "😰",
       "tag": "Difficulty.Hard",
       "category": "Difficulty",
       "displayName": "Hard",
@@ -215,6 +241,7 @@
     "Difficulty_Nightmare": {
       "color": "#FF6347",
       "value": 3,
+      "icon": "💀",
       "tag": "Difficulty.Nightmare",
       "category": "Difficulty",
       "displayName": "Nightmare",
@@ -223,6 +250,7 @@
     "Difficulty_Apocalypse": {
       "color": "#8B0000",
       "value": 4,
+      "icon": "☠️",
       "tag": "Difficulty.Apocalypse",
       "category": "Difficulty",
       "displayName": "Apocalypse",
@@ -232,6 +260,7 @@
     "Hazard_None": {
       "color": "#1a1a1a",
       "value": 0,
+      "icon": "✓",
       "tag": "Hazard.None",
       "category": "Hazards",
       "displayName": "None",
@@ -240,6 +269,7 @@
     "Hazard_Radiation": {
       "color": "#39FF14",
       "value": 1,
+      "icon": "☢️",
       "tag": "Hazard.Radiation",
       "category": "Hazards",
       "displayName": "Radiation",
@@ -248,6 +278,7 @@
     "Hazard_Freezing": {
       "color": "#87CFEC",
       "value": 2,
+      "icon": "❄️",
       "tag": "Hazard.Freezing",
       "category": "Hazards",
       "displayName": "Freezing",
@@ -257,6 +288,7 @@
     "Height_0": {
       "color": "#0a0a0a",
       "value": 0,
+      "icon": "0️⃣",
       "tag": "Height.0",
       "category": "Height",
       "displayName": "0",
@@ -265,6 +297,7 @@
     "Height_1": {
       "color": "#1a1a2e",
       "value": 1,
+      "icon": "1️⃣",
       "tag": "Height.1",
       "category": "Height",
       "displayName": "1",
@@ -273,6 +306,7 @@
     "Height_2": {
       "color": "#525d6b",
       "value": 2,
+      "icon": "2️⃣",
       "tag": "Height.2",
       "category": "Height",
       "displayName": "2",
@@ -281,6 +315,7 @@
     "Height_3": {
       "color": "#778994",
       "value": 3,
+      "icon": "3️⃣",
       "tag": "Height.3",
       "category": "Height",
       "displayName": "3",
@@ -289,6 +324,7 @@
     "Height_4": {
       "color": "#9db5bd",
       "value": 4,
+      "icon": "4️⃣",
       "tag": "Height.4",
       "category": "Height",
       "displayName": "4",
@@ -297,6 +333,7 @@
     "Height_5": {
       "color": "#b0cbd1",
       "value": 5,
+      "icon": "5️⃣",
       "tag": "Height.5",
       "category": "Height",
       "displayName": "5",
@@ -305,6 +342,7 @@
     "Height_6": {
       "color": "#c3e1e6",
       "value": 6,
+      "icon": "6️⃣",
       "tag": "Height.6",
       "category": "Height",
       "displayName": "6",
@@ -313,6 +351,7 @@
     "Height_7": {
       "color": "#d6f5fa",
       "value": 7,
+      "icon": "7️⃣",
       "tag": "Height.7",
       "category": "Height",
       "displayName": "7",
@@ -321,6 +360,7 @@
     "Height_8": {
       "color": "#e8f7fa",
       "value": 8,
+      "icon": "8️⃣",
       "tag": "Height.8",
       "category": "Height",
       "displayName": "8",
@@ -329,6 +369,7 @@
     "Height_9": {
       "color": "#ffffff",
       "value": 9,
+      "icon": "9️⃣",
       "tag": "Height.9",
       "category": "Height",
       "displayName": "9",

@@ -398,6 +398,14 @@ function initializeColorPalette() {
             swatch.className = 'color-swatch';
             swatch.style.backgroundColor = tileset.color;
 
+            // Add icon if present
+            if (tileset.icon) {
+                const icon = document.createElement('span');
+                icon.className = 'color-icon';
+                icon.textContent = tileset.icon;
+                swatch.appendChild(icon);
+            }
+
             const label = document.createElement('div');
             label.className = 'color-name';
             label.textContent = tileset.displayName || name;
