@@ -42,7 +42,7 @@ class LevelEditor {
         this.offsetX = 0;
         this.offsetY = 0;
         this.showGrid = true;
-        this.topLayerOpacity = 0.8; // Global opacity for top layer(s)
+        this.topLayerOpacity = 1.0; // Global opacity for top layer(s)
 
         // Mouse state
         this.mouseX = -1;
@@ -633,15 +633,24 @@ class LevelEditor {
         const gridWidth = this.layerManager.width * this.tileSize;
         const gridHeight = this.layerManager.height * this.tileSize;
 
-        const zoomX = rect.width / gridWidth;
-        const zoomY = rect.height / gridHeight;
+        // Calculate zoom to fit with padding
+        const padding = 20; // 20px padding on each side
+        const availableWidth = rect.width - (padding * 2);
+        const availableHeight = rect.height - (padding * 2);
 
-        this.zoom = Math.min(zoomX, zoomY) * 0.95;
+        const zoomX = availableWidth / gridWidth;
+        const zoomY = availableHeight / gridHeight;
+
+        // Use the smaller zoom to ensure entire grid fits
+        this.zoom = Math.min(zoomX, zoomY);
+
+        // Center the grid in the container
         this.offsetX = (rect.width - gridWidth * this.zoom) / 2;
         this.offsetY = (rect.height - gridHeight * this.zoom) / 2;
 
         document.getElementById('zoom-level').textContent = `${Math.round(this.zoom * 100)}%`;
         this.resizeCanvas();
+        this.render();
     }
 
     /**

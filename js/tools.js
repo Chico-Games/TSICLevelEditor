@@ -431,15 +431,23 @@ class RectangleTool extends Tool {
 
     onMouseUp(editor, x, y) {
         if (this.isDrawing) {
-            this.drawRectangle(editor, this.startX, this.startY, x, y);
+            this.drawShape(editor, this.startX, this.startY, x, y);
             this.isDrawing = false;
         }
     }
 
-    drawRectangle(editor, x0, y0, x1, y1) {
+    drawShape(editor, x0, y0, x1, y1) {
         const layer = editor.layerManager.getActiveLayer();
         if (!layer || layer.locked) return;
 
+        const tilesToSet = editor.brushShape === 'circle'
+            ? this.getEllipseTiles(editor, x0, y0, x1, y1)
+            : this.getRectangleTiles(editor, x0, y0, x1, y1);
+
+        editor.setTiles(tilesToSet);
+    }
+
+    getRectangleTiles(editor, x0, y0, x1, y1) {
         const minX = Math.min(x0, x1);
         const maxX = Math.max(x0, x1);
         const minY = Math.min(y0, y1);
@@ -465,7 +473,52 @@ class RectangleTool extends Tool {
             }
         }
 
-        editor.setTiles(tilesToSet);
+        return tilesToSet;
+    }
+
+    getEllipseTiles(editor, x0, y0, x1, y1) {
+        const minX = Math.min(x0, x1);
+        const maxX = Math.max(x0, x1);
+        const minY = Math.min(y0, y1);
+        const maxY = Math.max(y0, y1);
+
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+        const radiusX = (maxX - minX) / 2;
+        const radiusY = (maxY - minY) / 2;
+
+        const tilesToSet = [];
+
+        if (editor.fillMode === 'filled') {
+            // Filled ellipse using region check
+            for (let y = minY; y <= maxY; y++) {
+                for (let x = minX; x <= maxX; x++) {
+                    const dx = (x - centerX) / radiusX;
+                    const dy = (y - centerY) / radiusY;
+                    if (dx * dx + dy * dy <= 1) {
+                        tilesToSet.push({ x, y });
+                    }
+                }
+            }
+        } else {
+            // Outline ellipse using midpoint algorithm
+            const tiles = new Set();
+
+            // Draw ellipse using parametric equation for better outline
+            const steps = Math.max(Math.abs(maxX - minX), Math.abs(maxY - minY)) * 4;
+            for (let i = 0; i <= steps; i++) {
+                const angle = (i / steps) * 2 * Math.PI;
+                const x = Math.round(centerX + radiusX * Math.cos(angle));
+                const y = Math.round(centerY + radiusY * Math.sin(angle));
+                const key = `${x},${y}`;
+                if (!tiles.has(key) && x >= minX && x <= maxX && y >= minY && y <= maxY) {
+                    tiles.add(key);
+                    tilesToSet.push({ x, y });
+                }
+            }
+        }
+
+        return tilesToSet;
     }
 
     getPreview(editor, x, y) {
@@ -480,33 +533,71 @@ class RectangleTool extends Tool {
 
         const preview = [];
 
-        if (editor.fillMode === 'filled') {
-            for (let py = minY; py <= maxY; py++) {
-                for (let px = minX; px <= maxX; px++) {
-                    if (px >= 0 && px < editor.layerManager.width &&
+        if (editor.brushShape === 'circle') {
+            // Circle/ellipse preview
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            const radiusX = (maxX - minX) / 2;
+            const radiusY = (maxY - minY) / 2;
+
+            if (editor.fillMode === 'filled') {
+                for (let py = minY; py <= maxY; py++) {
+                    for (let px = minX; px <= maxX; px++) {
+                        const dx = (px - centerX) / radiusX;
+                        const dy = (py - centerY) / radiusY;
+                        if (dx * dx + dy * dy <= 1 &&
+                            px >= 0 && px < editor.layerManager.width &&
+                            py >= 0 && py < editor.layerManager.height) {
+                            preview.push({ x: px, y: py });
+                        }
+                    }
+                }
+            } else {
+                const tiles = new Set();
+                const steps = Math.max(Math.abs(maxX - minX), Math.abs(maxY - minY)) * 4;
+                for (let i = 0; i <= steps; i++) {
+                    const angle = (i / steps) * 2 * Math.PI;
+                    const px = Math.round(centerX + radiusX * Math.cos(angle));
+                    const py = Math.round(centerY + radiusY * Math.sin(angle));
+                    const key = `${px},${py}`;
+                    if (!tiles.has(key) &&
+                        px >= 0 && px < editor.layerManager.width &&
                         py >= 0 && py < editor.layerManager.height) {
+                        tiles.add(key);
                         preview.push({ x: px, y: py });
                     }
                 }
             }
         } else {
-            for (let px = minX; px <= maxX; px++) {
-                if (px >= 0 && px < editor.layerManager.width) {
-                    if (minY >= 0 && minY < editor.layerManager.height) {
-                        preview.push({ x: px, y: minY });
-                    }
-                    if (maxY >= 0 && maxY < editor.layerManager.height) {
-                        preview.push({ x: px, y: maxY });
+            // Rectangle preview
+            if (editor.fillMode === 'filled') {
+                for (let py = minY; py <= maxY; py++) {
+                    for (let px = minX; px <= maxX; px++) {
+                        if (px >= 0 && px < editor.layerManager.width &&
+                            py >= 0 && py < editor.layerManager.height) {
+                            preview.push({ x: px, y: py });
+                        }
                     }
                 }
-            }
-            for (let py = minY + 1; py < maxY; py++) {
-                if (py >= 0 && py < editor.layerManager.height) {
-                    if (minX >= 0 && minX < editor.layerManager.width) {
-                        preview.push({ x: minX, y: py });
+            } else {
+                for (let px = minX; px <= maxX; px++) {
+                    if (px >= 0 && px < editor.layerManager.width) {
+                        if (minY >= 0 && minY < editor.layerManager.height) {
+                            preview.push({ x: px, y: minY });
+                        }
+                        if (maxY >= 0 && maxY < editor.layerManager.height) {
+                            preview.push({ x: px, y: maxY });
+                        }
                     }
-                    if (maxX >= 0 && maxX < editor.layerManager.width) {
-                        preview.push({ x: maxX, y: py });
+                }
+                for (let py = minY + 1; py < maxY; py++) {
+                    if (py >= 0 && py < editor.layerManager.height) {
+                        if (minX >= 0 && minX < editor.layerManager.width) {
+                            preview.push({ x: minX, y: py });
+                        }
+                        if (maxX >= 0 && maxX < editor.layerManager.width) {
+                            preview.push({ x: maxX, y: py });
+                        }
                     }
                 }
             }
