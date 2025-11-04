@@ -162,6 +162,20 @@ class LevelEditor {
         container.addEventListener('mouseup', (e) => this.onMouseUp(e));
         container.addEventListener('mouseleave', (e) => this.onMouseLeave(e));
 
+        // Escape key to cancel drawing operations
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && (this.isMouseDown || this.isPanning)) {
+                this.cancelOperation();
+            }
+        });
+
+        // Safety cleanup when page visibility changes (tab switch, minimize)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && (this.isMouseDown || this.isPanning)) {
+                this.cancelOperation();
+            }
+        });
+
         // Prevent context menu
         container.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -355,6 +369,29 @@ class LevelEditor {
             this.lastPreviewX = -1;
             this.lastPreviewY = -1;
         }
+    }
+
+    /**
+     * Cancel current drawing/panning operation
+     * Called when Escape is pressed or tab is switched
+     */
+    cancelOperation() {
+        // Remove document-level listeners
+        document.removeEventListener('mousemove', this.boundDocumentMouseMove);
+        document.removeEventListener('mouseup', this.boundDocumentMouseUp);
+
+        // Reset state
+        this.isMouseDown = false;
+        this.isPanning = false;
+        this.isDrawing = false;
+        this.gridCanvas.style.cursor = 'crosshair';
+
+        // Clear visual feedback
+        this.clearPreview();
+        this.clearLayerHoverHighlight();
+
+        // Re-render to clean up any partial drawing
+        this.requestRender();
     }
 
     /**
