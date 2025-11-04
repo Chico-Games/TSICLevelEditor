@@ -318,7 +318,9 @@ class LevelEditor {
             }
         }
 
-        if (this.isMouseDown && this.gridX >= 0 && this.gridY >= 0) {
+        // Allow tools to track mouse even when outside canvas bounds
+        // Tools will naturally clamp to valid coordinates when drawing
+        if (this.isMouseDown) {
             this.currentTool.onMouseMove(this, this.gridX, this.gridY, e);
             this.requestRender();
             // Minimap updates are deferred until drawing finishes
@@ -343,7 +345,8 @@ class LevelEditor {
             return;
         }
 
-        if (this.isMouseDown && this.gridX >= 0 && this.gridY >= 0) {
+        // Allow tools to complete even when mouse is outside canvas bounds
+        if (this.isMouseDown) {
             this.currentTool.onMouseUp(this, this.gridX, this.gridY, e);
             this.isDrawing = false; // Drawing finished
             this.requestRender();
