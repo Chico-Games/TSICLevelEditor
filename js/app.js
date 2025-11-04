@@ -326,6 +326,11 @@ async function init() {
     // Start auto-save
     startAutoSave();
 
+    // Initialize maze visualizer
+    editor.mazeVisualizer = new MazeVisualizerManager(editor);
+    window.mazeVisualizer = editor.mazeVisualizer; // For debugging/console access
+    initializeMazeVisualizer();
+
     // Auto-load test JSON if it exists (for e2e testing) - do this before loading projects
     await loadTestJSON();
 
@@ -2184,6 +2189,200 @@ window.addEventListener('beforeunload', (e) => {
         return e.returnValue;
     }
 });
+
+// ============================================================================
+// MAZE VISUALIZER INITIALIZATION
+// ============================================================================
+
+function initializeMazeVisualizer() {
+    console.log('[Maze Visualizer] Initializing...');
+    console.log('[Maze Visualizer] Editor exists:', !!editor);
+    console.log('[Maze Visualizer] MazeVisualizer exists:', !!editor?.mazeVisualizer);
+
+    const content = document.getElementById('maze-visualizer-content');
+    const modeSelect = document.getElementById('maze-viz-mode');
+    const regenerateBtn = document.getElementById('btn-regenerate-maze');
+    const exportBtn = document.getElementById('btn-export-maze-data');
+    const settingsHeader = document.getElementById('maze-settings-header');
+    const settingsContent = document.getElementById('maze-settings-content');
+
+    // Layer toggle buttons (Floor/Underground/Sky)
+    const layerButtons = document.querySelectorAll('#maze-layer-control .segment');
+    console.log('[Maze Visualizer] Found layer buttons:', layerButtons.length);
+    layerButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            console.log('[Maze Visualizer] Layer button clicked:', button.dataset.layer);
+            const layerType = button.dataset.layer;
+
+            // If clicking the already active button, disable visualizer
+            if (button.classList.contains('active')) {
+                button.classList.remove('active');
+                editor.mazeVisualizer.enabled = false;
+                content.style.display = 'none';
+                editor.render();
+                return;
+            }
+
+            // Deactivate all buttons
+            layerButtons.forEach(btn => btn.classList.remove('active'));
+
+            // Activate clicked button
+            button.classList.add('active');
+
+            // Enable visualizer and set layer
+            editor.mazeVisualizer.enabled = true;
+            editor.mazeVisualizer.setSelectedLayer(layerType);
+            editor.mazeVisualizer.regenerateAll();
+            content.style.display = 'block';
+            updateMazeStatistics();
+            editor.render();
+        });
+    });
+
+    // Visualization mode selection
+    modeSelect.addEventListener('change', (e) => {
+        editor.mazeVisualizer.setVisualizationMode(e.target.value);
+        editor.render();
+    });
+
+    // Settings collapsible
+    settingsHeader.addEventListener('click', () => {
+        settingsHeader.parentElement.classList.toggle('collapsed');
+    });
+
+    // Regenerate button
+    regenerateBtn.addEventListener('click', () => {
+        console.log('[Regenerate] Button clicked');
+
+        // Gather settings
+        const borderBiomes = new Set();
+        document.querySelectorAll('#maze-border-biomes input[type="checkbox"]:checked').forEach(cb => {
+            borderBiomes.add(cb.value);
+        });
+
+        const maxHeightDiff = parseInt(document.getElementById('maze-height-diff').value);
+        const seed = parseInt(document.getElementById('maze-seed').value);
+
+        console.log('[Regenerate] Settings from UI:');
+        console.log('  - Border biomes:', Array.from(borderBiomes));
+        console.log('  - Max height diff:', maxHeightDiff);
+        console.log('  - Seed:', seed);
+
+        // Update settings
+        editor.mazeVisualizer.settings.borderBiomes = borderBiomes;
+        editor.mazeVisualizer.settings.maxHeightDiff = maxHeightDiff;
+        editor.mazeVisualizer.settings.seed = seed;
+
+        console.log('[Regenerate] Updated visualizer settings:', editor.mazeVisualizer.settings);
+
+        // Regenerate
+        editor.mazeVisualizer.regenerateAll();
+        updateMazeStatistics();
+        editor.render();
+    });
+
+    // Export button
+    exportBtn.addEventListener('click', () => {
+        exportMazeData();
+    });
+
+    // Tile inspector close button
+    const tileInspectorClose = document.getElementById('tile-inspector-close');
+    if (tileInspectorClose) {
+        tileInspectorClose.addEventListener('click', () => {
+            document.getElementById('tile-inspector').style.display = 'none';
+        });
+    }
+}
+
+/**
+ * Update maze statistics display
+ */
+function updateMazeStatistics() {
+    const statsContainer = document.getElementById('maze-stats');
+    const statsContent = document.getElementById('maze-stats-content');
+
+    const layerIndex = editor.mazeVisualizer.selectedLayer;
+    if (layerIndex === null) {
+        statsContainer.style.display = 'none';
+        return;
+    }
+
+    const layerResults = editor.mazeVisualizer.floodFillResults.get(layerIndex);
+    if (!layerResults) {
+        statsContainer.style.display = 'none';
+        return;
+    }
+
+    const layer = editor.layerManager.layers[layerIndex];
+    if (!layer) {
+        statsContainer.style.display = 'none';
+        return;
+    }
+
+    statsContainer.style.display = 'block';
+
+    const html = `<div class="stat-section">
+        <h5>${layer.name}</h5>
+        <ul>
+            <li>Regions: ${layerResults.regions.length}</li>
+            <li>Tiles in Regions: ${layerResults.tilesInRegions}</li>
+            <li>Border Tiles: ${layerResults.borderTiles}</li>
+            <li>Largest Region: ${layerResults.largestRegionSize} tiles</li>
+            <li>Smallest Region: ${layerResults.smallestRegionSize} tiles</li>
+        </ul>
+    </div>`;
+
+    statsContent.innerHTML = html;
+}
+
+/**
+ * Export maze data to JSON
+ */
+function exportMazeData() {
+    const data = {
+        timestamp: new Date().toISOString(),
+        settings: {
+            borderBiomes: Array.from(editor.mazeVisualizer.settings.borderBiomes),
+            maxHeightDiff: editor.mazeVisualizer.settings.maxHeightDiff,
+            seed: editor.mazeVisualizer.settings.seed
+        },
+        layers: []
+    };
+
+    editor.mazeVisualizer.floodFillResults.forEach((results, layerIndex) => {
+        const layer = editor.layerManager.layers[layerIndex];
+        const mazeData = editor.mazeVisualizer.mazeData.get(layerIndex);
+
+        data.layers.push({
+            layerIndex,
+            layerName: layer.name,
+            layerType: layer.layerType,
+            floodFillResults: {
+                regionCount: results.regions.length,
+                tilesInRegions: results.tilesInRegions,
+                borderTiles: results.borderTiles,
+                regions: results.regions.map(r => ({
+                    regionSize: r.regionSize,
+                    tileIndices: r.tileIndices
+                }))
+            },
+            mazeData: mazeData ? Array.from(mazeData) : []
+        });
+    });
+
+    // Download as JSON
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `maze-data-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
 
 // Export functions for editor access
 if (typeof window !== 'undefined') {

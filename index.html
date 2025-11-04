@@ -217,7 +217,99 @@
                     <!-- Layers loaded from config -->
                 </div>
             </div>
+
+            <!-- Maze Visualizer Panel -->
+            <div class="panel-section">
+                <h3>Maze Visualizer</h3>
+
+                <!-- Layer Toggle Buttons -->
+                <div class="control-group">
+                    <label>Select Layer:</label>
+                    <div class="segmented-control" id="maze-layer-control">
+                        <button class="segment" data-layer="floor">Floor</button>
+                        <button class="segment" data-layer="underground">Underground</button>
+                        <button class="segment" data-layer="sky">Sky</button>
+                    </div>
+                </div>
+
+                <!-- Visualizer Content (shown when layer selected) -->
+                <div id="maze-visualizer-content" style="display: none;">
+
+                    <!-- Visualization Mode -->
+                    <div class="control-group">
+                        <label for="maze-viz-mode">Mode:</label>
+                        <select id="maze-viz-mode" class="control-select">
+                            <option value="regions" selected>Flood Fill Regions</option>
+                            <option value="arrows">Maze Directions (Arrows)</option>
+                            <option value="walls">Maze Walls</option>
+                            <option value="connections">Connection Lines</option>
+                        </select>
+                    </div>
+
+                    <!-- Settings Collapsible Section -->
+                    <div class="collapsible-section">
+                        <div class="collapsible-header" id="maze-settings-header">
+                            <span>Settings</span>
+                            <span class="collapse-icon">▼</span>
+                        </div>
+                        <div class="collapsible-content" id="maze-settings-content">
+
+                            <!-- Border Biomes -->
+                            <div class="control-group">
+                                <label>Border Biomes:</label>
+                                <div id="maze-border-biomes" class="checkbox-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" value="Biome_Blocked" checked> Blocked
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" value="Biome_Pit" checked> Pit
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" value="Biome_SkyCeiling" checked> Sky Ceiling
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Max Height Difference -->
+                            <div class="control-group">
+                                <label for="maze-height-diff">Max Height Diff:</label>
+                                <input type="number" id="maze-height-diff" class="control-input" min="0" max="64" value="1">
+                                <span class="control-hint">Adjacent tiles must differ by ≤ this value</span>
+                            </div>
+
+                            <!-- Seed -->
+                            <div class="control-group">
+                                <label for="maze-seed">Seed:</label>
+                                <input type="number" id="maze-seed" class="control-input" value="12345">
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="control-group">
+                        <button id="btn-regenerate-maze" class="control-button">Regenerate</button>
+                        <button id="btn-export-maze-data" class="control-button">Export JSON</button>
+                    </div>
+
+                    <!-- Statistics -->
+                    <div class="stats-container" id="maze-stats" style="display: none;">
+                        <h4>Statistics</h4>
+                        <div id="maze-stats-content"></div>
+                    </div>
+
+                </div>
+            </div>
         </div>
+    </div>
+
+    <!-- Tile Inspector Panel (floating) -->
+    <div id="tile-inspector" class="floating-panel" style="display: none;">
+        <div class="panel-header">
+            <h4>Tile Inspector</h4>
+            <button id="tile-inspector-close" class="close-button">×</button>
+        </div>
+        <div id="tile-inspector-content" class="panel-content"></div>
     </div>
 
     <!-- Status Bar -->
@@ -243,6 +335,8 @@
     <script src="js/export-metadata.js"></script>
     <script src="js/perlin-noise.js"></script>
     <script src="js/base64-rle-encoder.js"></script>
+    <script src="js/maze-algorithms.js"></script>
+    <script src="js/maze-visualizer.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Maze Visualizer Debug Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            margin: 20px;
+            background: #1e1e1e;
+            color: #e0e0e0;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            background: #4a9eff;
+            border: none;
+            color: white;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #3a8edf;
+        }
+        #status {
+            margin: 20px 0;
+            padding: 15px;
+            background: #2b2b2b;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+        }
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: 2px solid #4a9eff;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Maze Visualizer Debug Test</h1>
+    <p>This page opens the editor in an iframe and provides buttons to test the maze visualizer.</p>
+
+    <div>
+        <button onclick="generateMap()">1. Generate Test Map</button>
+        <button onclick="enableVisualizer()">2. Enable Visualizer</button>
+        <button onclick="checkConsole()">3. Check Console</button>
+    </div>
+
+    <div id="status">
+        <strong>Status:</strong> Ready. Open browser console (F12) to see debug output.
+    </div>
+
+    <iframe id="editor" src="index.html"></iframe>
+
+    <script>
+        const iframe = document.getElementById('editor');
+        const status = document.getElementById('status');
+
+        function log(message) {
+            status.innerHTML = `<strong>Status:</strong> ${message}`;
+            console.log('[Debug Test]', message);
+        }
+
+        function generateMap() {
+            try {
+                const editorWindow = iframe.contentWindow;
+                if (!editorWindow.generateTestMap) {
+                    log('ERROR: generateTestMap not found. Wait for editor to load.');
+                    return;
+                }
+
+                log('Generating test map with Perlin noise...');
+                editorWindow.generateTestMap();
+
+                setTimeout(() => {
+                    log('Test map generated! Check the editor iframe.');
+                }, 1000);
+            } catch (e) {
+                log('ERROR: ' + e.message);
+            }
+        }
+
+        function enableVisualizer() {
+            try {
+                const editorWindow = iframe.contentWindow;
+                if (!editorWindow.editor || !editorWindow.editor.mazeVisualizer) {
+                    log('ERROR: Maze visualizer not found. Wait for editor to load.');
+                    return;
+                }
+
+                log('Enabling maze visualizer...');
+                const visualizer = editorWindow.editor.mazeVisualizer;
+                visualizer.enabled = true;
+
+                // Trigger regeneration
+                visualizer.regenerateAll();
+
+                // Update UI
+                const toggleBtn = editorWindow.document.getElementById('btn-toggle-maze-visualizer');
+                if (toggleBtn) {
+                    toggleBtn.textContent = 'Disable Visualizer';
+                }
+
+                const content = editorWindow.document.getElementById('maze-visualizer-content');
+                if (content) {
+                    content.style.display = 'block';
+                }
+
+                // Re-render
+                editorWindow.editor.render();
+
+                log('Maze visualizer enabled! Check browser console for debug output.');
+            } catch (e) {
+                log('ERROR: ' + e.message);
+                console.error(e);
+            }
+        }
+
+        function checkConsole() {
+            log('Open the browser console (F12) to see debug output from maze generation.');
+            console.log('='.repeat(80));
+            console.log('Maze Visualizer Debug Information:');
+            console.log('='.repeat(80));
+
+            try {
+                const editorWindow = iframe.contentWindow;
+                if (!editorWindow.editor || !editorWindow.editor.mazeVisualizer) {
+                    console.log('Maze visualizer not initialized yet.');
+                    return;
+                }
+
+                const visualizer = editorWindow.editor.mazeVisualizer;
+                console.log('Enabled:', visualizer.enabled);
+                console.log('Mode:', visualizer.visualizationMode);
+                console.log('Selected layers:', Array.from(visualizer.selectedLayers));
+                console.log('Border biomes:', Array.from(visualizer.settings.borderBiomes));
+                console.log('Max height diff:', visualizer.settings.maxHeightDiff);
+                console.log('Seed:', visualizer.settings.seed);
+                console.log('Flood fill results:', visualizer.floodFillResults);
+                console.log('Maze data:', visualizer.mazeData);
+
+                // Show region count
+                visualizer.floodFillResults.forEach((result, layerIndex) => {
+                    console.log(`Layer ${layerIndex}: ${result.regions.length} regions`);
+                });
+            } catch (e) {
+                console.error('Error checking visualizer:', e);
+            }
+        }
+
+        // Wait for iframe to load
+        iframe.onload = () => {
+            log('Editor loaded. Click "1. Generate Test Map" to start.');
+        };
+    </script>
+</body>
+</html>

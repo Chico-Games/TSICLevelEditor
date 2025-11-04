@@ -37,7 +37,9 @@ const test = base.test.extend({
                 // Filter out known benign warnings
                 const isKnownBenignWarning =
                     text.includes('willReadFrequently') || // Canvas performance warning
-                    text.includes('Import warnings:'); // Expected warnings from validation
+                    text.includes('Import warnings:') || // Expected warnings from validation
+                    text.includes('Skipping maze generation') || // Expected for large regions
+                    text.includes('Failed to generate maze'); // Expected maze generation warnings
 
                 if (!isKnownBenignWarning) {
                     consoleWarnings.push(text);

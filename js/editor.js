@@ -62,6 +62,9 @@ class LevelEditor {
         this.shiftPressed = false;
         this.ctrlPressed = false;
 
+        // Maze visualizer
+        this.mazeVisualizer = null; // Will be initialized in app.js
+
         // Minimap drag state
         this.isMinimapDragging = false;
 
@@ -222,6 +225,18 @@ class LevelEditor {
         const rect = this.gridCanvas.getBoundingClientRect();
         this.mouseX = e.clientX - rect.left;
         this.mouseY = e.clientY - rect.top;
+        this.updateGridPosition();
+
+        // Right-click: Show tile inspector
+        if (e.button === 2) {
+            e.preventDefault();
+            if (this.gridX >= 0 && this.gridY >= 0 &&
+                this.gridX < this.layerManager.width &&
+                this.gridY < this.layerManager.height) {
+                this.showTileInspector(e, this.gridX, this.gridY);
+            }
+            return;
+        }
 
         // Middle mouse button or Space+Left click for panning
         if (e.button === 1 || (e.button === 0 && this.spacePressed)) {
@@ -236,7 +251,6 @@ class LevelEditor {
         if (e.button === 0) {
             this.isMouseDown = true;
             this.isDrawing = true; // Mark as drawing for performance optimization
-            this.updateGridPosition();
 
             if (this.gridX >= 0 && this.gridY >= 0) {
                 // CRITICAL FIX: Save state BEFORE drawing starts, not after!
@@ -325,6 +339,107 @@ class LevelEditor {
         this.clearLayerHoverHighlight();
         this.lastPreviewX = -1;
         this.lastPreviewY = -1;
+    }
+
+    /**
+     * Show tile inspector panel with detailed information about a tile
+     * @param {MouseEvent} e - Mouse event for positioning
+     * @param {number} x - Tile X coordinate
+     * @param {number} y - Tile Y coordinate
+     */
+    showTileInspector(e, x, y) {
+        const inspector = document.getElementById('tile-inspector');
+        const content = document.getElementById('tile-inspector-content');
+
+        if (!inspector || !content) return;
+
+        const index = y * this.layerManager.width + x;
+        let html = `<h4 style="margin-top:0;">Tile at (${x}, ${y})</h4>`;
+        html += `<p><strong>Index:</strong> ${index}</p>`;
+
+        // Get active layer tile data
+        const layer = this.layerManager.getActiveLayer();
+        if (layer) {
+            const key = `${x},${y}`;
+            const color = layer.tileData.get(key);
+
+            if (color) {
+                const enumData = window.colorMapper ? window.colorMapper.getEnumFromColor(color) : null;
+
+                if (enumData) {
+                    html += `<p><strong>Biome:</strong> ${enumData.name}</p>`;
+                    html += `<p><strong>Category:</strong> ${enumData.category}</p>`;
+                    html += `<div style="width:40px;height:40px;background:${color};border:1px solid #666;margin:8px 0;"></div>`;
+                } else {
+                    html += `<p><strong>Color:</strong> ${color}</p>`;
+                }
+            } else {
+                html += `<p style="color:#aaa;font-style:italic;">Empty tile</p>`;
+            }
+        }
+
+        // Get height data
+        const heightLayer = this.layerManager.layers.find(l =>
+            l.layerType && l.layerType.toLowerCase() === 'height'
+        );
+
+        if (heightLayer) {
+            const key = `${x},${y}`;
+            const color = heightLayer.tileData.get(key);
+
+            if (color && window.colorMapper) {
+                const enumData = window.colorMapper.getEnumFromColor(color);
+                if (enumData && enumData.category === 'Height') {
+                    html += `<p><strong>Height:</strong> ${enumData.name} (${enumData.value})</p>`;
+                }
+            }
+        }
+
+        // Maze visualizer data (if enabled)
+        if (this.mazeVisualizer && this.mazeVisualizer.enabled) {
+            const activeLayerIndex = this.layerManager.activeLayerIndex;
+
+            // Flood fill region info
+            const regionInfo = this.mazeVisualizer.getRegionAtPosition(x, y, activeLayerIndex);
+            if (regionInfo) {
+                html += `<hr style="border:none;border-top:1px solid #444;margin:12px 0;">`;
+                html += `<h5 style="color:#4a9eff;margin:8px 0;">Flood Fill Region</h5>`;
+                html += `<p><strong>Region:</strong> ${regionInfo.regionIndex}</p>`;
+                html += `<p><strong>Region Size:</strong> ${regionInfo.regionSize} tiles</p>`;
+            }
+
+            // Maze directions
+            const mazeData = this.mazeVisualizer.getMazeDataAtIndex(index, activeLayerIndex);
+            if (mazeData !== undefined && mazeData !== 0) {
+                html += `<h5 style="color:#4a9eff;margin:8px 0;">Maze Directions</h5>`;
+                html += `<p><strong>Value:</strong> ${mazeData} (0x${mazeData.toString(16).toUpperCase()})</p>`;
+                html += `<ul style="margin:4px 0;padding-left:20px;">`;
+                html += `<li style="color:${(mazeData & 1) ? '#6f6' : '#666'}">North: ${(mazeData & 1) ? '✓' : '✗'}</li>`;
+                html += `<li style="color:${(mazeData & 2) ? '#6f6' : '#666'}">South: ${(mazeData & 2) ? '✓' : '✗'}</li>`;
+                html += `<li style="color:${(mazeData & 4) ? '#6f6' : '#666'}">East: ${(mazeData & 4) ? '✓' : '✗'}</li>`;
+                html += `<li style="color:${(mazeData & 8) ? '#6f6' : '#666'}">West: ${(mazeData & 8) ? '✓' : '✗'}</li>`;
+                html += `</ul>`;
+            }
+        }
+
+        content.innerHTML = html;
+        inspector.style.display = 'block';
+
+        // Position near cursor
+        const inspectorRect = inspector.getBoundingClientRect();
+        let left = e.clientX + 15;
+        let top = e.clientY + 15;
+
+        // Keep inspector on screen
+        if (left + inspectorRect.width > window.innerWidth) {
+            left = e.clientX - inspectorRect.width - 15;
+        }
+        if (top + inspectorRect.height > window.innerHeight) {
+            top = e.clientY - inspectorRect.height - 15;
+        }
+
+        inspector.style.left = `${left}px`;
+        inspector.style.top = `${top}px`;
     }
 
     /**
@@ -803,6 +918,11 @@ class LevelEditor {
         // Render guide lines (composition grid)
         if (this.showGuides) {
             this.renderGuideLines(ctx);
+        }
+
+        // Render maze overlay
+        if (this.mazeVisualizer && this.mazeVisualizer.enabled) {
+            this.mazeVisualizer.renderOverlay(ctx);
         }
 
         ctx.restore();
