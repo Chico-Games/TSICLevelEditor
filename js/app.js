@@ -635,6 +635,7 @@ function clearInvalidDataTypes(layer) {
 
 /**
  * Render a single layer thumbnail (async, non-blocking)
+ * Uses offscreen canvas to prevent flashing during render
  */
 async function renderLayerThumbnail(layerIndex) {
     const canvas = document.querySelector(`.layer-thumbnail[data-layer-index="${layerIndex}"]`);
@@ -643,19 +644,20 @@ async function renderLayerThumbnail(layerIndex) {
     const layer = editor.layerManager.layers[layerIndex];
     if (!layer) return;
 
-    const ctx = canvas.getContext('2d');
     const thumbnailSize = 64;
     const gridSize = editor.layerManager.width;
 
-    // Clear canvas
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(0, 0, thumbnailSize, thumbnailSize);
+    // Create offscreen canvas to prevent flashing
+    const offscreenCanvas = document.createElement('canvas');
+    offscreenCanvas.width = thumbnailSize;
+    offscreenCanvas.height = thumbnailSize;
+    const offscreenCtx = offscreenCanvas.getContext('2d');
 
     // Calculate scale factor (how many grid cells per thumbnail pixel)
     const scale = gridSize / thumbnailSize;
 
     // Use ImageData for faster pixel manipulation
-    const imageData = ctx.createImageData(thumbnailSize, thumbnailSize);
+    const imageData = offscreenCtx.createImageData(thumbnailSize, thumbnailSize);
     const data = imageData.data;
 
     // Render in chunks to avoid blocking
@@ -700,8 +702,14 @@ async function renderLayerThumbnail(layerIndex) {
         }
     }
 
-    // Draw the final image
-    ctx.putImageData(imageData, 0, 0);
+    // Draw to offscreen canvas
+    offscreenCtx.putImageData(imageData, 0, 0);
+
+    // Copy the complete image to the visible canvas in one atomic operation
+    // This prevents flashing by ensuring the user never sees a partially-rendered thumbnail
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, thumbnailSize, thumbnailSize);
+    ctx.drawImage(offscreenCanvas, 0, 0);
 }
 
 /**
