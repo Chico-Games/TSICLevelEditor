@@ -1079,7 +1079,8 @@ class LevelEditor {
         const ctx = this.previewCtx;
         ctx.clearRect(0, 0, this.previewCanvas.width, this.previewCanvas.height);
 
-        if (this.gridX < 0 || this.gridY < 0) return;
+        // Allow preview rendering even when mouse is outside canvas bounds
+        // Tools will naturally handle coordinates appropriately
         if (!this.selectedTileset && this.currentTool.name !== 'eraser' && this.currentTool.name !== 'eyedropper' && this.currentTool.name !== 'selection') return;
 
         const preview = this.currentTool.getPreview(this, this.gridX, this.gridY);
