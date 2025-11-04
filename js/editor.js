@@ -335,6 +335,22 @@ class LevelEditor {
     }
 
     onMouseUp(e) {
+        // If clicking on a UI element (button, input, etc), don't intercept the event
+        // This allows tile inspector close button and other UI elements to work
+        const target = e.target;
+        if (target && (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.closest('.floating-panel'))) {
+            // Remove document-level listeners but don't process the event
+            document.removeEventListener('mousemove', this.boundDocumentMouseMove);
+            document.removeEventListener('mouseup', this.boundDocumentMouseUp);
+
+            // Reset state but let the UI element handle the click
+            this.isMouseDown = false;
+            this.isPanning = false;
+            this.isDrawing = false;
+            this.gridCanvas.style.cursor = 'crosshair';
+            return;
+        }
+
         // Remove document-level listeners when operation completes
         document.removeEventListener('mousemove', this.boundDocumentMouseMove);
         document.removeEventListener('mouseup', this.boundDocumentMouseUp);
