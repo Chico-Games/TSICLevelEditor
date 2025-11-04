@@ -152,6 +152,10 @@ class LevelEditor {
     setupEventListeners() {
         const container = document.getElementById('canvas-container');
 
+        // Store bound document event handlers for cleanup
+        this.boundDocumentMouseMove = (e) => this.onMouseMove(e);
+        this.boundDocumentMouseUp = (e) => this.onMouseUp(e);
+
         // Mouse events
         container.addEventListener('mousedown', (e) => this.onMouseDown(e));
         container.addEventListener('mousemove', (e) => this.onMouseMove(e));
@@ -244,6 +248,10 @@ class LevelEditor {
             this.panStartX = this.mouseX - this.offsetX;
             this.panStartY = this.mouseY - this.offsetY;
             this.gridCanvas.style.cursor = 'grabbing';
+
+            // Attach document-level listeners to track mouse outside canvas
+            document.addEventListener('mousemove', this.boundDocumentMouseMove);
+            document.addEventListener('mouseup', this.boundDocumentMouseUp);
             return;
         }
 
@@ -251,6 +259,10 @@ class LevelEditor {
         if (e.button === 0) {
             this.isMouseDown = true;
             this.isDrawing = true; // Mark as drawing for performance optimization
+
+            // Attach document-level listeners to track mouse outside canvas
+            document.addEventListener('mousemove', this.boundDocumentMouseMove);
+            document.addEventListener('mouseup', this.boundDocumentMouseUp);
 
             if (this.gridX >= 0 && this.gridY >= 0) {
                 // CRITICAL FIX: Save state BEFORE drawing starts, not after!
@@ -307,6 +319,10 @@ class LevelEditor {
     }
 
     onMouseUp(e) {
+        // Remove document-level listeners when operation completes
+        document.removeEventListener('mousemove', this.boundDocumentMouseMove);
+        document.removeEventListener('mouseup', this.boundDocumentMouseUp);
+
         if (this.isPanning) {
             this.isPanning = false;
             this.gridCanvas.style.cursor = 'crosshair';
@@ -331,14 +347,14 @@ class LevelEditor {
     }
 
     onMouseLeave(e) {
-        this.isMouseDown = false;
-        this.isPanning = false;
-        this.isDrawing = false;
-        this.gridCanvas.style.cursor = 'crosshair';
-        this.clearPreview();
-        this.clearLayerHoverHighlight();
-        this.lastPreviewX = -1;
-        this.lastPreviewY = -1;
+        // Don't cancel operations if we're actively drawing or panning
+        // Document-level listeners will handle completion
+        if (!this.isMouseDown && !this.isPanning) {
+            this.clearPreview();
+            this.clearLayerHoverHighlight();
+            this.lastPreviewX = -1;
+            this.lastPreviewY = -1;
+        }
     }
 
     /**
