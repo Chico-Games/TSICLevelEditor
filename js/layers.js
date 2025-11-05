@@ -591,10 +591,63 @@ class LayerManager {
 
         const layers = this.layers.map(layer => layer.exportRLEData());
 
+        // Generate color mappings from config
+        const colorMappings = this.generateColorMappings();
+
         return {
             metadata,
-            layers
+            layers,
+            color_mappings: colorMappings,
+            format_info: {
+                description: "JSON-RLE (Run-Length Encoding) format for TSIC world generation",
+                version: "1.0",
+                how_to_read: {
+                    step_1: "Each layer has a 'palette' (array of colors) and 'color_data' (RLE compressed data)",
+                    step_2: "RLE format: [[paletteIndex, count], ...] where paletteIndex references palette array",
+                    step_3: "Decompress: for each [index, count], repeat palette[index] for count tiles",
+                    step_4: "Tiles are stored in row-major order: index = y * world_size + x",
+                    step_5: "Use color_mappings below to convert colors to enum values for each layer type"
+                }
+            }
         };
+    }
+
+    /**
+     * Generate color mappings from config for export
+     */
+    generateColorMappings() {
+        if (!window.configManager || !window.configManager.tilesets) {
+            return null;
+        }
+
+        const tilesets = window.configManager.tilesets;
+        const mappings = {
+            biomes: {},
+            heights: {},
+            difficulty: {},
+            hazards: {}
+        };
+
+        for (const [name, tileset] of Object.entries(tilesets)) {
+            const color = tileset.color.toLowerCase();
+            const entry = {
+                value: tileset.value,
+                name: name,
+                description: tileset.description
+            };
+
+            if (tileset.category === 'Biomes') {
+                mappings.biomes[color] = entry;
+            } else if (tileset.category === 'Height') {
+                mappings.heights[color] = entry;
+            } else if (tileset.category === 'Difficulty') {
+                mappings.difficulty[color] = entry;
+            } else if (tileset.category === 'Hazards') {
+                mappings.hazards[color] = entry;
+            }
+        }
+
+        return mappings;
     }
 
     /**
