@@ -107,6 +107,8 @@ class WorldLayer {
      * Clear all tiles in layer
      */
     clear() {
+        const tileCount = this.tileData.size;
+        console.log(`[WorldLayer.clear] "${this.name}": Clearing ${tileCount} tiles`);
         this.tileData.clear();
         this.cacheDirty = true; // Mark cache as needing update
     }
@@ -146,20 +148,26 @@ class WorldLayer {
      * Returns a single RLE array of colors
      */
     exportRLEData() {
+        const exportStart = performance.now();
         const totalTiles = this.width * this.height;
         const defaultColor = '#000000'; // Default empty color
 
         // Create color grid
+        let t0 = performance.now();
         const colorGrid = new Array(totalTiles).fill(defaultColor);
+        console.log(`[WorldLayer.exportRLEData] ${this.name}: Array creation took ${(performance.now() - t0).toFixed(1)}ms for ${totalTiles} tiles`);
 
         // Fill grid from tile data (which now only stores colors)
+        t0 = performance.now();
         for (const [key, color] of this.tileData.entries()) {
             const [x, y] = key.split(',').map(Number);
             const index = y * this.width + x;
             colorGrid[index] = color;
         }
+        console.log(`[WorldLayer.exportRLEData] ${this.name}: Grid fill took ${(performance.now() - t0).toFixed(1)}ms for ${this.tileData.size} tiles`);
 
         // Build palette: map of unique colors to indices
+        t0 = performance.now();
         const palette = [];
         const colorToIndex = new Map();
 
@@ -169,8 +177,10 @@ class WorldLayer {
                 palette.push(color);
             }
         }
+        console.log(`[WorldLayer.exportRLEData] ${this.name}: Palette build took ${(performance.now() - t0).toFixed(1)}ms, ${palette.length} colors`);
 
         // Compress to RLE using palette indices
+        t0 = performance.now();
         const rle = [];
         let currentColor = colorGrid[0];
         let currentIndex = colorToIndex.get(currentColor);
@@ -189,6 +199,9 @@ class WorldLayer {
         }
         // Push last run
         rle.push([currentIndex, count]);
+        console.log(`[WorldLayer.exportRLEData] ${this.name}: RLE compression took ${(performance.now() - t0).toFixed(1)}ms, ${rle.length} runs`);
+
+        console.log(`[WorldLayer.exportRLEData] ${this.name}: Total export time ${(performance.now() - exportStart).toFixed(1)}ms`);
 
         return {
             layer_type: this.layerType,
@@ -262,18 +275,24 @@ class WorldLayer {
      * Import from JSON-RLE format (supports both array and base64 formats)
      */
     importRLEData(rleData, configManager) {
+        const importStart = performance.now();
+        console.log(`[WorldLayer.importRLEData] Starting import for ${this.name}...`);
+
         this.clear();
 
         let colorData = null;
         let palette = null;
 
         // Check format: base64-RLE, palette-array, or old object format
+        let t0 = performance.now();
         if (rleData.encoding === 'rle-base64-v1' && rleData.data_b64) {
             // Base64-RLE format (newest, most compact)
+            console.log(`[WorldLayer.importRLEData] Decoding base64 format...`);
             if (typeof base64RLEEncoder !== 'undefined') {
                 const decoded = base64RLEEncoder.decodeLayer(rleData);
                 colorData = decoded.color_data;
                 palette = decoded.palette;
+                console.log(`[WorldLayer.importRLEData] Base64 decoded in ${(performance.now() - t0).toFixed(1)}ms, ${colorData.length} RLE entries`);
             } else {
                 console.error('base64RLEEncoder not available, cannot decode base64 format');
                 return;
@@ -282,6 +301,7 @@ class WorldLayer {
             // Array or object format
             colorData = rleData.color_data;
             palette = rleData.palette;
+            console.log(`[WorldLayer.importRLEData] Using array format, ${colorData.length} RLE entries`);
         } else {
             console.warn('[WorldLayer] No color_data or data_b64 in RLE data');
             return;
@@ -292,6 +312,10 @@ class WorldLayer {
         const defaultColor = '#000000';
         const maxIndex = this.width * this.height;
         let currentIndex = 0;
+        let tilesSet = 0;
+
+        console.log(`[WorldLayer.importRLEData] Decompressing RLE to ${this.width}x${this.height} grid (${maxIndex} tiles)...`);
+        t0 = performance.now();
 
         for (const entry of colorData) {
             let color, count;
@@ -309,7 +333,7 @@ class WorldLayer {
 
             // Boundary check: silently truncate if we exceed grid size
             if (currentIndex >= maxIndex) {
-                return;
+                break;
             }
 
             // Clamp count to not exceed grid bounds
@@ -331,11 +355,15 @@ class WorldLayer {
                     const key = `${x},${y}`;
                     this.tileData.set(key, normalizedColor);
                     currentIndex++;
+                    tilesSet++;
                 }
             } else {
                 currentIndex += actualCount;
             }
         }
+
+        console.log(`[WorldLayer.importRLEData] RLE decompression complete in ${(performance.now() - t0).toFixed(1)}ms, ${tilesSet} tiles set`);
+        console.log(`[WorldLayer.importRLEData] Total import time: ${(performance.now() - importStart).toFixed(1)}ms`);
 
         this.cacheDirty = true; // Invalidate cache after import
     }
@@ -369,19 +397,26 @@ class WorldLayer {
         this.tileSize = tileSize;
         const pixelWidth = this.width * tileSize;
         const pixelHeight = this.height * tileSize;
+        const megapixels = (pixelWidth * pixelHeight / 1000000).toFixed(1);
+
+        console.log(`[WorldLayer.initCacheCanvas] "${this.name}": Creating ${pixelWidth}x${pixelHeight} canvas (${megapixels}MP)`);
 
         if (!this.cacheCanvas) {
+            const t0 = performance.now();
             this.cacheCanvas = document.createElement('canvas');
             this.cacheCtx = this.cacheCanvas.getContext('2d', {
                 willReadFrequently: false,
                 alpha: true
             });
+            console.log(`[WorldLayer.initCacheCanvas] "${this.name}": Canvas element created in ${(performance.now() - t0).toFixed(1)}ms`);
         }
 
         if (this.cacheCanvas.width !== pixelWidth || this.cacheCanvas.height !== pixelHeight) {
+            const t0 = performance.now();
             this.cacheCanvas.width = pixelWidth;
             this.cacheCanvas.height = pixelHeight;
             this.cacheDirty = true;
+            console.log(`[WorldLayer.initCacheCanvas] "${this.name}": Canvas resized in ${(performance.now() - t0).toFixed(1)}ms`);
         }
     }
 
@@ -394,13 +429,19 @@ class WorldLayer {
 
         const ctx = this.cacheCtx;
         const tileSize = this.tileSize;
+        const renderStart = performance.now();
 
         // Full render needed (resize, import, etc.)
         if (this.cacheDirty) {
+            console.log(`[WorldLayer.renderToCache] "${this.name}": Starting FULL render (${this.tileData.size} tiles in data)...`);
+
             // Clear the cache
+            let t0 = performance.now();
             ctx.clearRect(0, 0, this.cacheCanvas.width, this.cacheCanvas.height);
+            console.log(`[WorldLayer.renderToCache] "${this.name}": Clear took ${(performance.now() - t0).toFixed(1)}ms`);
 
             // Batch tiles by color for efficient rendering
+            t0 = performance.now();
             const colorBatches = new Map();
 
             // Iterate through ALL tiles once (expensive, but only on full render!)
@@ -413,22 +454,33 @@ class WorldLayer {
                     colorBatches.get(color).push({ x, y });
                 }
             }
+            console.log(`[WorldLayer.renderToCache] "${this.name}": Batching took ${(performance.now() - t0).toFixed(1)}ms (${colorBatches.size} colors)`);
 
             // Render all tiles of same color together using Path2D
+            // Chunk into batches to avoid browser hang on massive paths
+            const CHUNK_SIZE = 10000;
+            t0 = performance.now();
             for (const [color, tiles] of colorBatches.entries()) {
                 ctx.fillStyle = color;
-                const path = new Path2D();
-                for (const tile of tiles) {
-                    path.rect(tile.x * tileSize, tile.y * tileSize, tileSize, tileSize);
+                for (let i = 0; i < tiles.length; i += CHUNK_SIZE) {
+                    const chunk = tiles.slice(i, i + CHUNK_SIZE);
+                    const path = new Path2D();
+                    for (const tile of chunk) {
+                        path.rect(tile.x * tileSize, tile.y * tileSize, tileSize, tileSize);
+                    }
+                    ctx.fill(path);
                 }
-                ctx.fill(path);
             }
+            console.log(`[WorldLayer.renderToCache] "${this.name}": Drawing took ${(performance.now() - t0).toFixed(1)}ms`);
 
             this.cacheDirty = false;
             this.dirtyTiles.clear(); // All tiles are now rendered
+
+            console.log(`[WorldLayer.renderToCache] "${this.name}": FULL render complete in ${(performance.now() - renderStart).toFixed(1)}ms`);
         }
         // Incremental update - only update changed tiles (FAST!)
         else if (this.dirtyTiles.size > 0) {
+            const dirtyCount = this.dirtyTiles.size;
             // Update only the dirty tiles
             for (const key of this.dirtyTiles) {
                 const [x, y] = key.split(',').map(Number);
@@ -447,6 +499,11 @@ class WorldLayer {
             }
 
             this.dirtyTiles.clear(); // All dirty tiles are now updated
+
+            // Only log if significant number of tiles
+            if (dirtyCount > 100) {
+                console.log(`[WorldLayer.renderToCache] "${this.name}": Incremental update of ${dirtyCount} tiles in ${(performance.now() - renderStart).toFixed(1)}ms`);
+            }
         }
     }
 
@@ -483,6 +540,10 @@ class LayerManager {
     fillLayerWithDefault(layer, defaultColor) {
         if (!layer || !defaultColor) return;
 
+        const fillStart = performance.now();
+        const totalTiles = layer.width * layer.height;
+        console.log(`[LayerManager.fillLayerWithDefault] Starting fill for "${layer.name}" with ${defaultColor} (${totalTiles} tiles)`);
+
         for (let y = 0; y < layer.height; y++) {
             for (let x = 0; x < layer.width; x++) {
                 const key = `${x},${y}`;
@@ -492,6 +553,8 @@ class LayerManager {
 
         // Mark cache as dirty after filling
         layer.cacheDirty = true;
+
+        console.log(`[LayerManager.fillLayerWithDefault] "${layer.name}" filled in ${(performance.now() - fillStart).toFixed(1)}ms`);
     }
 
     /**
@@ -566,9 +629,17 @@ class LayerManager {
      * Clear all layers
      */
     clearAll() {
-        for (const layer of this.layers) {
+        const clearStart = performance.now();
+        console.log(`[LayerManager.clearAll] Clearing ${this.layers.length} layers...`);
+
+        for (let i = 0; i < this.layers.length; i++) {
+            const layer = this.layers[i];
+            const layerStart = performance.now();
             layer.clear();
+            console.log(`[LayerManager.clearAll] Layer ${i + 1}/${this.layers.length} "${layer.name}" cleared in ${(performance.now() - layerStart).toFixed(1)}ms`);
         }
+
+        console.log(`[LayerManager.clearAll] All layers cleared in ${(performance.now() - clearStart).toFixed(1)}ms`);
     }
 
     /**
@@ -582,6 +653,9 @@ class LayerManager {
      * Export to JSON-RLE format
      */
     exportRLEData(mapName = 'TSIC_Mall', description = 'Generated by TSIC Level Editor', seed = null) {
+        const exportStart = performance.now();
+        console.log(`[LayerManager.exportRLEData] Starting export for ${this.width}x${this.height} grid...`);
+
         const metadata = {
             name: mapName,
             description: description,
@@ -589,12 +663,21 @@ class LayerManager {
             maze_generation_seed: seed || Math.floor(Math.random() * 2147483647)
         };
 
-        const layers = this.layers.map(layer => layer.exportRLEData());
+        console.log(`[LayerManager.exportRLEData] Exporting ${this.layers.length} layers...`);
+        const layerExportStart = performance.now();
+        const layers = [];
+        for (let i = 0; i < this.layers.length; i++) {
+            const t0 = performance.now();
+            const layerData = this.layers[i].exportRLEData();
+            console.log(`[LayerManager.exportRLEData] Layer ${i} (${this.layers[i].name}) exported in ${(performance.now() - t0).toFixed(1)}ms`);
+            layers.push(layerData);
+        }
+        console.log(`[LayerManager.exportRLEData] All layers exported in ${(performance.now() - layerExportStart).toFixed(1)}ms`);
 
         // Generate color mappings from config
         const colorMappings = this.generateColorMappings();
 
-        return {
+        const result = {
             metadata,
             layers,
             color_mappings: colorMappings,
@@ -610,6 +693,9 @@ class LayerManager {
                 }
             }
         };
+
+        console.log(`[LayerManager.exportRLEData] Total export time: ${(performance.now() - exportStart).toFixed(1)}ms`);
+        return result;
     }
 
     /**
@@ -674,6 +760,9 @@ class LayerManager {
      * Import from JSON-RLE format (supports both array and base64 formats)
      */
     importRLEData(rleData, configManager) {
+        const importStart = performance.now();
+        console.log('[LayerManager.importRLEData] Starting import...');
+
         if (!rleData || !rleData.metadata || !rleData.layers) {
             console.error('Invalid RLE data format');
             return false;
@@ -682,22 +771,32 @@ class LayerManager {
         // Set grid size from metadata
         this.width = rleData.metadata.world_size;
         this.height = rleData.metadata.world_size;
+        console.log(`[LayerManager.importRLEData] World size: ${this.width}x${this.height}`);
 
         // Clear existing layers
         this.layers = [];
         this.activeLayerIndex = 0;
 
         // Import layers
-        for (const layerData of rleData.layers) {
+        console.log(`[LayerManager.importRLEData] Importing ${rleData.layers.length} layers...`);
+        for (let i = 0; i < rleData.layers.length; i++) {
+            const layerData = rleData.layers[i];
             const layerType = layerData.layer_type;
+            console.log(`[LayerManager.importRLEData] Creating layer ${i + 1}/${rleData.layers.length}: ${layerType}`);
+
+            let t0 = performance.now();
             const layer = new WorldLayer(layerType, this.width, this.height, {
                 layerType: layerType,
                 worldLayer: layerType,
                 visible: true,
                 opacity: 0.8
             });
+            console.log(`[LayerManager.importRLEData] Layer ${layerType} created in ${(performance.now() - t0).toFixed(1)}ms`);
 
+            t0 = performance.now();
             layer.importRLEData(layerData, configManager);
+            console.log(`[LayerManager.importRLEData] Layer ${layerType} data imported in ${(performance.now() - t0).toFixed(1)}ms`);
+
             this.layers.push(layer);
         }
 
@@ -705,6 +804,7 @@ class LayerManager {
             this.addLayer('Floor', { layerType: 'Floor', worldLayer: 'Floor' });
         }
 
+        console.log(`[LayerManager.importRLEData] Import complete in ${(performance.now() - importStart).toFixed(1)}ms`);
         return true;
     }
 
