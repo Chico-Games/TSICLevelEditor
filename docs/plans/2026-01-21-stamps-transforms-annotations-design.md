@@ -45,9 +45,9 @@ The sparse tile array means wand selections with irregular shapes only store the
 1. Make selection with Wand or Rectangle Select tool
 2. "Save as Stamp" button appears in tool options bar
 3. Hotkey: **Ctrl+Shift+S** saves selection as stamp
-4. Prompt for stamp name, save to localStorage under current layer type
+4. Stamp saved with auto-generated name (e.g., "Stamp 1", "Stamp 2"), user can rename later
 5. Switch to Stamp tool (**T** hotkey)
-6. Click "Stamps" button in sidebar to open stamp picker modal
+6. If no stamp selected, clicking canvas opens stamp picker modal
 7. Modal shows grid of stamps filtered to current layer type
 8. Click stamp thumbnail to select, modal closes
 9. Click on canvas to place stamp
@@ -59,7 +59,9 @@ The sparse tile array means wand selections with irregular shapes only store the
 - Filtered by current layer type
 - Shows stamp name below each thumbnail
 - Click to select
-- Right-click or delete button to remove stamps
+- Right-click or hover menu for options:
+  - Rename stamp
+  - Delete stamp
 - X button to close modal
 
 ### UI Elements
@@ -151,8 +153,9 @@ New **Ruler tool** with hotkey **K**.
 
 - "Annotations" toggle button in toolbar
 - **Off by default**
-- When off: annotations hidden, annotation tools disabled
+- When off: annotations hidden
 - When on: annotations visible, annotation tools available
+- Selecting an annotation tool auto-enables annotations if currently off
 
 ### Annotation Tools
 
@@ -162,12 +165,24 @@ New "Annotations" section in left sidebar below main tools:
 2. **Hollow Rectangle** - Click and drag to draw rectangle outline
 3. **Hollow Circle/Ellipse** - Click and drag to draw ellipse outline
 
-### Annotation Color
+### Annotation Styling
 
-- Color picker in tool options bar when annotation tool selected
-- Independent from tile palette
+When an annotation tool is selected, the tool options bar shows:
+
+**Color:**
+- Color picker independent from tile palette
 - Default: bright cyan for visibility
 - Applies to newly created annotations
+
+**Font Size (Text tool):**
+- Slider or dropdown for font size
+- Range: 12px - 48px (or similar)
+- Default: 16px
+
+**Line Thickness (Hollow shapes):**
+- Slider for stroke width
+- Range: 1px - 8px
+- Default: 2px
 
 ### Annotation Editing
 
@@ -194,10 +209,12 @@ New "Annotations" section in left sidebar below main tools:
       type: "text" | "rectangle" | "ellipse",
       x: number,
       y: number,
-      width: number,      // for shapes
-      height: number,     // for shapes
-      text: string,       // for text type
-      color: string,      // hex color
+      width: number,       // for shapes
+      height: number,      // for shapes
+      text: string,        // for text type
+      fontSize: number,    // for text type (px)
+      lineThickness: number, // for shapes (px)
+      color: string,       // hex color
       createdAt: timestamp
     }
   ]
@@ -216,7 +233,7 @@ New "Annotations" section in left sidebar below main tools:
 | U | Rectangle/Shape (changed from R) |
 | I | Eyedropper |
 | E | Eraser |
-| H | Pan |
+| P | Pan (changed from H) |
 | M | Selection |
 | W | Wand |
 | T | Stamp (new) |
@@ -244,9 +261,17 @@ New "Annotations" section in left sidebar below main tools:
 
 ```
 Tools Section
-├── [existing tools]
-├── Stamp (T)
-└── Ruler (K)
+├── Pencil (B)
+├── Bucket (G)
+├── Line (L)
+├── Shape (U)
+├── Eyedropper (I)
+├── Eraser (E)
+├── Pan (P)
+├── Selection (M)
+├── Wand (W)
+├── Stamp (T) ← new
+└── Ruler (K) ← new
 
 Annotations Section (new)
 ├── Text
@@ -260,8 +285,8 @@ Annotations Section (new)
 Copy History Section
 └── [existing]
 
-Stamps Button (new)
-└── Opens stamp picker modal
+Stamps Section (new)
+└── "Open Stamps" button → opens stamp picker modal
 ```
 
 ### Tool Options Bar Additions
@@ -272,6 +297,8 @@ When selection exists:
 
 When annotation tool selected:
 - Annotation color picker
+- Font size slider (Text tool only)
+- Line thickness slider (Hollow Rect/Ellipse only)
 
 ### Top Toolbar
 
