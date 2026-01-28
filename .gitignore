@@ -5,3 +5,4 @@ test-summary.json/
 playwright-report/
 .DS_Store
 *.log
+.worktrees/
