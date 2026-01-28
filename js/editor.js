@@ -37,6 +37,25 @@ class LevelEditor {
         this.brushShape = 'square';
         this.fillMode = 'filled';
 
+        // Locked colors - colors in this set cannot be painted over
+        this.lockedColors = new Set();
+
+        // Points of Interest - special biomes that are often worth protecting
+        this.pointsOfInterest = [
+            '#00ff7f', // Spawn
+            '#2f1b0c', // Pit
+            '#2f2f2f', // Blocked
+            '#f59e0b', // Map
+            '#bb8fce', // HelpPoint
+            '#3b82f6', // SCPBaseEntrance
+            '#1e40af', // SCPBaseExit
+            '#fbbf24', // SCPBasePower
+            '#9ca3af', // CarParkEntrance
+            '#4b5563', // CarParkExit
+            '#9370db', // LostAndFound
+            '#8b4513'  // AbandonedCamp
+        ];
+
         // View settings
         this.tileSize = 16;
         this.zoom = 1.0;
@@ -95,12 +114,18 @@ class LevelEditor {
 
     /**
      * Initialize layer manager from config
+     * NOTE: Layers start EMPTY for performance. Fill with defaults only when creating new project.
      */
     initializeLayers(config) {
+        const initStart = performance.now();
         const size = config.getDefaultGridSize();
+        console.log(`[EDITOR] initializeLayers: Creating ${size.width}x${size.height} grid...`);
+
         this.layerManager = new LayerManager(size.width, size.height);
 
         const layers = config.getLayers();
+        console.log(`[EDITOR] initializeLayers: Creating ${layers.length} layers...`);
+
         for (const layerConfig of layers) {
             const layer = this.layerManager.addLayer(layerConfig.name, {
                 visible: layerConfig.visible,
@@ -111,16 +136,18 @@ class LevelEditor {
                 layerType: layerConfig.layerType,
                 worldLayer: layerConfig.worldLayer
             });
+            console.log(`[EDITOR] initializeLayers: Created layer "${layer.name}" (${layer.layerType})`);
 
-            // Fill layer with appropriate default color
-            const defaultColor = this.getDefaultColorForLayer(layerConfig.layerType);
-            if (defaultColor) {
-                this.layerManager.fillLayerWithDefault(layer, defaultColor);
-            }
+            // DON'T fill with defaults here - layers start empty for fast initialization
+            // Defaults are filled when creating a NEW project (see createNewProject)
         }
+
+        console.log(`[EDITOR] initializeLayers: Layers created in ${(performance.now() - initStart).toFixed(1)}ms`);
 
         this.resizeCanvas();
         this.render();
+
+        console.log(`[EDITOR] initializeLayers: Complete in ${(performance.now() - initStart).toFixed(1)}ms`);
     }
 
     /**
@@ -179,8 +206,15 @@ class LevelEditor {
         // Prevent context menu
         container.addEventListener('contextmenu', (e) => e.preventDefault());
 
-        // Window resize
-        window.addEventListener('resize', () => this.resizeCanvas());
+        // Window resize (debounced to prevent spam)
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                console.log('[EDITOR] Window resize - updating canvas');
+                this.resizeCanvas();
+            }, 100);
+        });
 
         // Scroll for zoom with adaptive increments
         container.addEventListener('wheel', (e) => {
@@ -217,8 +251,12 @@ class LevelEditor {
      * Resize canvas to fill container
      */
     resizeCanvas() {
+        const resizeStart = performance.now();
+        console.log(`[EDITOR] resizeCanvas() starting...`);
+
         const container = document.getElementById('canvas-container');
         const rect = container.getBoundingClientRect();
+        console.log(`[EDITOR] Container size: ${rect.width}x${rect.height}`);
 
         // CRITICAL FIX: Canvas should be viewport size, NOT grid size!
         // The old code used Math.max(rect, grid) which made huge canvases (8192x8192)
@@ -232,32 +270,46 @@ class LevelEditor {
         this.minimapCanvas.width = 190;
         this.minimapCanvas.height = 190;
 
+        console.log(`[EDITOR] Canvases resized, calling render()...`);
+        let t0 = performance.now();
         this.render();
+        console.log(`[EDITOR] render() completed in ${(performance.now() - t0).toFixed(1)}ms`);
+
+        t0 = performance.now();
         this.renderMinimap();
+        console.log(`[EDITOR] renderMinimap() completed in ${(performance.now() - t0).toFixed(1)}ms`);
+
+        console.log(`[EDITOR] resizeCanvas() complete in ${(performance.now() - resizeStart).toFixed(1)}ms`);
     }
 
     /**
      * Mouse event handlers
      */
     onMouseDown(e) {
+        console.log(`[MOUSE] onMouseDown: button=${e.button}, tool=${this.currentTool?.name}`);
         const rect = this.gridCanvas.getBoundingClientRect();
         this.mouseX = e.clientX - rect.left;
         this.mouseY = e.clientY - rect.top;
         this.updateGridPosition();
 
-        // Right-click: Show tile inspector
+        // Right-click: Lock/unlock color at position
         if (e.button === 2) {
             e.preventDefault();
-            if (this.gridX >= 0 && this.gridY >= 0 &&
+            console.log(`[MOUSE] Right-click at grid (${this.gridX}, ${this.gridY}), bounds: ${this.layerManager.width}x${this.layerManager.height}`);
+            const inBounds = this.gridX >= 0 && this.gridY >= 0 &&
                 this.gridX < this.layerManager.width &&
-                this.gridY < this.layerManager.height) {
-                this.showTileInspector(e, this.gridX, this.gridY);
+                this.gridY < this.layerManager.height;
+            console.log(`[MOUSE] In bounds: ${inBounds}`);
+            if (inBounds) {
+                console.log(`[MOUSE] Calling lockColorAtPosition...`);
+                this.lockColorAtPosition(this.gridX, this.gridY);
             }
             return;
         }
 
         // Middle mouse button or Space+Left click for panning
         if (e.button === 1 || (e.button === 0 && this.spacePressed)) {
+            console.log(`[MOUSE] Starting pan`);
             this.isPanning = true;
             this.panStartX = this.mouseX - this.offsetX;
             this.panStartY = this.mouseY - this.offsetY;
@@ -271,6 +323,7 @@ class LevelEditor {
 
         // Left mouse for tool
         if (e.button === 0) {
+            console.log(`[MOUSE] Left-click with tool ${this.currentTool?.name} at grid (${this.gridX}, ${this.gridY})`);
             this.isMouseDown = true;
             this.isDrawing = true; // Mark as drawing for performance optimization
 
@@ -281,8 +334,10 @@ class LevelEditor {
             if (this.gridX >= 0 && this.gridY >= 0) {
                 // CRITICAL FIX: Save state BEFORE drawing starts, not after!
                 // We must capture the state before any modifications
+                console.log(`[MOUSE] Saving state and calling tool.onMouseDown`);
                 this.saveState();
                 this.currentTool.onMouseDown(this, this.gridX, this.gridY, e);
+                console.log(`[MOUSE] Tool.onMouseDown complete, requesting render`);
                 this.requestRender();
                 this.isDirty = true;
             }
@@ -414,107 +469,6 @@ class LevelEditor {
     }
 
     /**
-     * Show tile inspector panel with detailed information about a tile
-     * @param {MouseEvent} e - Mouse event for positioning
-     * @param {number} x - Tile X coordinate
-     * @param {number} y - Tile Y coordinate
-     */
-    showTileInspector(e, x, y) {
-        const inspector = document.getElementById('tile-inspector');
-        const content = document.getElementById('tile-inspector-content');
-
-        if (!inspector || !content) return;
-
-        const index = y * this.layerManager.width + x;
-        let html = `<h4 style="margin-top:0;">Tile at (${x}, ${y})</h4>`;
-        html += `<p><strong>Index:</strong> ${index}</p>`;
-
-        // Get active layer tile data
-        const layer = this.layerManager.getActiveLayer();
-        if (layer) {
-            const key = `${x},${y}`;
-            const color = layer.tileData.get(key);
-
-            if (color) {
-                const enumData = window.colorMapper ? window.colorMapper.getEnumFromColor(color) : null;
-
-                if (enumData) {
-                    html += `<p><strong>Biome:</strong> ${enumData.name}</p>`;
-                    html += `<p><strong>Category:</strong> ${enumData.category}</p>`;
-                    html += `<div style="width:40px;height:40px;background:${color};border:1px solid #666;margin:8px 0;"></div>`;
-                } else {
-                    html += `<p><strong>Color:</strong> ${color}</p>`;
-                }
-            } else {
-                html += `<p style="color:#aaa;font-style:italic;">Empty tile</p>`;
-            }
-        }
-
-        // Get height data
-        const heightLayer = this.layerManager.layers.find(l =>
-            l.layerType && l.layerType.toLowerCase() === 'height'
-        );
-
-        if (heightLayer) {
-            const key = `${x},${y}`;
-            const color = heightLayer.tileData.get(key);
-
-            if (color && window.colorMapper) {
-                const enumData = window.colorMapper.getEnumFromColor(color);
-                if (enumData && enumData.category === 'Height') {
-                    html += `<p><strong>Height:</strong> ${enumData.name} (${enumData.value})</p>`;
-                }
-            }
-        }
-
-        // Maze visualizer data (if enabled)
-        if (this.mazeVisualizer && this.mazeVisualizer.enabled) {
-            const activeLayerIndex = this.layerManager.activeLayerIndex;
-
-            // Flood fill region info
-            const regionInfo = this.mazeVisualizer.getRegionAtPosition(x, y, activeLayerIndex);
-            if (regionInfo) {
-                html += `<hr style="border:none;border-top:1px solid #444;margin:12px 0;">`;
-                html += `<h5 style="color:#4a9eff;margin:8px 0;">Flood Fill Region</h5>`;
-                html += `<p><strong>Region:</strong> ${regionInfo.regionIndex}</p>`;
-                html += `<p><strong>Region Size:</strong> ${regionInfo.regionSize} tiles</p>`;
-            }
-
-            // Maze directions
-            const mazeData = this.mazeVisualizer.getMazeDataAtIndex(index, activeLayerIndex);
-            if (mazeData !== undefined && mazeData !== 0) {
-                html += `<h5 style="color:#4a9eff;margin:8px 0;">Maze Directions</h5>`;
-                html += `<p><strong>Value:</strong> ${mazeData} (0x${mazeData.toString(16).toUpperCase()})</p>`;
-                html += `<ul style="margin:4px 0;padding-left:20px;">`;
-                html += `<li style="color:${(mazeData & 1) ? '#6f6' : '#666'}">North: ${(mazeData & 1) ? '✓' : '✗'}</li>`;
-                html += `<li style="color:${(mazeData & 2) ? '#6f6' : '#666'}">South: ${(mazeData & 2) ? '✓' : '✗'}</li>`;
-                html += `<li style="color:${(mazeData & 4) ? '#6f6' : '#666'}">East: ${(mazeData & 4) ? '✓' : '✗'}</li>`;
-                html += `<li style="color:${(mazeData & 8) ? '#6f6' : '#666'}">West: ${(mazeData & 8) ? '✓' : '✗'}</li>`;
-                html += `</ul>`;
-            }
-        }
-
-        content.innerHTML = html;
-        inspector.style.display = 'block';
-
-        // Position near cursor
-        const inspectorRect = inspector.getBoundingClientRect();
-        let left = e.clientX + 15;
-        let top = e.clientY + 15;
-
-        // Keep inspector on screen
-        if (left + inspectorRect.width > window.innerWidth) {
-            left = e.clientX - inspectorRect.width - 15;
-        }
-        if (top + inspectorRect.height > window.innerHeight) {
-            top = e.clientY - inspectorRect.height - 15;
-        }
-
-        inspector.style.left = `${left}px`;
-        inspector.style.top = `${top}px`;
-    }
-
-    /**
      * Handle minimap mouse down to start dragging
      */
     onMinimapMouseDown(e) {
@@ -528,7 +482,7 @@ class LevelEditor {
      */
     onMinimapMouseMove(e) {
         if (!this.isMinimapDragging) return;
-        this.updateViewportFromMinimap(e, true); // Skip minimap render during drag
+        this.updateViewportFromMinimap(e, false); // Update minimap to show viewport position
     }
 
     /**
@@ -553,19 +507,22 @@ class LevelEditor {
 
     /**
      * Update viewport position based on minimap coordinates
+     * Uses bottom-left origin: Y=0 at BOTTOM, Y increases UPWARD
      */
     updateViewportFromMinimap(e, skipMinimap = false) {
         const rect = this.minimapCanvas.getBoundingClientRect();
         const clickX = e.clientX - rect.left;
         const clickY = e.clientY - rect.top;
 
-        // Calculate scale factors
-        const scaleX = this.layerManager.width / this.minimapCanvas.width;
-        const scaleY = this.layerManager.height / this.minimapCanvas.height;
+        // Calculate scale factors using DISPLAYED size (rect), not internal resolution
+        // This is critical because CSS may scale the canvas differently than its internal size
+        const scaleX = this.layerManager.width / rect.width;
+        const scaleY = this.layerManager.height / rect.height;
 
-        // Convert minimap coordinates to grid coordinates
-        const gridX = clickX * scaleX;
-        const gridY = clickY * scaleY;
+        // Convert minimap click to render-space coordinates
+        // The minimap is rendered with the same Y orientation as the main canvas
+        const renderX = clickX * scaleX;
+        const renderY = clickY * scaleY;
 
         // Center viewport on clicked position
         const container = document.getElementById('canvas-container');
@@ -574,8 +531,8 @@ class LevelEditor {
         const centerOffsetX = (containerRect.width / 2) / (this.tileSize * this.zoom);
         const centerOffsetY = (containerRect.height / 2) / (this.tileSize * this.zoom);
 
-        this.offsetX = -(gridX - centerOffsetX) * this.tileSize * this.zoom;
-        this.offsetY = -(gridY - centerOffsetY) * this.tileSize * this.zoom;
+        this.offsetX = -(renderX - centerOffsetX) * this.tileSize * this.zoom;
+        this.offsetY = -(renderY - centerOffsetY) * this.tileSize * this.zoom;
 
         this.requestRender();
         if (!skipMinimap) {
@@ -585,13 +542,15 @@ class LevelEditor {
 
     /**
      * Update grid position from mouse position
+     * Uses bottom-left origin: Y=0 at BOTTOM, Y increases UPWARD
      */
     updateGridPosition() {
         const worldX = (this.mouseX - this.offsetX) / (this.tileSize * this.zoom);
         const worldY = (this.mouseY - this.offsetY) / (this.tileSize * this.zoom);
 
         this.gridX = Math.floor(worldX);
-        this.gridY = Math.floor(worldY);
+        // Flip Y: screen Y increases downward, but grid Y should increase upward
+        this.gridY = this.layerManager.height - 1 - Math.floor(worldY);
 
         // Update status bar
         if (this.gridX >= 0 && this.gridX < this.layerManager.width &&
@@ -604,7 +563,7 @@ class LevelEditor {
 
     /**
      * Highlight the layer that has data at the current cursor position
-     * Searches from top to bottom (forward order, since first layer renders on top)
+     * Prioritizes the main selected layer (blue outline), then falls back to other visible layers
      * OPTIMIZED: Uses direct color lookup instead of full getTile reconstruction
      */
     highlightLayerAtPosition(x, y) {
@@ -618,20 +577,46 @@ class LevelEditor {
         let foundLayerIndex = -1;
         let foundColor = null;
 
-        // Search from first layer (top) to last layer (bottom)
-        // OPTIMIZATION: Use direct Map lookup instead of getTile() to avoid colorMapper overhead
         const key = `${x},${y}`;
-        for (let i = 0; i < this.layerManager.layers.length; i++) {
-            const layer = this.layerManager.layers[i];
-            if (!layer.visible) continue;
 
-            // Direct lookup - much faster than getTile()
-            const color = layer.tileData.get(key);
-            // PERF: Avoid toLowerCase() - colors are stored lowercase
-            if (color && color !== '#000000') {
-                foundLayerIndex = i;
-                foundColor = color;
-                break;
+        // PRIORITY 1: Check the main selected layer first (blue outline - most recently selected)
+        if (this.recentLayerSelections && this.recentLayerSelections.length > 0) {
+            const mainSelectedIndex = this.recentLayerSelections[0];
+            const mainLayer = this.layerManager.layers[mainSelectedIndex];
+            if (mainLayer && mainLayer.visible) {
+                const color = mainLayer.tileData.get(key);
+                if (color && color !== '#000000') {
+                    foundLayerIndex = mainSelectedIndex;
+                    foundColor = color;
+                }
+            }
+        }
+
+        // PRIORITY 2: If main selected layer has no data, check secondary selected (green outline)
+        if (foundLayerIndex < 0 && this.recentLayerSelections && this.recentLayerSelections.length > 1) {
+            const secondaryIndex = this.recentLayerSelections[1];
+            const secondaryLayer = this.layerManager.layers[secondaryIndex];
+            if (secondaryLayer && secondaryLayer.visible) {
+                const color = secondaryLayer.tileData.get(key);
+                if (color && color !== '#000000') {
+                    foundLayerIndex = secondaryIndex;
+                    foundColor = color;
+                }
+            }
+        }
+
+        // PRIORITY 3: Fall back to searching all visible layers in order
+        if (foundLayerIndex < 0) {
+            for (let i = 0; i < this.layerManager.layers.length; i++) {
+                const layer = this.layerManager.layers[i];
+                if (!layer.visible) continue;
+
+                const color = layer.tileData.get(key);
+                if (color && color !== '#000000') {
+                    foundLayerIndex = i;
+                    foundColor = color;
+                    break;
+                }
             }
         }
 
@@ -639,10 +624,8 @@ class LevelEditor {
         this.updateLayerHoverHighlight(foundLayerIndex);
 
         // Update status bar with hover info
-        // Only reconstruct tileset if we need to display it
         if (foundLayerIndex >= 0 && foundColor) {
             const layer = this.layerManager.layers[foundLayerIndex];
-            // Lazy load tileset name only when needed for display
             const enumData = window.colorMapper?.getEnumFromColor(foundColor);
             const tilesetName = enumData ? enumData.name : 'Unknown';
             document.getElementById('status-hover-info').textContent =
@@ -693,8 +676,24 @@ class LevelEditor {
             return;
         }
 
+        let skippedLocked = 0;
         for (const tile of tiles) {
+            // Check if existing tile has a locked color
+            const key = `${tile.x},${tile.y}`;
+            const existingColor = layer.tileData.get(key);
+            if (existingColor && this.lockedColors.has(existingColor.toLowerCase())) {
+                skippedLocked++;
+                continue; // Skip tiles with locked colors
+            }
             layer.setTile(tile.x, tile.y, this.selectedTileset.value, this.selectedTileset);
+        }
+
+        // Show feedback if tiles were skipped due to locked colors
+        if (skippedLocked > 0 && !this.isDrawing) {
+            document.getElementById('status-message').textContent = `Skipped ${skippedLocked} locked tile(s)`;
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 1500);
         }
 
         // Defer layer panel updates during active drawing for performance
@@ -721,8 +720,24 @@ class LevelEditor {
             return;
         }
 
+        let skippedLocked = 0;
         for (const tile of tiles) {
+            // Check if existing tile has a locked color
+            const key = `${tile.x},${tile.y}`;
+            const existingColor = layer.tileData.get(key);
+            if (existingColor && this.lockedColors.has(existingColor.toLowerCase())) {
+                skippedLocked++;
+                continue; // Skip tiles with locked colors
+            }
             layer.clearTile(tile.x, tile.y);
+        }
+
+        // Show feedback if tiles were skipped due to locked colors
+        if (skippedLocked > 0 && !this.isDrawing) {
+            document.getElementById('status-message').textContent = `Skipped ${skippedLocked} locked tile(s)`;
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 1500);
         }
 
         // Defer layer panel updates during active drawing for performance
@@ -731,6 +746,178 @@ class LevelEditor {
         } else if (typeof window.updateLayersPanel === 'function') {
             window.updateLayersPanel();
         }
+    }
+
+    /**
+     * Toggle lock state for a color
+     * @param {string} color - The hex color to lock/unlock (e.g., "#ff0000")
+     * @returns {boolean} - New lock state (true = locked)
+     */
+    toggleColorLock(color) {
+        const normalizedColor = color.toLowerCase();
+        if (this.lockedColors.has(normalizedColor)) {
+            this.lockedColors.delete(normalizedColor);
+            return false;
+        } else {
+            this.lockedColors.add(normalizedColor);
+            return true;
+        }
+    }
+
+    /**
+     * Check if a color is locked
+     * @param {string} color - The hex color to check
+     * @returns {boolean} - True if locked
+     */
+    isColorLocked(color) {
+        return this.lockedColors.has(color.toLowerCase());
+    }
+
+    /**
+     * Lock a specific color
+     * @param {string} color - The hex color to lock
+     */
+    lockColor(color) {
+        this.lockedColors.add(color.toLowerCase());
+    }
+
+    /**
+     * Unlock a specific color
+     * @param {string} color - The hex color to unlock
+     */
+    unlockColor(color) {
+        this.lockedColors.delete(color.toLowerCase());
+    }
+
+    /**
+     * Clear all color locks
+     */
+    clearAllColorLocks() {
+        this.lockedColors.clear();
+        // Update palette UI
+        document.querySelectorAll('.color-item').forEach(item => {
+            item.classList.remove('locked');
+        });
+        document.getElementById('status-message').textContent = 'All colors unlocked';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
+    }
+
+    /**
+     * Check if any POI colors are currently locked
+     * @returns {boolean} True if at least one POI is locked
+     */
+    hasLockedPOI() {
+        for (const color of this.pointsOfInterest) {
+            if (this.lockedColors.has(color)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Lock all Points of Interest colors
+     */
+    lockAllPOI() {
+        for (const color of this.pointsOfInterest) {
+            this.lockedColors.add(color);
+            // Update palette UI
+            const colorItem = document.querySelector(`.color-item[data-color="${color}"]`);
+            if (colorItem) {
+                colorItem.classList.add('locked');
+            }
+        }
+        document.getElementById('status-message').textContent = `Locked ${this.pointsOfInterest.length} Points of Interest`;
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 2000);
+    }
+
+    /**
+     * Unlock all Points of Interest colors (but keep other locks)
+     */
+    unlockAllPOI() {
+        let unlocked = 0;
+        for (const color of this.pointsOfInterest) {
+            if (this.lockedColors.has(color)) {
+                this.lockedColors.delete(color);
+                unlocked++;
+                // Update palette UI
+                const colorItem = document.querySelector(`.color-item[data-color="${color}"]`);
+                if (colorItem) {
+                    colorItem.classList.remove('locked');
+                }
+            }
+        }
+        document.getElementById('status-message').textContent = `Unlocked ${unlocked} Points of Interest`;
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 2000);
+    }
+
+    /**
+     * Lock/unlock the color at a specific grid position
+     * Used by right-click on canvas
+     * @param {number} x - Grid X coordinate
+     * @param {number} y - Grid Y coordinate
+     */
+    lockColorAtPosition(x, y) {
+        console.log(`[LOCK] lockColorAtPosition called at (${x}, ${y})`);
+        const layer = this.layerManager.getActiveLayer();
+        if (!layer) {
+            console.log(`[LOCK] No active layer`);
+            document.getElementById('status-message').textContent = 'No active layer';
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 1500);
+            return;
+        }
+
+        const key = `${x},${y}`;
+        const color = layer.tileData.get(key);
+        console.log(`[LOCK] Color at position: "${color}"`);
+
+        if (!color || color === '#000000') {
+            document.getElementById('status-message').textContent = 'No tile at this position';
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 1500);
+            return;
+        }
+
+        // Toggle lock state
+        const isLocked = this.toggleColorLock(color);
+        console.log(`[LOCK] Color ${color} is now ${isLocked ? 'LOCKED' : 'UNLOCKED'}`);
+
+        // Get tileset name for status message
+        const enumData = window.colorMapper ? window.colorMapper.getEnumFromColor(color) : null;
+        const displayName = enumData ? enumData.name : color;
+
+        // Update palette UI to reflect lock state
+        const colorItem = document.querySelector(`.color-item[data-color="${color.toLowerCase()}"]`);
+        console.log(`[LOCK] Found palette item: ${colorItem ? 'yes' : 'no'}`);
+        if (colorItem) {
+            colorItem.classList.toggle('locked', isLocked);
+        }
+
+        // Show status message
+        const statusMsg = isLocked
+            ? `Locked: ${displayName} (cannot be painted over)`
+            : `Unlocked: ${displayName}`;
+        document.getElementById('status-message').textContent = statusMsg;
+        console.log(`[LOCK] Status: ${statusMsg}`);
+
+        // Update POI button state if available
+        if (typeof window.updatePOIButton === 'function') {
+            window.updatePOIButton();
+        }
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 2000);
+
+        console.log(`[EDITOR] Color ${isLocked ? 'locked' : 'unlocked'}: ${displayName} (${color})`);
     }
 
     /**
@@ -758,10 +945,12 @@ class LevelEditor {
      * Set current tool
      */
     setTool(toolName) {
+        console.log(`[EDITOR] setTool called with: ${toolName}`);
         if (tools[toolName]) {
             // Finalize any floating selection when switching away from selection tool
             if (this.currentTool.name === 'selection' && toolName !== 'selection') {
                 if (this.currentTool.isFloating) {
+                    console.log(`[EDITOR] Finalizing floating selection before switching tool`);
                     this.currentTool.finalizeSelection(this);
                 }
             }
@@ -772,14 +961,9 @@ class LevelEditor {
             }
 
             this.currentTool = tools[toolName];
+            console.log(`[EDITOR] Tool switched to: ${this.currentTool.name}`);
 
-            // Show/hide shape options
-            const shapeOptions = document.getElementById('shape-options');
-            if (toolName === 'rectangle') {
-                shapeOptions.style.display = 'flex';
-            } else {
-                shapeOptions.style.display = 'none';
-            }
+            // Note: Shape options visibility is now handled by updateToolOptions() in app.js
 
             // Update cursor based on tool
             const container = document.getElementById('canvas-container');
@@ -790,6 +974,8 @@ class LevelEditor {
             } else {
                 container.style.cursor = 'crosshair';
             }
+        } else {
+            console.warn(`[EDITOR] setTool: Unknown tool "${toolName}"`);
         }
     }
 
@@ -938,13 +1124,18 @@ class LevelEditor {
      * Render main grid
      */
     render() {
+        const renderStart = performance.now();
+        console.log(`[RENDER] render() STARTING...`);
+
         const ctx = this.gridCtx;
         const width = this.gridCanvas.width;
         const height = this.gridCanvas.height;
 
         // Clear background
+        console.log(`[RENDER] Step 1: Clearing ${width}x${height} canvas...`);
         ctx.fillStyle = '#2b2b2b';
         ctx.fillRect(0, 0, width, height);
+        console.log(`[RENDER] Step 1: Done in ${(performance.now() - renderStart).toFixed(1)}ms`);
 
         ctx.save();
         ctx.translate(this.offsetX, this.offsetY);
@@ -964,6 +1155,7 @@ class LevelEditor {
             }
         }
 
+        console.log(`[RENDER] Step 2: Rendering ${visibleLayers.length} visible layers...`);
         for (let i = 0; i < visibleLayers.length; i++) {
             const layer = visibleLayers[i];
             // First layer rendered (i===0) is the bottom-most, should be opaque
@@ -972,35 +1164,53 @@ class LevelEditor {
 
             // Bottom layer always at full opacity, others use global opacity
             ctx.globalAlpha = isBottomLayer ? 1.0 : this.topLayerOpacity;
+            console.log(`[RENDER] Step 2.${i + 1}: Rendering layer "${layer.name}" (${layer.tileData.size} tiles)...`);
+            const layerStart = performance.now();
             this.renderLayer(ctx, layer);
+            console.log(`[RENDER] Step 2.${i + 1}: Layer "${layer.name}" done in ${(performance.now() - layerStart).toFixed(1)}ms`);
         }
+        console.log(`[RENDER] Step 2: All layers done in ${(performance.now() - renderStart).toFixed(1)}ms`);
 
         ctx.globalAlpha = 1.0;
 
         // Render grid boundary (visible border around the actual grid)
+        console.log(`[RENDER] Step 3: Rendering grid boundary...`);
         ctx.strokeStyle = '#4a9eff';
         ctx.lineWidth = 2 / this.zoom;
         ctx.strokeRect(0, 0, this.layerManager.width * this.tileSize, this.layerManager.height * this.tileSize);
 
         // Render grid lines
         if (this.showGrid && this.zoom >= 0.5) {
+            console.log(`[RENDER] Step 4: Rendering grid lines...`);
             this.renderGrid(ctx);
         }
 
         // Render guide lines (composition grid)
         if (this.showGuides) {
+            console.log(`[RENDER] Step 5: Rendering guide lines...`);
             this.renderGuideLines(ctx);
         }
 
         // Render maze overlay
         if (this.mazeVisualizer && this.mazeVisualizer.enabled) {
+            console.log(`[RENDER] Step 6: Rendering maze overlay...`);
             this.mazeVisualizer.renderOverlay(ctx);
+        }
+
+        // Render ruler measurement
+        if (this.currentTool && this.currentTool.name === 'ruler') {
+            this.renderRulerMeasurement(ctx);
         }
 
         ctx.restore();
 
         // Update statistics
+        console.log(`[RENDER] Step 7: Updating statistics...`);
         this.updateStatistics();
+
+        // Log render time
+        const renderTime = performance.now() - renderStart;
+        console.log(`[RENDER] render() COMPLETE in ${renderTime.toFixed(1)}ms`);
     }
 
     /**
@@ -1008,20 +1218,36 @@ class LevelEditor {
      * PERFORMANCE: Renders to cache once, then blits cached canvas (extremely fast!)
      */
     renderLayer(ctx, layer) {
+        const renderStart = performance.now();
+
         // Initialize cache canvas if needed
         if (!layer.cacheCanvas) {
+            console.log(`[RENDER] Layer "${layer.name}": Initializing cache canvas...`);
+            const initStart = performance.now();
             layer.initCacheCanvas(this.tileSize);
+            console.log(`[RENDER] Layer "${layer.name}": Cache canvas initialized in ${(performance.now() - initStart).toFixed(1)}ms`);
         }
 
         // Update cache if dirty (full render) OR if there are dirty tiles (incremental)
         if (layer.cacheDirty || layer.dirtyTiles.size > 0) {
+            const cacheStart = performance.now();
+            const isDirty = layer.cacheDirty;
+            const dirtyCount = layer.dirtyTiles.size;
+            console.log(`[RENDER] Layer "${layer.name}": Updating cache (fullRender=${isDirty}, dirtyTiles=${dirtyCount})...`);
             layer.renderToCache();
+            console.log(`[RENDER] Layer "${layer.name}": Cache updated in ${(performance.now() - cacheStart).toFixed(1)}ms`);
         }
 
         // SUPER FAST: Just copy the cached canvas! No tile iteration needed!
         // This is how professional paint programs work (Photoshop, Krita, etc.)
         if (layer.cacheCanvas) {
             ctx.drawImage(layer.cacheCanvas, 0, 0);
+        }
+
+        // Only log if render took significant time
+        const renderTime = performance.now() - renderStart;
+        if (renderTime > 10) {
+            console.log(`[RENDER] Layer "${layer.name}": Total render time ${renderTime.toFixed(1)}ms`);
         }
     }
 
@@ -1088,6 +1314,72 @@ class LevelEditor {
     }
 
     /**
+     * Render ruler measurement line and label
+     */
+    renderRulerMeasurement(ctx) {
+        if (!this.currentTool || this.currentTool.name !== 'ruler') return;
+
+        const measurement = this.currentTool.getMeasurement();
+        if (!measurement) return;
+
+        const { x1, y1, x2, y2, distance } = measurement;
+        const tileSize = this.tileSize;
+
+        // Calculate pixel positions (center of tiles)
+        const px1 = x1 * tileSize + tileSize / 2;
+        const py1 = y1 * tileSize + tileSize / 2;
+        const px2 = x2 * tileSize + tileSize / 2;
+        const py2 = y2 * tileSize + tileSize / 2;
+
+        // Draw measurement line
+        ctx.strokeStyle = '#ff6b6b';
+        ctx.lineWidth = 3 / this.zoom;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(px1, py1);
+        ctx.lineTo(px2, py2);
+        ctx.stroke();
+
+        // Draw end markers
+        const markerSize = 8 / this.zoom;
+        ctx.fillStyle = '#ff6b6b';
+
+        // Start marker
+        ctx.beginPath();
+        ctx.arc(px1, py1, markerSize, 0, Math.PI * 2);
+        ctx.fill();
+
+        // End marker
+        ctx.beginPath();
+        ctx.arc(px2, py2, markerSize, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw distance label
+        const midX = (px1 + px2) / 2;
+        const midY = (py1 + py2) / 2;
+        const labelText = `${distance} tiles`;
+
+        // Label background
+        ctx.font = `bold ${14 / this.zoom}px sans-serif`;
+        const textWidth = ctx.measureText(labelText).width;
+        const padding = 6 / this.zoom;
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(
+            midX - textWidth / 2 - padding,
+            midY - 10 / this.zoom - padding,
+            textWidth + padding * 2,
+            20 / this.zoom + padding
+        );
+
+        // Label text
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(labelText, midX, midY);
+    }
+
+    /**
      * Render preview overlay
      * OPTIMIZED: Use Path2D batching for performance
      */
@@ -1122,10 +1414,11 @@ class LevelEditor {
         }
 
         // Render normal tiles with Path2D batching (much faster!)
+        // Flip Y: grid Y=0 is at bottom, but canvas Y=0 is at top
         if (normalTiles.length > 0) {
             const path = new Path2D();
             for (const tile of normalTiles) {
-                path.rect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+                path.rect(tile.x * this.tileSize, (this.layerManager.height - 1 - tile.y) * this.tileSize, this.tileSize, this.tileSize);
             }
 
             if (this.currentTool.name === 'eraser') {
@@ -1137,18 +1430,20 @@ class LevelEditor {
         }
 
         // Render floating selection tiles (can't batch due to different colors)
+        // Flip Y: grid Y=0 is at bottom, but canvas Y=0 is at top
         for (const tile of floatingTiles) {
             ctx.fillStyle = tile.tileset.color + 'CC';
-            ctx.fillRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+            ctx.fillRect(tile.x * this.tileSize, (this.layerManager.height - 1 - tile.y) * this.tileSize, this.tileSize, this.tileSize);
         }
 
         // Render outline tiles (can't batch due to setLineDash)
+        // Flip Y: grid Y=0 is at bottom, but canvas Y=0 is at top
         if (outlineTiles.length > 0) {
             ctx.strokeStyle = '#4a9eff';
             ctx.lineWidth = 2 / this.zoom;
             ctx.setLineDash([4 / this.zoom, 4 / this.zoom]);
             for (const tile of outlineTiles) {
-                ctx.strokeRect(tile.x * this.tileSize, tile.y * this.tileSize, this.tileSize, this.tileSize);
+                ctx.strokeRect(tile.x * this.tileSize, (this.layerManager.height - 1 - tile.y) * this.tileSize, this.tileSize, this.tileSize);
             }
             ctx.setLineDash([]);
         }
@@ -1182,12 +1477,13 @@ class LevelEditor {
         // For 512×512: sample every 2nd tile, for 256×256: every tile
         const sampleRate = Math.max(1, Math.ceil(this.layerManager.width / 256));
 
-        // Render all layers in reverse order (first layer in list renders on top)
-        // Bottom-most visible layer is always full opacity, top layers use global opacity
+        // Render layers in selection order (same as main canvas)
+        // Most recently selected layer renders on top
         const visibleLayers = [];
-        for (let i = this.layerManager.layers.length - 1; i >= 0; i--) {
-            const layer = this.layerManager.layers[i];
-            if (layer.visible) {
+        for (let i = this.recentLayerSelections.length - 1; i >= 0; i--) {
+            const layerIndex = this.recentLayerSelections[i];
+            const layer = this.layerManager.layers[layerIndex];
+            if (layer && layer.visible) {
                 visibleLayers.push(layer);
             }
         }
@@ -1214,9 +1510,10 @@ class LevelEditor {
                     // PERF: Avoid toLowerCase() - colors are stored lowercase
                     if (color && color !== '#000000') {
                         ctx.fillStyle = color;
+                        // Flip Y for minimap: grid Y=0 is at bottom, but minimap Y=0 is at top
                         ctx.fillRect(
                             x * scaleX,
-                            y * scaleY,
+                            (layer.height - 1 - y) * scaleY,
                             sampleRate * scaleX + 1,
                             sampleRate * scaleY + 1
                         );
@@ -1228,12 +1525,23 @@ class LevelEditor {
         ctx.globalAlpha = 1.0;
 
         // Draw viewport rectangle
+        // The cache/render space and minimap share the same Y orientation (Y=0 at top)
         const container = document.getElementById('canvas-container');
         const rect = container.getBoundingClientRect();
-        const viewportX = (-this.offsetX / (this.tileSize * this.zoom)) * scaleX;
-        const viewportY = (-this.offsetY / (this.tileSize * this.zoom)) * scaleY;
-        const viewportWidth = (rect.width / (this.tileSize * this.zoom)) * scaleX;
-        const viewportHeight = (rect.height / (this.tileSize * this.zoom)) * scaleY;
+
+        // Calculate viewport bounds in cache tile coordinates
+        const rawViewportX = -this.offsetX / (this.tileSize * this.zoom);
+        const rawViewportY = -this.offsetY / (this.tileSize * this.zoom);
+        const viewportWidthTiles = rect.width / (this.tileSize * this.zoom);
+        const viewportHeightTiles = rect.height / (this.tileSize * this.zoom);
+
+        // Clamp to grid bounds for accurate rectangle
+        const viewportX = Math.max(0, rawViewportX) * scaleX;
+        const viewportY = Math.max(0, rawViewportY) * scaleY;
+        const viewportRight = Math.min(this.layerManager.width, rawViewportX + viewportWidthTiles);
+        const viewportBottom = Math.min(this.layerManager.height, rawViewportY + viewportHeightTiles);
+        const viewportWidth = Math.max(0, viewportRight - Math.max(0, rawViewportX)) * scaleX;
+        const viewportHeight = Math.max(0, viewportBottom - Math.max(0, rawViewportY)) * scaleY;
 
         ctx.strokeStyle = '#4a9eff';
         ctx.lineWidth = 2;

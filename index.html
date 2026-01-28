@@ -14,12 +14,12 @@
         </div>
 
         <div class="toolbar-section" id="project-selector-section">
-            <label>Project:</label>
+            <label for="project-dropdown">Project:</label>
             <select id="project-dropdown">
                 <option value="">New Project...</option>
             </select>
             <div id="project-loading-spinner" class="loading-spinner" style="display: none;"></div>
-            <input type="text" id="project-name-input" placeholder="Enter project name..." style="display: none;">
+            <input type="text" id="project-name-input" placeholder="Enter project name..." style="display: none;" aria-label="Project name">
             <button id="btn-create-project" style="display: none;">Create</button>
             <button id="btn-cancel-new-project" style="display: none;">Cancel</button>
         </div>
@@ -28,23 +28,24 @@
             <button id="btn-new" title="New Project">New</button>
             <button id="btn-import" title="Import Level from JSON">Import</button>
             <button id="btn-export" title="Export Level to JSON">Export</button>
+            <button id="btn-save-as" title="Save current project with a new name">Save As</button>
             <button id="btn-delete-project" title="Delete Current Project" style="display: none;">Delete</button>
-            <button id="btn-load-test-map" title="Generate Test Map with Splodges">Load Test Map</button>
-            <input type="file" id="file-input" accept=".json" style="display: none;">
+            <button id="btn-generate-random-open" title="Generate Random World">Generate Random</button>
+            <input type="file" id="file-input" accept=".json" style="display: none;" aria-label="Import file">
         </div>
 
         <div class="toolbar-section">
-            <label>Grid Size:</label>
+            <label for="grid-size-select">Grid Size:</label>
             <select id="grid-size-select">
-                <option value="256">256×256</option>
-                <option value="512" selected>512×512</option>
+                <option value="256" selected>256×256</option>
+                <option value="512">512×512</option>
                 <option value="1024">1024×1024</option>
             </select>
             <button id="btn-resize-grid">Apply</button>
         </div>
 
         <div class="toolbar-section">
-            <label>Zoom:</label>
+            <span class="toolbar-label">Zoom:</span>
             <button id="btn-zoom-out">-</button>
             <span id="zoom-level">100%</span>
             <button id="btn-zoom-in">+</button>
@@ -63,43 +64,49 @@
                 <input type="checkbox" id="show-guides" checked>
                 Guide Lines
             </label>
-            <label style="margin-left: 10px;">H:</label>
+            <label for="guide-horizontal" style="margin-left: 10px;">H:</label>
             <input type="number" id="guide-horizontal" min="1" max="10" value="2" style="width: 40px;">
-            <label style="margin-left: 5px;">V:</label>
+            <label for="guide-vertical" style="margin-left: 5px;">V:</label>
             <input type="number" id="guide-vertical" min="1" max="10" value="2" style="width: 40px;">
         </div>
     </div>
 
     <!-- Tool Options Bar -->
     <div id="tool-options">
-        <div class="option-group">
+        <!-- Fixed section: Undo/Redo -->
+        <div class="option-group option-fixed">
             <button id="btn-undo" title="Undo (Ctrl+Z)">↶ Undo</button>
             <button id="btn-redo" title="Redo (Ctrl+Y)">↷ Redo</button>
         </div>
 
-        <div class="option-group">
-            <label id="brush-size-label">Brush Size: 1</label>
-            <input type="range" id="brush-size" min="1" max="50" value="1" style="width: 150px;">
+        <div class="option-divider"></div>
+
+        <!-- Context-sensitive options -->
+        <div class="option-group" id="brush-size-options" style="display: none;">
+            <label for="brush-size" id="brush-size-label">Brush Size: 1</label>
+            <input type="range" id="brush-size" min="1" max="50" value="1" style="width: 120px;">
         </div>
 
-        <div class="option-group">
-            <label id="layer-opacity-label">Top Layer Opacity: 100%</label>
-            <input type="range" id="layer-opacity" min="0" max="100" value="100" style="width: 150px;">
-        </div>
-
-        <div class="option-group">
-            <label>Brush Shape:</label>
-            <div class="segmented-control" id="brush-shape-control">
+        <div class="option-group" id="brush-shape-options" style="display: none;">
+            <span class="option-label">Shape:</span>
+            <div class="segmented-control" id="brush-shape-control" role="group" aria-label="Brush shape">
                 <button class="segment active" data-value="square">Square</button>
                 <button class="segment" data-value="circle">Circle</button>
             </div>
         </div>
 
-        <div class="option-group" id="shape-options" style="display: none;">
+        <div class="option-group" id="shape-fill-options" style="display: none;">
             <label>
                 <input type="checkbox" id="fill-mode" checked>
                 Filled
             </label>
+        </div>
+
+        <div class="option-group" id="selection-actions" style="display: none;">
+            <button id="btn-save-stamp" class="action-btn" title="Save Selection as Stamp">💾 Stamp <kbd>Ctrl+Shift+S</kbd></button>
+            <button id="btn-rotate" class="action-btn" title="Rotate 90° CW">↻ Rotate <kbd>R</kbd></button>
+            <button id="btn-hflip" class="action-btn" title="Horizontal Flip">↔ H-Flip <kbd>H</kbd></button>
+            <button id="btn-vflip" class="action-btn" title="Vertical Flip">↕ V-Flip <kbd>V</kbd></button>
         </div>
 
         <div class="option-group" id="wand-options" style="display: none;">
@@ -107,6 +114,19 @@
                 <input type="checkbox" id="wand-diagonal">
                 Include Diagonals
             </label>
+        </div>
+
+        <div class="option-group" id="ruler-options" style="display: none;">
+            <span id="ruler-measurement">Click and drag to measure</span>
+        </div>
+
+        <div class="option-spacer"></div>
+
+        <div class="option-divider"></div>
+
+        <div class="option-group option-fixed">
+            <label for="layer-opacity" id="layer-opacity-label">Top Layer Opacity: 100%</label>
+            <input type="range" id="layer-opacity" min="0" max="100" value="100" style="width: 120px;">
         </div>
     </div>
 
@@ -129,9 +149,9 @@
                         <span class="tool-icon">📏</span>
                         <span class="tool-name">Line (L)</span>
                     </button>
-                    <button class="tool-btn" data-tool="rectangle" title="Shape (R)">
+                    <button class="tool-btn" data-tool="rectangle" title="Shape (U)">
                         <span class="tool-icon">▭</span>
-                        <span class="tool-name">Shape (R)</span>
+                        <span class="tool-name">Shape (U)</span>
                     </button>
                     <button class="tool-btn" data-tool="eyedropper" title="Eyedropper (I)">
                         <span class="tool-icon">💧</span>
@@ -141,9 +161,9 @@
                         <span class="tool-icon">🧹</span>
                         <span class="tool-name">Eraser (E)</span>
                     </button>
-                    <button class="tool-btn" data-tool="pan" title="Pan (H)">
+                    <button class="tool-btn" data-tool="pan" title="Pan (P)">
                         <span class="tool-icon">✋</span>
-                        <span class="tool-name">Pan (H)</span>
+                        <span class="tool-name">Pan (P)</span>
                     </button>
                     <button class="tool-btn" data-tool="selection" title="Selection (M)">
                         <span class="tool-icon">⬚</span>
@@ -152,6 +172,14 @@
                     <button class="tool-btn" data-tool="wand" title="Magic Wand (W)">
                         <span class="tool-icon">✨</span>
                         <span class="tool-name">Wand (W)</span>
+                    </button>
+                    <button class="tool-btn" data-tool="stamp" title="Stamp (T)">
+                        <span class="tool-icon">🔖</span>
+                        <span class="tool-name">Stamp (T)</span>
+                    </button>
+                    <button class="tool-btn" data-tool="ruler" title="Ruler (K)">
+                        <span class="tool-icon">📐</span>
+                        <span class="tool-name">Ruler (K)</span>
                     </button>
                 </div>
             </div>
@@ -162,8 +190,17 @@
                     <div id="current-color" style="background-color: #7CFC00;"></div>
                     <div id="current-color-label">None Selected</div>
                 </div>
+                <div id="color-lock-controls">
+                    <button id="btn-lock-poi" title="Lock all Points of Interest">Lock POI</button>
+                    <button id="btn-unlock-all" title="Unlock all colors">Unlock All</button>
+                </div>
+                <div id="palette-tabs">
+                    <button class="palette-tab active" data-tab="biomes">Biomes</button>
+                    <button class="palette-tab" data-tab="poi">POI</button>
+                    <button class="palette-tab" data-tab="other">Other</button>
+                </div>
                 <div id="color-search-container">
-                    <input type="text" id="color-search" placeholder="Search colors..." autocomplete="off">
+                    <input type="text" id="color-search" placeholder="Search colors..." autocomplete="off" aria-label="Search colors">
                     <button id="color-search-clear" title="Clear search">×</button>
                 </div>
                 <div id="color-palette">
@@ -189,6 +226,14 @@
                 <h3>Copy History</h3>
                 <div id="copy-history">
                     <div class="copy-history-empty">No copies yet</div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>Stamps</h3>
+                <button id="btn-open-stamps" class="stamps-button">Open Stamp Picker</button>
+                <div id="stamps-preview">
+                    <div class="stamps-empty">No stamp selected</div>
                 </div>
             </div>
         </div>
@@ -224,8 +269,8 @@
 
                 <!-- Layer Toggle Buttons -->
                 <div class="control-group">
-                    <label>Select Layer:</label>
-                    <div class="segmented-control" id="maze-layer-control">
+                    <span class="control-label">Select Layer:</span>
+                    <div class="segmented-control" id="maze-layer-control" role="group" aria-label="Layer selection">
                         <button class="segment" data-layer="floor">Floor</button>
                         <button class="segment" data-layer="underground">Underground</button>
                         <button class="segment" data-layer="sky">Sky</button>
@@ -256,8 +301,8 @@
 
                             <!-- Border Biomes -->
                             <div class="control-group">
-                                <label>Border Biomes:</label>
-                                <div id="maze-border-biomes" class="checkbox-group">
+                                <span class="control-label">Border Biomes:</span>
+                                <div id="maze-border-biomes" class="checkbox-group" role="group" aria-label="Border biomes">
                                     <label class="checkbox-label">
                                         <input type="checkbox" value="Biome_Blocked" checked> Blocked
                                     </label>
@@ -303,13 +348,54 @@
         </div>
     </div>
 
-    <!-- Tile Inspector Panel (floating) -->
-    <div id="tile-inspector" class="floating-panel" style="display: none;">
-        <div class="panel-header">
-            <h4>Tile Inspector</h4>
-            <button id="tile-inspector-close" class="close-button">×</button>
+    <!-- Stamp Picker Modal -->
+    <div id="stamp-picker-modal" class="modal">
+        <div class="modal-content stamp-picker-content">
+            <div class="modal-header">
+                <h2>Stamp Picker</h2>
+                <button class="modal-close" id="stamp-picker-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="stamp-picker-filter">
+                    <span>Showing stamps for layer: </span>
+                    <strong id="stamp-picker-layer-name">Floor</strong>
+                </div>
+                <div id="stamp-picker-grid">
+                    <div class="stamps-empty">No stamps saved for this layer type</div>
+                </div>
+            </div>
         </div>
-        <div id="tile-inspector-content" class="panel-content"></div>
+    </div>
+
+    <!-- Random Generation Panel (floating) -->
+    <div id="random-gen-panel" class="floating-panel random-gen-panel" style="display: none;">
+        <div class="panel-header">
+            <h4>Generate Random World</h4>
+            <button id="random-gen-close" class="close-button">×</button>
+        </div>
+        <div class="generation-presets">
+            <select id="generation-preset-select" title="Select a preset to load">
+                <option value="">-- Select Preset --</option>
+            </select>
+            <button id="btn-save-preset" title="Save current settings as new preset">Save As</button>
+            <button id="btn-delete-preset" title="Delete selected preset">Delete</button>
+        </div>
+        <div id="random-gen-content" class="panel-content">
+            <div class="random-gen-info">
+                <p>Configure noise parameters for each layer. Uncheck layers to skip them during generation.</p>
+            </div>
+            <div id="random-gen-layers">
+                <!-- Layer settings will be generated by JavaScript -->
+            </div>
+        </div>
+        <div class="random-gen-footer">
+            <div class="random-gen-global">
+                <label for="random-gen-seed">Seed:</label>
+                <input type="number" id="random-gen-seed" value="0" title="0 = random seed">
+                <button id="btn-randomize-seed" title="Generate random seed">🎲</button>
+            </div>
+            <button id="btn-generate-random" class="primary-button">Generate World</button>
+        </div>
     </div>
 
     <!-- Status Bar -->

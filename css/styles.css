@@ -73,7 +73,8 @@ select {
     gap: 8px;
 }
 
-.toolbar-section label {
+.toolbar-section label,
+.toolbar-section .toolbar-label {
     font-size: 12px;
     color: #aaa;
 }
@@ -95,9 +96,31 @@ select {
     gap: 8px;
 }
 
-.option-group label {
+.option-group label,
+.option-group .option-label {
     font-size: 12px;
     color: #aaa;
+}
+
+.control-label {
+    font-size: 12px;
+    color: #aaa;
+}
+
+.option-fixed {
+    flex-shrink: 0;
+}
+
+.option-spacer {
+    flex: 1;
+}
+
+.option-divider {
+    width: 1px;
+    height: 24px;
+    background-color: #444;
+    margin: 0 5px;
+    flex-shrink: 0;
 }
 
 /* Segmented Control */
@@ -490,6 +513,138 @@ select {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+/* Locked color indicator */
+.color-item.locked .color-swatch::after {
+    content: '🔒';
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    font-size: 12px;
+    background-color: rgba(0, 0, 0, 0.7);
+    border-radius: 3px;
+    padding: 1px 2px;
+    line-height: 1;
+}
+
+.color-item.locked {
+    background-color: rgba(255, 165, 0, 0.15);
+    border-color: #ffa500;
+}
+
+.color-item.locked .color-name {
+    color: #ffa500;
+}
+
+/* Color Lock Controls */
+#color-lock-controls {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+#color-lock-controls button {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 11px;
+}
+
+#btn-lock-poi {
+    background-color: #5a4a2a;
+    border-color: #7a6a3a;
+    color: #ffa500;
+}
+
+#btn-lock-poi:hover {
+    background-color: #6a5a3a;
+}
+
+#btn-lock-poi.poi-locked {
+    background-color: #2a4a5a;
+    border-color: #3a6a7a;
+    color: #87ceeb;
+}
+
+#btn-lock-poi.poi-locked:hover {
+    background-color: #3a5a6a;
+}
+
+#btn-unlock-all {
+    background-color: #2a4a3a;
+    border-color: #3a6a4a;
+    color: #50c878;
+}
+
+#btn-unlock-all:hover {
+    background-color: #3a5a4a;
+}
+
+/* Palette Tabs */
+#palette-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 8px;
+    background-color: #252525;
+    border-radius: 4px;
+    padding: 3px;
+}
+
+.palette-tab {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 11px;
+    background-color: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.15s;
+}
+
+.palette-tab:hover {
+    background-color: #3c3c3c;
+    color: #ccc;
+}
+
+.palette-tab.active {
+    background-color: #4a9eff;
+    color: #fff;
+    font-weight: 600;
+}
+
+.palette-tab.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Palette tab content */
+.palette-tab-content {
+    display: none;
+}
+
+.palette-tab-content.active {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Sub-category styling */
+.color-subcategory {
+    background-color: #252525;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.color-subcategory-header {
+    padding: 6px 10px;
+    background-color: #333;
+    font-size: 11px;
+    font-weight: 600;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .color-icon {
@@ -1415,4 +1570,803 @@ label:has(#autosave-checkbox:disabled) {
 
 .floating-panel .panel-content strong {
     color: #4a9eff;
+}
+
+/* Random Generation Panel */
+.random-gen-panel {
+    min-width: 400px;
+    max-width: 500px;
+    max-height: 80vh;
+    top: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+}
+
+.random-gen-panel .panel-content {
+    flex: 1;
+    max-height: calc(80vh - 150px);
+    overflow-y: auto;
+}
+
+.random-gen-footer {
+    padding: 12px;
+    background-color: #252525;
+    border-top: 1px solid #444;
+    border-radius: 0 0 4px 4px;
+}
+
+.random-gen-info {
+    margin-bottom: 15px;
+    padding: 8px 10px;
+    background-color: #2b2b2b;
+    border-radius: 4px;
+    border-left: 3px solid #4a9eff;
+}
+
+.random-gen-info p {
+    margin: 0;
+    font-size: 11px;
+    color: #aaa;
+}
+
+/* Generation Presets */
+.generation-presets {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    background-color: #252525;
+    border-bottom: 1px solid #444;
+    align-items: center;
+}
+
+.generation-presets select {
+    flex: 1;
+    padding: 4px 8px;
+    background-color: #333;
+    border: 1px solid #555;
+    border-radius: 3px;
+    color: #ddd;
+    font-size: 12px;
+}
+
+.generation-presets button {
+    padding: 4px 10px;
+    background-color: #3a3a3a;
+    border: 1px solid #555;
+    border-radius: 3px;
+    color: #ddd;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.generation-presets button:hover {
+    background-color: #4a4a4a;
+    border-color: #666;
+}
+
+#btn-delete-preset:hover {
+    background-color: #5a3030;
+    border-color: #a55;
+}
+
+/* Layer Settings Section */
+.random-gen-layer {
+    margin-bottom: 12px;
+    padding: 10px;
+    background-color: #2b2b2b;
+    border-radius: 4px;
+    border: 1px solid #444;
+}
+
+.random-gen-layer.disabled {
+    opacity: 0.5;
+}
+
+.random-gen-layer-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.random-gen-layer-header label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: #e0e0e0;
+    cursor: pointer;
+}
+
+.random-gen-layer-header input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.layer-type-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    background-color: #4a9eff;
+    color: #fff;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.random-gen-layer-settings {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #444;
+}
+
+.random-gen-layer.disabled .random-gen-layer-settings {
+    pointer-events: none;
+}
+
+.setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.setting-group label {
+    font-size: 10px;
+    color: #aaa;
+    text-transform: uppercase;
+}
+
+.setting-group input,
+.setting-group select {
+    padding: 4px 6px;
+    background-color: #1e1e1e;
+    border: 1px solid #555;
+    border-radius: 3px;
+    color: #e0e0e0;
+    font-size: 12px;
+}
+
+.setting-group input:focus,
+.setting-group select:focus {
+    outline: none;
+    border-color: #4a9eff;
+}
+
+.setting-group.full-width {
+    grid-column: 1 / -1;
+}
+
+/* Base Biome Group */
+.base-biome-group {
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+    border-bottom: 1px dashed #444;
+}
+
+.base-biome-select {
+    width: 100%;
+    padding: 6px 8px;
+    margin-top: 4px;
+    background-color: #1e1e1e;
+    border: 1px solid #555;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.base-biome-select:focus {
+    outline: none;
+    border-color: #4a9eff;
+}
+
+/* Biome Selection Controls */
+.biome-selection-controls {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.biome-selection-controls button {
+    padding: 2px 8px;
+    font-size: 10px;
+    background-color: #3c3c3c;
+    border: 1px solid #555;
+    border-radius: 3px;
+    color: #ccc;
+    cursor: pointer;
+}
+
+.biome-selection-controls button:hover {
+    background-color: #4a4a4a;
+    color: #fff;
+}
+
+/* Biome Checkboxes */
+.biome-checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+    max-height: 120px;
+    overflow-y: auto;
+    padding: 4px;
+    background-color: #1e1e1e;
+    border-radius: 3px;
+}
+
+.biome-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    background-color: #2b2b2b;
+    border-radius: 3px;
+    font-size: 10px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: border-color 0.15s;
+}
+
+.biome-checkbox:hover {
+    border-color: #555;
+}
+
+.biome-checkbox input {
+    width: 12px;
+    height: 12px;
+    cursor: pointer;
+}
+
+.biome-color-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    border: 1px solid #555;
+}
+
+/* Global Settings */
+.random-gen-global {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.random-gen-global label {
+    font-size: 12px;
+    color: #aaa;
+}
+
+.random-gen-global input {
+    flex: 1;
+    padding: 6px 8px;
+    background-color: #1e1e1e;
+    border: 1px solid #555;
+    border-radius: 3px;
+    color: #e0e0e0;
+    font-size: 12px;
+}
+
+.random-gen-global button {
+    padding: 6px 10px;
+    font-size: 14px;
+}
+
+.random-gen-footer .primary-button {
+    margin-top: 0;
+}
+
+.primary-button {
+    width: 100%;
+    padding: 10px 16px;
+    background-color: #4a9eff;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.primary-button:hover {
+    background-color: #3a8edf;
+}
+
+.primary-button:active {
+    background-color: #2a7ecf;
+}
+
+/* Biome Settings Container */
+.biome-settings-container {
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 4px;
+    background-color: #1e1e1e;
+    border-radius: 4px;
+    margin-top: 4px;
+}
+
+.no-biomes-selected {
+    padding: 20px;
+    text-align: center;
+    color: #666;
+    font-style: italic;
+    font-size: 11px;
+}
+
+/* Individual Biome Settings */
+.biome-settings {
+    margin-bottom: 8px;
+    padding: 8px;
+    background-color: #2b2b2b;
+    border-radius: 4px;
+    border: 1px solid #444;
+}
+
+.biome-settings:last-child {
+    margin-bottom: 0;
+}
+
+.biome-settings-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #444;
+}
+
+.biome-drag-handle {
+    cursor: grab;
+    color: #666;
+    font-size: 12px;
+    padding: 2px 4px;
+    user-select: none;
+}
+
+.biome-drag-handle:hover {
+    color: #aaa;
+    background-color: #333;
+    border-radius: 2px;
+}
+
+.biome-drag-handle:active {
+    cursor: grabbing;
+}
+
+.biome-settings.dragging {
+    opacity: 0.5;
+}
+
+.biome-settings.drag-over {
+    border-color: #4a9eff;
+    background-color: #2a3a4a;
+}
+
+.biome-settings-header .biome-color-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid #666;
+}
+
+.biome-settings-header .biome-name {
+    font-weight: 600;
+    font-size: 12px;
+    color: #e0e0e0;
+}
+
+/* Algorithm List */
+.algorithm-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Algorithm Step - inline layout */
+.algorithm-step {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
+    background-color: #1e1e1e;
+    border-radius: 3px;
+    border: 1px solid #333;
+}
+
+.algorithm-step .alg-type-select {
+    flex: 1;
+    min-width: 100px;
+    padding: 3px 6px;
+    font-size: 11px;
+    background-color: #2b2b2b;
+    border: 1px solid #555;
+    border-radius: 3px;
+    color: #e0e0e0;
+}
+
+.algorithm-step .btn-remove-alg {
+    padding: 1px 5px;
+    font-size: 12px;
+    line-height: 1;
+    background-color: #442222;
+    border: 1px solid #553333;
+    border-radius: 3px;
+    color: #cc6666;
+    cursor: pointer;
+}
+
+.algorithm-step .btn-remove-alg:hover {
+    background-color: #663333;
+    color: #ff8888;
+}
+
+/* Algorithm Drag Handle */
+.alg-drag-handle {
+    cursor: grab;
+    color: #666;
+    font-size: 12px;
+    padding: 2px 4px;
+    user-select: none;
+}
+
+.alg-drag-handle:hover {
+    color: #aaa;
+    background-color: #333;
+    border-radius: 2px;
+}
+
+.alg-drag-handle:active {
+    cursor: grabbing;
+}
+
+.algorithm-step.dragging {
+    opacity: 0.5;
+}
+
+.algorithm-step.drag-over {
+    border-color: #4a9eff;
+    background-color: #2a3a4a;
+}
+
+/* Algorithm Header */
+.alg-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.alg-name-btn {
+    flex: 1;
+    padding: 3px 8px;
+    font-size: 11px;
+    text-align: left;
+    background-color: #333;
+    border: 1px solid #444;
+    border-radius: 3px;
+    color: #ccc;
+    cursor: pointer;
+}
+
+.alg-name-btn:hover {
+    background-color: #3a3a3a;
+    border-color: #555;
+}
+
+/* Algorithm Options (collapsible) */
+.alg-options {
+    display: none;
+    padding: 6px 0 2px 20px;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.alg-options.show {
+    display: flex;
+}
+
+/* Algorithm Seed Offset */
+.alg-seed-offset {
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    color: #666;
+}
+
+.alg-seed-offset input {
+    width: 40px;
+    padding: 2px 3px;
+    font-size: 10px;
+    background-color: #2b2b2b;
+    border: 1px solid #444;
+    border-radius: 3px;
+    color: #aaa;
+    text-align: center;
+    margin-left: 1px;
+}
+
+/* Add Algorithm Button in Header */
+.biome-settings-header .btn-add-algorithm {
+    margin-left: auto;
+    padding: 1px 8px;
+    font-size: 14px;
+    font-weight: bold;
+    background-color: #2a3a2a;
+    border: 1px solid #3a4a3a;
+    border-radius: 3px;
+    color: #6a6;
+    cursor: pointer;
+}
+
+.biome-settings-header .btn-add-algorithm:hover {
+    background-color: #3a4a3a;
+    color: #8c8;
+}
+
+/* Algorithm Parameters */
+
+.alg-param {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+}
+
+.alg-param label {
+    font-size: 9px;
+    color: #888;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.alg-param input {
+    padding: 2px 4px;
+    font-size: 10px;
+    background-color: #2b2b2b;
+    border: 1px solid #444;
+    border-radius: 2px;
+    color: #e0e0e0;
+    width: 50px;
+}
+
+.alg-param input:focus {
+    outline: none;
+    border-color: #4a9eff;
+}
+
+/* Add Algorithm Button */
+.btn-add-algorithm {
+    width: 100%;
+    margin-top: 6px;
+    padding: 4px 8px;
+    font-size: 10px;
+    background-color: #2d4a2d;
+    border: 1px solid #3d6a3d;
+    border-radius: 3px;
+    color: #8fbc8f;
+    cursor: pointer;
+}
+
+.btn-add-algorithm:hover {
+    background-color: #3d6a3d;
+    color: #aaffaa;
+}
+
+/* ========================================================================
+   STAMPS STYLES
+   ======================================================================== */
+
+/* Stamps section in sidebar */
+.stamps-button {
+    width: 100%;
+    padding: 10px 16px;
+    background-color: #4a9eff;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-bottom: 10px;
+}
+
+.stamps-button:hover {
+    background-color: #3a8edf;
+}
+
+#stamps-preview {
+    background-color: #2b2b2b;
+    border-radius: 4px;
+    padding: 10px;
+    min-height: 60px;
+}
+
+.stamps-empty {
+    color: #666;
+    font-size: 12px;
+    text-align: center;
+    padding: 15px;
+}
+
+.stamp-preview-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.stamp-preview-info strong {
+    color: #4a9eff;
+    font-size: 13px;
+}
+
+.stamp-preview-info span {
+    color: #aaa;
+    font-size: 11px;
+}
+
+/* Stamp Picker Modal */
+.stamp-picker-content {
+    max-width: 600px;
+    max-height: 80vh;
+}
+
+#stamp-picker-filter {
+    padding: 10px;
+    background-color: #2b2b2b;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    font-size: 13px;
+    color: #aaa;
+}
+
+#stamp-picker-filter strong {
+    color: #4a9eff;
+}
+
+#stamp-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.stamp-picker-item {
+    position: relative;
+    background-color: #2b2b2b;
+    border: 2px solid #444;
+    border-radius: 6px;
+    padding: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.stamp-picker-item:hover {
+    border-color: #4a9eff;
+    background-color: #3c3c3c;
+}
+
+.stamp-picker-preview {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+
+.stamp-preview-canvas {
+    border: 1px solid #444;
+    border-radius: 4px;
+    background-color: #1e1e1e;
+    image-rendering: pixelated;
+}
+
+.stamp-picker-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: center;
+}
+
+.stamp-picker-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: #e0e0e0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stamp-picker-size {
+    font-size: 10px;
+    color: #888;
+}
+
+.stamp-picker-delete {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background-color: rgba(255, 68, 68, 0.8);
+    border: none;
+    border-radius: 3px;
+    color: #fff;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.stamp-picker-item:hover .stamp-picker-delete {
+    opacity: 1;
+}
+
+.stamp-picker-delete:hover {
+    background-color: #ff4444;
+}
+
+/* ========================================================================
+   SELECTION ACTION BUTTONS
+   ======================================================================== */
+
+#selection-actions {
+    gap: 6px;
+}
+
+#selection-actions .action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    background-color: #3c3c3c;
+    border: 1px solid #555;
+    color: #e0e0e0;
+}
+
+#selection-actions .action-btn:hover {
+    background-color: #4a9eff;
+    border-color: #4a9eff;
+    color: #fff;
+}
+
+#selection-actions .action-btn:hover kbd {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+#selection-actions kbd {
+    display: inline-block;
+    padding: 2px 5px;
+    font-size: 10px;
+    font-family: monospace;
+    background-color: #2b2b2b;
+    border: 1px solid #555;
+    border-radius: 3px;
+    color: #aaa;
+}
+
+/* ========================================================================
+   RULER OPTIONS
+   ======================================================================== */
+
+#ruler-options {
+    color: #4a9eff;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+#ruler-measurement {
+    min-width: 150px;
 }

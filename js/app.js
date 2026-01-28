@@ -3,6 +3,20 @@
  * Initializes the editor and handles UI interactions
  */
 
+console.log('[APP] ========== app.js LOADED ==========');
+console.log('[APP] Load time:', new Date().toISOString());
+
+// Global error handler to catch unhandled errors
+window.addEventListener('error', (event) => {
+    console.error('[APP] UNHANDLED ERROR:', event.error);
+    console.error('[APP] Message:', event.message);
+    console.error('[APP] Source:', event.filename, 'line', event.lineno);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('[APP] UNHANDLED PROMISE REJECTION:', event.reason);
+});
+
 let editor = null;
 let dynamicValidator = null;
 
@@ -20,6 +34,94 @@ function exitSoloMode() {
     editor.preSoloVisibility = [];
     editor.preSoloOpacity = 0.8;
     editor.preSoloRecentSelections = [];
+}
+
+/**
+ * Progress reporting utility - updates status bar with current operation
+ * @param {string} message - The progress message to display
+ * @param {number} [current] - Current step number (optional)
+ * @param {number} [total] - Total steps (optional)
+ */
+function reportProgress(message, current = null, total = null) {
+    const statusEl = document.getElementById('status-message');
+    if (!statusEl) return;
+
+    let displayText = message;
+    if (current !== null && total !== null) {
+        const percent = Math.round((current / total) * 100);
+        displayText = `${message} (${current}/${total}) ${percent}%`;
+    }
+
+    statusEl.textContent = displayText;
+    console.log(`[PROGRESS] ${displayText}`);
+}
+
+/**
+ * Yield to browser to allow UI updates during heavy operations
+ * Call this between expensive synchronous operations
+ */
+function yieldToBrowser() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+/**
+ * Validate all layers for data type mismatches (on-demand, not in hot path)
+ * Returns an object with warnings per layer
+ */
+async function validateAllLayers() {
+    console.log('[VALIDATE] ========== Starting layer validation ==========');
+    const startTime = performance.now();
+
+    if (!editor || !editor.layerManager) {
+        console.warn('[VALIDATE] Editor not initialized');
+        return {};
+    }
+
+    const allWarnings = {};
+    const layers = editor.layerManager.layers;
+
+    for (let i = 0; i < layers.length; i++) {
+        const layer = layers[i];
+        reportProgress(`Validating layer: ${layer.name}`, i + 1, layers.length);
+        await yieldToBrowser();
+
+        const layerStart = performance.now();
+        const warnings = checkLayerDataTypes(layer);
+        console.log(`[VALIDATE] Layer "${layer.name}": ${warnings.length} warnings, took ${(performance.now() - layerStart).toFixed(1)}ms`);
+
+        if (warnings.length > 0) {
+            allWarnings[layer.name] = warnings;
+        }
+    }
+
+    console.log(`[VALIDATE] ========== Validation complete in ${(performance.now() - startTime).toFixed(1)}ms ==========`);
+    reportProgress('Ready');
+
+    return allWarnings;
+}
+
+/**
+ * Show validation results to user (call before export)
+ */
+async function showValidationResults() {
+    const warnings = await validateAllLayers();
+    const warningCount = Object.values(warnings).flat().length;
+
+    if (warningCount === 0) {
+        console.log('[VALIDATE] No validation warnings found');
+        return true;
+    }
+
+    let message = `Found ${warningCount} data type warning(s):\n\n`;
+    for (const [layerName, layerWarnings] of Object.entries(warnings)) {
+        message += `${layerName}:\n`;
+        for (const warning of layerWarnings) {
+            message += `  - ${warning}\n`;
+        }
+    }
+    message += '\nContinue anyway?';
+
+    return confirm(message);
 }
 
 /**
@@ -252,33 +354,1193 @@ function generateTestMap() {
 }
 
 /**
+ * Random Generation Settings Manager
+ * Handles the UI for configuring per-layer, per-biome noise generation with multiple algorithm steps
+ */
+const randomGenSettings = {
+    // Available algorithm types
+    algorithmTypes: {
+        perlin: {
+            name: 'Perlin Noise',
+            description: 'Smooth, natural-looking noise patterns',
+            params: {
+                scale: { type: 'number', default: 50, min: 5, max: 200, step: 5, label: 'Scale' },
+                octaves: { type: 'number', default: 4, min: 1, max: 8, step: 1, label: 'Octaves' },
+                persistence: { type: 'number', default: 0.5, min: 0.1, max: 1.0, step: 0.05, label: 'Persistence' },
+                lacunarity: { type: 'number', default: 2.0, min: 1.0, max: 4.0, step: 0.1, label: 'Lacunarity' },
+                threshold: { type: 'number', default: 0.5, min: 0, max: 1.0, step: 0.05, label: 'Threshold' }
+            }
+        },
+        scatter: {
+            name: 'Scatter',
+            description: 'Random single pixels distributed across the map',
+            params: {
+                density: { type: 'number', default: 0.05, min: 0.001, max: 0.5, step: 0.005, label: 'Density' }
+            }
+        },
+        cluster: {
+            name: 'Clustered Scatter',
+            description: 'Random clusters of pixels',
+            params: {
+                clusterCount: { type: 'number', default: 20, min: 1, max: 200, step: 1, label: 'Cluster Count' },
+                clusterSize: { type: 'number', default: 10, min: 1, max: 50, step: 1, label: 'Cluster Size' },
+                falloff: { type: 'number', default: 0.7, min: 0.1, max: 1.0, step: 0.1, label: 'Falloff' }
+            }
+        },
+        voronoiPoints: {
+            name: 'Voronoi Points',
+            description: 'Evenly distributed points using Voronoi relaxation',
+            params: {
+                pointCount: { type: 'number', default: 20, min: 1, max: 200, step: 1, label: 'Point Count' },
+                relaxation: { type: 'number', default: 3, min: 0, max: 10, step: 1, label: 'Relaxation' }
+            }
+        },
+        gridPoints: {
+            name: 'Grid Points',
+            description: 'Points arranged in a grid pattern with optional randomness',
+            params: {
+                spacing: { type: 'number', default: 32, min: 4, max: 128, step: 4, label: 'Spacing' },
+                jitter: { type: 'number', default: 0, min: 0, max: 1, step: 0.1, label: 'Jitter' }
+            }
+        },
+        fill: {
+            name: 'Fill All',
+            description: 'Fill entire layer with this biome',
+            params: {}
+        },
+        border: {
+            name: 'Border',
+            description: 'Create a border around the map edge',
+            params: {
+                thickness: { type: 'number', default: 5, min: 1, max: 50, step: 1, label: 'Thickness' }
+            }
+        }
+    },
+
+    // Layer settings with per-biome configurations
+    layerSettings: {},
+
+    /**
+     * Get valid biomes/tilesets for a layer type
+     */
+    getValidTilesetsForLayer(layerType) {
+        const tilesets = configManager.getTilesets();
+        const validTilesets = [];
+
+        const categoryMap = {
+            'Floor': 'Biomes',
+            'Underground': 'Biomes',
+            'Sky': 'Biomes',
+            'Height': 'Height',
+            'Difficulty': 'Difficulty',
+            'Hazard': 'Hazards'
+        };
+
+        const targetCategory = categoryMap[layerType] || 'Biomes';
+
+        for (const [name, tileset] of Object.entries(tilesets)) {
+            if (tileset.category === targetCategory) {
+                if (targetCategory === 'Biomes' && name === 'Biome_None') continue;
+                if (targetCategory === 'Hazards' && name === 'Hazard_None') continue;
+                validTilesets.push({ name, ...tileset });
+            }
+        }
+
+        return validTilesets;
+    },
+
+    /**
+     * Create default algorithm step
+     */
+    createDefaultAlgorithm(type = 'perlin', seedOffset = null) {
+        const algType = this.algorithmTypes[type];
+        const params = {};
+        for (const [key, config] of Object.entries(algType.params)) {
+            params[key] = config.default;
+        }
+        return { type, params, enabled: true, seedOffset: seedOffset };
+    },
+
+    /**
+     * Initialize settings for a layer
+     */
+    initLayerSettings(layerType) {
+        const validTilesets = this.getValidTilesetsForLayer(layerType);
+
+        this.layerSettings[layerType] = {
+            enabled: true,
+            baseBiome: '', // Empty string means no base fill
+            biomes: {}
+        };
+
+        // Initialize each biome with a default perlin algorithm
+        validTilesets.forEach((tileset, idx) => {
+            this.layerSettings[layerType].biomes[tileset.name] = {
+                enabled: idx < 3, // Enable first 3 by default
+                color: tileset.color,
+                order: idx, // Order for drag-drop reordering
+                algorithms: [this.createDefaultAlgorithm('perlin')]
+            };
+        });
+    },
+
+    /**
+     * Render algorithm params UI
+     */
+    renderAlgorithmParams(algorithm, layerType, biomeName, algIndex) {
+        const algType = this.algorithmTypes[algorithm.type];
+        if (!algType) return '';
+
+        let paramsHtml = '';
+        for (const [key, config] of Object.entries(algType.params)) {
+            const value = algorithm.params[key] ?? config.default;
+            paramsHtml += `
+                <div class="alg-param">
+                    <label>${config.label}</label>
+                    <input type="number"
+                           class="alg-param-input"
+                           data-layer="${layerType}"
+                           data-biome="${biomeName}"
+                           data-alg="${algIndex}"
+                           data-param="${key}"
+                           value="${value}"
+                           min="${config.min}"
+                           max="${config.max}"
+                           step="${config.step}">
+                </div>
+            `;
+        }
+        return paramsHtml;
+    },
+
+    /**
+     * Render a single algorithm step
+     */
+    renderAlgorithmStep(algorithm, layerType, biomeName, algIndex, totalAlgorithms) {
+        const algTypes = Object.entries(this.algorithmTypes).map(([key, val]) =>
+            `<option value="${key}" ${algorithm.type === key ? 'selected' : ''}>${val.name}</option>`
+        ).join('');
+
+        // Default seed offset is index * 100 if not set
+        const seedOffset = algorithm.seedOffset !== null && algorithm.seedOffset !== undefined
+            ? algorithm.seedOffset
+            : algIndex * 100;
+
+        const hasParams = Object.keys(this.algorithmTypes[algorithm.type]?.params || {}).length > 0;
+
+        const algName = this.algorithmTypes[algorithm.type]?.name || algorithm.type;
+
+        return `
+            <div class="algorithm-step" data-alg-index="${algIndex}" data-layer="${layerType}" data-biome="${biomeName}">
+                <div class="alg-header">
+                    <span class="alg-drag-handle" title="Drag to reorder">&#9776;</span>
+                    <button type="button" class="alg-name-btn" title="Click to edit">${algName}</button>
+                    <button type="button" class="btn-remove-alg" data-layer="${layerType}" data-biome="${biomeName}" data-alg="${algIndex}" title="Remove">×</button>
+                </div>
+                <div class="alg-options">
+                    <select class="alg-type-select" data-layer="${layerType}" data-biome="${biomeName}" data-alg="${algIndex}">
+                        ${algTypes}
+                    </select>
+                    <span class="alg-seed-offset">+<input type="number" class="alg-seed-input" data-layer="${layerType}" data-biome="${biomeName}" data-alg="${algIndex}" value="${seedOffset}" min="0" max="99999" step="1" title="Seed offset"></span>
+                    ${hasParams ? this.renderAlgorithmParams(algorithm, layerType, biomeName, algIndex) : ''}
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * Render biome settings box
+     */
+    renderBiomeSettings(biomeName, biomeConfig, layerType) {
+        const totalAlgs = biomeConfig.algorithms.length;
+        const algorithms = biomeConfig.algorithms.map((alg, idx) =>
+            this.renderAlgorithmStep(alg, layerType, biomeName, idx, totalAlgs)
+        ).join('');
+
+        return `
+            <div class="biome-settings" data-biome="${biomeName}" data-layer="${layerType}">
+                <div class="biome-settings-header">
+                    <span class="biome-drag-handle" title="Drag to reorder">&#9776;</span>
+                    <span class="biome-color-swatch" style="background-color: ${biomeConfig.color}"></span>
+                    <span class="biome-name">${biomeName.replace(/^(Biome_|Height_|Difficulty_|Hazard_)/, '')}</span>
+                    <button type="button" class="btn-add-algorithm" data-layer="${layerType}" data-biome="${biomeName}" title="Add algorithm">+</button>
+                </div>
+                <div class="algorithm-list">
+                    ${algorithms}
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * Update biome settings display for a layer
+     */
+    updateBiomeSettingsDisplay(layerType) {
+        const container = document.querySelector(`.biome-settings-container[data-layer="${layerType}"]`);
+        if (!container) return;
+
+        const layerConfig = this.layerSettings[layerType];
+
+        // Get enabled biomes and sort by order
+        const sortedBiomes = Object.entries(layerConfig.biomes)
+            .filter(([_, config]) => config.enabled)
+            .sort((a, b) => (a[1].order ?? 0) - (b[1].order ?? 0));
+
+        let html = '';
+        for (const [biomeName, biomeConfig] of sortedBiomes) {
+            html += this.renderBiomeSettings(biomeName, biomeConfig, layerType);
+        }
+
+        container.innerHTML = html || '<div class="no-biomes-selected">No biomes selected. Check biomes above to configure them.</div>';
+
+        // Attach event listeners
+        this.attachBiomeSettingsListeners(layerType);
+    },
+
+    /**
+     * Attach event listeners to biome settings
+     */
+    attachBiomeSettingsListeners(layerType) {
+        const container = document.querySelector(`.biome-settings-container[data-layer="${layerType}"]`);
+        if (!container) return;
+
+        // Algorithm type change
+        container.querySelectorAll('.alg-type-select').forEach(select => {
+            select.addEventListener('change', (e) => {
+                const { layer, biome, alg } = e.target.dataset;
+                const newType = e.target.value;
+                this.layerSettings[layer].biomes[biome].algorithms[alg] = this.createDefaultAlgorithm(newType);
+                this.updateBiomeSettingsDisplay(layer);
+            });
+        });
+
+        // Parameter inputs
+        container.querySelectorAll('.alg-param-input').forEach(input => {
+            input.addEventListener('change', (e) => {
+                const { layer, biome, alg, param } = e.target.dataset;
+                const value = parseFloat(e.target.value);
+                this.layerSettings[layer].biomes[biome].algorithms[alg].params[param] = value;
+            });
+        });
+
+        // Remove algorithm
+        container.querySelectorAll('.btn-remove-alg').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const { layer, biome, alg } = e.target.dataset;
+                this.layerSettings[layer].biomes[biome].algorithms.splice(parseInt(alg), 1);
+                if (this.layerSettings[layer].biomes[biome].algorithms.length === 0) {
+                    this.layerSettings[layer].biomes[biome].algorithms.push(this.createDefaultAlgorithm('perlin', 0));
+                }
+                this.updateBiomeSettingsDisplay(layer);
+            });
+        });
+
+        // Add algorithm
+        container.querySelectorAll('.btn-add-algorithm').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const { layer, biome } = e.target.dataset;
+                const algs = this.layerSettings[layer].biomes[biome].algorithms;
+                // Default seed offset is next in sequence
+                const nextOffset = algs.length * 100;
+                algs.push(this.createDefaultAlgorithm('scatter', nextOffset));
+                this.updateBiomeSettingsDisplay(layer);
+            });
+        });
+
+        // Seed offset input
+        container.querySelectorAll('.alg-seed-input').forEach(input => {
+            input.addEventListener('change', (e) => {
+                const { layer, biome, alg } = e.target.dataset;
+                const value = parseInt(e.target.value) || 0;
+                this.layerSettings[layer].biomes[biome].algorithms[alg].seedOffset = value;
+            });
+        });
+
+        // Toggle options visibility on name button click
+        container.querySelectorAll('.alg-name-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const step = btn.closest('.algorithm-step');
+                const options = step.querySelector('.alg-options');
+                options.classList.toggle('show');
+            });
+        });
+
+        // Algorithm drag - enable only via handle
+        container.querySelectorAll('.algorithm-step').forEach(step => {
+            // Disable dragging by default
+            step.draggable = false;
+
+            // Enable drag only when mousedown on handle
+            const handle = step.querySelector('.alg-drag-handle');
+            if (handle) {
+                handle.addEventListener('mousedown', () => {
+                    step.draggable = true;
+                });
+            }
+
+            step.addEventListener('dragstart', (e) => {
+                e.stopPropagation();
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', JSON.stringify({
+                    type: 'algorithm',
+                    layer: step.dataset.layer,
+                    biome: step.dataset.biome,
+                    index: parseInt(step.dataset.algIndex)
+                }));
+                step.classList.add('dragging');
+            });
+
+            step.addEventListener('dragend', () => {
+                step.draggable = false;
+                step.classList.remove('dragging');
+                container.querySelectorAll('.algorithm-step').forEach(s => s.classList.remove('drag-over'));
+            });
+
+            step.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                step.classList.add('drag-over');
+            });
+
+            step.addEventListener('dragleave', () => {
+                step.classList.remove('drag-over');
+            });
+
+            step.addEventListener('drop', (e) => {
+                e.preventDefault();
+                step.classList.remove('drag-over');
+
+                const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                // Only handle algorithm drags
+                if (data.type !== 'algorithm') return;
+
+                const targetLayer = step.dataset.layer;
+                const targetBiome = step.dataset.biome;
+                const targetIndex = parseInt(step.dataset.algIndex);
+
+                // Only allow reorder within same biome
+                if (data.layer !== targetLayer || data.biome !== targetBiome) return;
+                if (data.index === targetIndex) return;
+
+                const algs = this.layerSettings[targetLayer].biomes[targetBiome].algorithms;
+                const [moved] = algs.splice(data.index, 1);
+                algs.splice(targetIndex, 0, moved);
+
+                this.updateBiomeSettingsDisplay(targetLayer);
+            });
+        });
+
+        // Biome drag - enable only via handle
+        container.querySelectorAll('.biome-settings').forEach(biomeEl => {
+            // Disable dragging by default
+            biomeEl.draggable = false;
+
+            // Enable drag only when mousedown on handle
+            const handle = biomeEl.querySelector('.biome-drag-handle');
+            if (handle) {
+                handle.addEventListener('mousedown', () => {
+                    biomeEl.draggable = true;
+                });
+            }
+
+            biomeEl.addEventListener('dragstart', (e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', JSON.stringify({
+                    type: 'biome',
+                    layer: biomeEl.dataset.layer,
+                    biome: biomeEl.dataset.biome
+                }));
+                biomeEl.classList.add('dragging');
+            });
+
+            biomeEl.addEventListener('dragend', () => {
+                biomeEl.draggable = false;
+                biomeEl.classList.remove('dragging');
+                container.querySelectorAll('.biome-settings').forEach(b => b.classList.remove('drag-over'));
+            });
+
+            biomeEl.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                // Don't show drag-over for algorithm drags
+                try {
+                    const checkData = e.dataTransfer.types.includes('text/plain');
+                    if (checkData) biomeEl.classList.add('drag-over');
+                } catch(err) {
+                    biomeEl.classList.add('drag-over');
+                }
+            });
+
+            biomeEl.addEventListener('dragleave', (e) => {
+                if (!biomeEl.contains(e.relatedTarget)) {
+                    biomeEl.classList.remove('drag-over');
+                }
+            });
+
+            biomeEl.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                biomeEl.classList.remove('drag-over');
+
+                const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                if (data.type !== 'biome') return;
+
+                const targetLayer = biomeEl.dataset.layer;
+                const targetBiome = biomeEl.dataset.biome;
+
+                if (data.layer !== targetLayer) return;
+                if (data.biome === targetBiome) return;
+
+                // Swap orders
+                const biomes = this.layerSettings[targetLayer].biomes;
+                const draggedOrder = biomes[data.biome].order ?? 0;
+                const targetOrder = biomes[targetBiome].order ?? 0;
+                biomes[data.biome].order = targetOrder;
+                biomes[targetBiome].order = draggedOrder;
+
+                this.updateBiomeSettingsDisplay(targetLayer);
+            });
+        });
+    },
+
+    /**
+     * Initialize settings panel UI
+     */
+    initPanel() {
+        const container = document.getElementById('random-gen-layers');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        const layers = configManager.getLayers();
+
+        for (const layerConfig of layers) {
+            const layerType = layerConfig.layerType;
+
+            // Initialize layer settings if not exists
+            if (!this.layerSettings[layerType]) {
+                this.initLayerSettings(layerType);
+            }
+
+            const validTilesets = this.getValidTilesetsForLayer(layerType);
+            const settings = this.layerSettings[layerType];
+
+            const layerDiv = document.createElement('div');
+            layerDiv.className = 'random-gen-layer';
+            layerDiv.dataset.layerType = layerType;
+
+            layerDiv.innerHTML = `
+                <div class="random-gen-layer-header">
+                    <label>
+                        <input type="checkbox" class="layer-enabled" ${settings.enabled ? 'checked' : ''}>
+                        ${layerConfig.name}
+                    </label>
+                    <span class="layer-type-badge">${layerType}</span>
+                </div>
+                <div class="random-gen-layer-settings">
+                    <div class="setting-group full-width base-biome-group">
+                        <label>Base Fill (applied first)</label>
+                        <select class="base-biome-select">
+                            <option value="">None - Leave Empty</option>
+                            ${validTilesets.map(t => `
+                                <option value="${t.name}" ${settings.baseBiome === t.name ? 'selected' : ''}>
+                                    ${t.name.replace(/^(Biome_|Height_|Difficulty_|Hazard_)/, '')}
+                                </option>
+                            `).join('')}
+                        </select>
+                    </div>
+                    <div class="setting-group full-width">
+                        <label>Select Biomes to Add (${validTilesets.length} available)</label>
+                        <div class="biome-selection-controls">
+                            <button type="button" class="btn-select-all">All</button>
+                            <button type="button" class="btn-deselect-all">None</button>
+                        </div>
+                        <div class="biome-checkboxes">
+                            ${validTilesets.map(t => `
+                                <label class="biome-checkbox">
+                                    <input type="checkbox" value="${t.name}" ${settings.biomes[t.name]?.enabled ? 'checked' : ''}>
+                                    <span class="biome-color-swatch" style="background-color: ${t.color}"></span>
+                                    ${t.name.replace(/^(Biome_|Height_|Difficulty_|Hazard_)/, '')}
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="setting-group full-width">
+                        <label>Biome Algorithm Settings</label>
+                        <div class="biome-settings-container" data-layer="${layerType}">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            container.appendChild(layerDiv);
+
+            // Event listeners
+            const enabledCheckbox = layerDiv.querySelector('.layer-enabled');
+            enabledCheckbox.addEventListener('change', (e) => {
+                this.layerSettings[layerType].enabled = e.target.checked;
+                layerDiv.classList.toggle('disabled', !e.target.checked);
+            });
+
+            // Base biome selector
+            const baseBiomeSelect = layerDiv.querySelector('.base-biome-select');
+            baseBiomeSelect.addEventListener('change', (e) => {
+                this.layerSettings[layerType].baseBiome = e.target.value;
+            });
+
+            // Biome checkboxes
+            const biomeCheckboxes = layerDiv.querySelectorAll('.biome-checkboxes input');
+
+            const updateBiomeSelection = () => {
+                biomeCheckboxes.forEach(cb => {
+                    if (this.layerSettings[layerType].biomes[cb.value]) {
+                        this.layerSettings[layerType].biomes[cb.value].enabled = cb.checked;
+                    }
+                });
+                this.updateBiomeSettingsDisplay(layerType);
+            };
+
+            biomeCheckboxes.forEach(cb => {
+                cb.addEventListener('change', updateBiomeSelection);
+            });
+
+            layerDiv.querySelector('.btn-select-all').addEventListener('click', () => {
+                biomeCheckboxes.forEach(cb => cb.checked = true);
+                updateBiomeSelection();
+            });
+
+            layerDiv.querySelector('.btn-deselect-all').addEventListener('click', () => {
+                biomeCheckboxes.forEach(cb => cb.checked = false);
+                updateBiomeSelection();
+            });
+
+            // Initial render of biome settings
+            this.updateBiomeSettingsDisplay(layerType);
+        }
+    },
+
+    /**
+     * Get current settings
+     */
+    getSettings() {
+        return {
+            layers: this.layerSettings,
+            seed: parseInt(document.getElementById('random-gen-seed').value) || 0
+        };
+    },
+
+    /**
+     * Show the panel
+     */
+    showPanel() {
+        const panel = document.getElementById('random-gen-panel');
+        if (panel) {
+            panel.style.display = 'block';
+        }
+    },
+
+    /**
+     * Hide the panel
+     */
+    hidePanel() {
+        const panel = document.getElementById('random-gen-panel');
+        if (panel) {
+            panel.style.display = 'none';
+        }
+    },
+
+    /**
+     * Get all saved presets from localStorage
+     */
+    getPresets() {
+        try {
+            const presetsJson = localStorage.getItem('tsic_generation_presets');
+            return presetsJson ? JSON.parse(presetsJson) : {};
+        } catch (e) {
+            console.error('Failed to load generation presets:', e);
+            return {};
+        }
+    },
+
+    /**
+     * Save current settings as a preset
+     */
+    savePreset(name) {
+        if (!name || !name.trim()) {
+            console.warn('Preset name is required');
+            return false;
+        }
+
+        const presets = this.getPresets();
+        presets[name.trim()] = {
+            layers: JSON.parse(JSON.stringify(this.layerSettings)),
+            seed: parseInt(document.getElementById('random-gen-seed').value) || 0,
+            savedAt: new Date().toISOString()
+        };
+
+        try {
+            localStorage.setItem('tsic_generation_presets', JSON.stringify(presets));
+            console.log(`Saved generation preset: ${name}`);
+            this.updatePresetUI();
+            return true;
+        } catch (e) {
+            console.error('Failed to save generation preset:', e);
+            return false;
+        }
+    },
+
+    /**
+     * Load a preset by name
+     */
+    loadPreset(name) {
+        const presets = this.getPresets();
+        const preset = presets[name];
+
+        if (!preset) {
+            console.warn(`Preset not found: ${name}`);
+            return false;
+        }
+
+        // Deep copy the layer settings
+        this.layerSettings = JSON.parse(JSON.stringify(preset.layers));
+
+        // Update seed if saved
+        if (preset.seed !== undefined) {
+            const seedInput = document.getElementById('random-gen-seed');
+            if (seedInput) {
+                seedInput.value = preset.seed;
+            }
+        }
+
+        // Re-render the UI to reflect loaded settings
+        this.initPanel();
+        console.log(`Loaded generation preset: ${name}`);
+        return true;
+    },
+
+    /**
+     * Delete a preset by name
+     */
+    deletePreset(name) {
+        const presets = this.getPresets();
+        if (presets[name]) {
+            delete presets[name];
+            try {
+                localStorage.setItem('tsic_generation_presets', JSON.stringify(presets));
+                console.log(`Deleted generation preset: ${name}`);
+                this.updatePresetUI();
+                return true;
+            } catch (e) {
+                console.error('Failed to delete preset:', e);
+                return false;
+            }
+        }
+        return false;
+    },
+
+    /**
+     * Update the preset dropdown UI
+     */
+    updatePresetUI() {
+        const dropdown = document.getElementById('generation-preset-select');
+        if (!dropdown) return;
+
+        const presets = this.getPresets();
+        const presetNames = Object.keys(presets).sort();
+
+        // Preserve current selection if still valid
+        const currentValue = dropdown.value;
+
+        dropdown.innerHTML = '<option value="">-- Select Preset --</option>';
+        presetNames.forEach(name => {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            dropdown.appendChild(option);
+        });
+
+        // Restore selection if still valid
+        if (currentValue && presets[currentValue]) {
+            dropdown.value = currentValue;
+        }
+    }
+};
+
+/**
+ * Algorithm implementations for map generation
+ */
+const generationAlgorithms = {
+    /**
+     * Seeded random number generator
+     */
+    seededRandom: function(seed) {
+        let s = seed;
+        return function() {
+            s = (s * 1103515245 + 12345) & 0x7fffffff;
+            return s / 0x7fffffff;
+        };
+    },
+
+    /**
+     * Perlin noise algorithm
+     */
+    perlin: function(layer, tileset, params, seed, width, height) {
+        const noise = new PerlinNoise(seed);
+        const { scale, octaves, persistence, lacunarity, threshold } = params;
+        let count = 0;
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const noiseValue = (noise.octaveNoise(x / scale, y / scale, octaves, persistence, lacunarity) + 1) / 2;
+                if (noiseValue >= threshold) {
+                    layer.setTile(x, y, tileset.value || 0, tileset);
+                    count++;
+                }
+            }
+        }
+        return count;
+    },
+
+    /**
+     * Scatter algorithm - random single pixels
+     */
+    scatter: function(layer, tileset, params, seed, width, height) {
+        const random = this.seededRandom(seed);
+        const { density } = params;
+        let count = 0;
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                if (random() < density) {
+                    layer.setTile(x, y, tileset.value || 0, tileset);
+                    count++;
+                }
+            }
+        }
+        return count;
+    },
+
+    /**
+     * Clustered scatter algorithm
+     */
+    cluster: function(layer, tileset, params, seed, width, height) {
+        const random = this.seededRandom(seed);
+        const { clusterCount, clusterSize, falloff } = params;
+        let count = 0;
+
+        for (let i = 0; i < clusterCount; i++) {
+            const cx = Math.floor(random() * width);
+            const cy = Math.floor(random() * height);
+
+            for (let dy = -clusterSize; dy <= clusterSize; dy++) {
+                for (let dx = -clusterSize; dx <= clusterSize; dx++) {
+                    const x = cx + dx;
+                    const y = cy + dy;
+
+                    if (x < 0 || x >= width || y < 0 || y >= height) continue;
+
+                    const dist = Math.sqrt(dx * dx + dy * dy) / clusterSize;
+                    const prob = Math.pow(1 - dist, falloff);
+
+                    if (dist <= 1 && random() < prob) {
+                        layer.setTile(x, y, tileset.value || 0, tileset);
+                        count++;
+                    }
+                }
+            }
+        }
+        return count;
+    },
+
+    /**
+     * Voronoi points algorithm - places evenly distributed single points
+     */
+    voronoiPoints: function(layer, tileset, params, seed, width, height) {
+        const random = this.seededRandom(seed);
+        const { pointCount, relaxation } = params;
+        let count = 0;
+
+        // Generate initial random points
+        let points = [];
+        for (let i = 0; i < pointCount; i++) {
+            points.push({
+                x: random() * width,
+                y: random() * height
+            });
+        }
+
+        // Lloyd relaxation - moves points to centroids of their Voronoi cells
+        // This creates more even distribution
+        for (let r = 0; r < relaxation; r++) {
+            const sums = points.map(() => ({ x: 0, y: 0, count: 0 }));
+
+            // Sample grid to find which point each tile is closest to
+            const step = Math.max(1, Math.floor(Math.min(width, height) / 64));
+            for (let y = 0; y < height; y += step) {
+                for (let x = 0; x < width; x += step) {
+                    let minDist = Infinity;
+                    let minIdx = 0;
+                    for (let i = 0; i < points.length; i++) {
+                        const dx = x - points[i].x;
+                        const dy = y - points[i].y;
+                        const dist = dx * dx + dy * dy;
+                        if (dist < minDist) {
+                            minDist = dist;
+                            minIdx = i;
+                        }
+                    }
+                    sums[minIdx].x += x;
+                    sums[minIdx].y += y;
+                    sums[minIdx].count++;
+                }
+            }
+
+            // Move each point to the centroid of its cell
+            for (let i = 0; i < points.length; i++) {
+                if (sums[i].count > 0) {
+                    points[i].x = sums[i].x / sums[i].count;
+                    points[i].y = sums[i].y / sums[i].count;
+                }
+            }
+        }
+
+        // Place single tile at each point location
+        for (const point of points) {
+            const x = Math.floor(point.x);
+            const y = Math.floor(point.y);
+            if (x >= 0 && x < width && y >= 0 && y < height) {
+                layer.setTile(x, y, tileset.value || 0, tileset);
+                count++;
+            }
+        }
+        return count;
+    },
+
+    /**
+     * Grid points algorithm - places points in a grid pattern
+     */
+    gridPoints: function(layer, tileset, params, seed, width, height) {
+        const random = this.seededRandom(seed);
+        const { spacing, jitter } = params;
+        let count = 0;
+
+        const maxJitter = spacing * jitter * 0.5;
+
+        for (let gy = spacing / 2; gy < height; gy += spacing) {
+            for (let gx = spacing / 2; gx < width; gx += spacing) {
+                // Apply jitter (random offset)
+                const jitterX = jitter > 0 ? (random() - 0.5) * 2 * maxJitter : 0;
+                const jitterY = jitter > 0 ? (random() - 0.5) * 2 * maxJitter : 0;
+
+                const x = Math.floor(gx + jitterX);
+                const y = Math.floor(gy + jitterY);
+
+                if (x >= 0 && x < width && y >= 0 && y < height) {
+                    layer.setTile(x, y, tileset.value || 0, tileset);
+                    count++;
+                }
+            }
+        }
+        return count;
+    },
+
+    /**
+     * Fill entire layer
+     */
+    fill: function(layer, tileset, params, seed, width, height) {
+        let count = 0;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                layer.setTile(x, y, tileset.value || 0, tileset);
+                count++;
+            }
+        }
+        return count;
+    },
+
+    /**
+     * Border algorithm
+     */
+    border: function(layer, tileset, params, seed, width, height) {
+        const { thickness } = params;
+        let count = 0;
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                if (x < thickness || x >= width - thickness ||
+                    y < thickness || y >= height - thickness) {
+                    layer.setTile(x, y, tileset.value || 0, tileset);
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+};
+
+/**
+ * Generate map using configured random settings with multiple algorithms per biome
+ */
+function generateMapWithSettings() {
+    try {
+        if (!editor) {
+            console.error('Editor not initialized');
+            alert('Editor not initialized. Please reload the page.');
+            return;
+        }
+
+        if (typeof PerlinNoise === 'undefined') {
+            console.error('PerlinNoise not loaded');
+            alert('Perlin noise generator not available. Please reload the page.');
+            return;
+        }
+
+        const settings = randomGenSettings.getSettings();
+        console.log('[RandomGen] Generating with settings:', settings);
+
+        editor.saveState();
+
+        // Clear all existing data first
+        editor.layerManager.layers.forEach(layer => {
+            layer.tileData = new Map();
+            layer.cacheDirty = true;
+        });
+
+        const layers = editor.layerManager.layers;
+        const gridWidth = editor.layerManager.width;
+        const gridHeight = editor.layerManager.height;
+
+        // Use provided seed or generate random one
+        const baseSeed = settings.seed || Date.now();
+        console.log(`[RandomGen] Using seed: ${baseSeed}`);
+
+        // Process each layer
+        for (const layer of layers) {
+            const layerType = layer.layerType;
+            const layerConfig = settings.layers[layerType];
+
+            if (!layerConfig || !layerConfig.enabled) {
+                console.log(`[RandomGen] Skipping disabled layer: ${layer.name}`);
+                continue;
+            }
+
+            console.log(`[RandomGen] Processing layer: ${layer.name}`);
+
+            // Apply base fill first if specified
+            if (layerConfig.baseBiome) {
+                const baseTileset = configManager.getTileset(layerConfig.baseBiome);
+                if (baseTileset) {
+                    console.log(`[RandomGen] Filling ${layer.name} with base: ${layerConfig.baseBiome}`);
+                    const fullBaseTileset = { name: layerConfig.baseBiome, ...baseTileset };
+                    for (let y = 0; y < gridHeight; y++) {
+                        for (let x = 0; x < gridWidth; x++) {
+                            layer.setTile(x, y, fullBaseTileset.value || 0, fullBaseTileset);
+                        }
+                    }
+                    console.log(`[RandomGen] Base fill complete: ${gridWidth * gridHeight} tiles`);
+                }
+            }
+
+            // Process each enabled biome (sorted by order)
+            const sortedBiomes = Object.entries(layerConfig.biomes)
+                .filter(([_, config]) => config.enabled)
+                .sort((a, b) => (a[1].order ?? 0) - (b[1].order ?? 0));
+
+            for (const [biomeName, biomeConfig] of sortedBiomes) {
+
+                const tileset = configManager.getTileset(biomeName);
+                if (!tileset) {
+                    console.warn(`[RandomGen] Tileset not found: ${biomeName}`);
+                    continue;
+                }
+
+                const fullTileset = { name: biomeName, ...tileset };
+
+                // Apply each algorithm step for this biome (in order)
+                for (let algIdx = 0; algIdx < biomeConfig.algorithms.length; algIdx++) {
+                    const algorithm = biomeConfig.algorithms[algIdx];
+                    const algFunc = generationAlgorithms[algorithm.type];
+
+                    if (!algFunc) {
+                        console.warn(`[RandomGen] Unknown algorithm: ${algorithm.type}`);
+                        continue;
+                    }
+
+                    // Use algorithm's seedOffset, or default to index * 100
+                    const algSeedOffset = algorithm.seedOffset !== null && algorithm.seedOffset !== undefined
+                        ? algorithm.seedOffset
+                        : algIdx * 100;
+                    const algSeed = baseSeed + algSeedOffset;
+
+                    console.log(`[RandomGen] Applying ${algorithm.type} to ${biomeName} (seed: ${algSeed}, offset: ${algSeedOffset})`);
+                    const count = algFunc.call(generationAlgorithms, layer, fullTileset, algorithm.params, algSeed, gridWidth, gridHeight);
+                    console.log(`[RandomGen] ${algorithm.type} placed ${count} tiles`);
+                }
+            }
+        }
+
+        // Reset visibility to show first layer only
+        editor.recentLayerSelections = [0];
+        editor.layerManager.layers.forEach((layer, idx) => {
+            layer.visible = (idx === 0);
+        });
+
+        // Re-render everything
+        editor.render();
+        editor.renderMinimap();
+        updateLayersPanel();
+        editor.isDirty = true;
+
+        // Set zoom to fit view
+        editor.setZoom(1.0);
+        editor.offsetX = 0;
+        editor.offsetY = 0;
+        editor.render();
+        editor.renderMinimap();
+
+        // Hide the panel
+        randomGenSettings.hidePanel();
+
+        document.getElementById('status-message').textContent = 'Map generated with custom settings!';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 2000);
+    } catch (error) {
+        console.error('Map generation failed:', error);
+        alert(`Failed to generate map: ${error.message}`);
+        document.getElementById('status-message').textContent = 'Generation failed';
+    }
+}
+
+/**
+ * Initialize random generation panel event listeners
+ */
+function initializeRandomGenPanel() {
+    // Open button in toolbar
+    document.getElementById('btn-generate-random-open').addEventListener('click', () => {
+        randomGenSettings.initPanel();
+        randomGenSettings.showPanel();
+    });
+
+    // Close button
+    document.getElementById('random-gen-close').addEventListener('click', () => {
+        randomGenSettings.hidePanel();
+    });
+
+    // Randomize seed button
+    document.getElementById('btn-randomize-seed').addEventListener('click', () => {
+        document.getElementById('random-gen-seed').value = Math.floor(Math.random() * 1000000);
+    });
+
+    // Generate button
+    document.getElementById('btn-generate-random').addEventListener('click', () => {
+        if (editor.isDirty && !confirm('Discard unsaved changes and generate world?')) {
+            return;
+        }
+        generateMapWithSettings();
+    });
+
+    // Close on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            randomGenSettings.hidePanel();
+        }
+    });
+
+    // Close when clicking outside panel
+    document.getElementById('random-gen-panel').addEventListener('click', (e) => {
+        if (e.target.id === 'random-gen-panel') {
+            randomGenSettings.hidePanel();
+        }
+    });
+
+    // Preset: Auto-load on dropdown selection
+    document.getElementById('generation-preset-select').addEventListener('change', (e) => {
+        if (e.target.value) {
+            randomGenSettings.loadPreset(e.target.value);
+        }
+    });
+
+    // Preset: Save button
+    document.getElementById('btn-save-preset').addEventListener('click', () => {
+        const name = prompt('Enter a name for this preset:');
+        if (name && name.trim()) {
+            const presets = randomGenSettings.getPresets();
+            if (presets[name.trim()] && !confirm(`Preset "${name.trim()}" already exists. Overwrite?`)) {
+                return;
+            }
+            if (randomGenSettings.savePreset(name.trim())) {
+                document.getElementById('generation-preset-select').value = name.trim();
+            }
+        }
+    });
+
+    // Preset: Delete button
+    document.getElementById('btn-delete-preset').addEventListener('click', () => {
+        const select = document.getElementById('generation-preset-select');
+        const presetName = select.value;
+        if (presetName) {
+            if (confirm(`Delete preset "${presetName}"?`)) {
+                randomGenSettings.deletePreset(presetName);
+            }
+        } else {
+            alert('Please select a preset to delete.');
+        }
+    });
+
+    // Initialize preset dropdown
+    randomGenSettings.updatePresetUI();
+}
+
+/**
  * Initialize application
  */
 async function init() {
-    // IMPORTANT: Clear any old localStorage data that might have stale layers
-    // This is critical when layer configuration changes
-    const currentVersion = '3.0-six-layers';
+    const initStart = performance.now();
+    console.log('[INIT] ========== STARTING INITIALIZATION ==========');
+
+    // IMPORTANT: Clear old config data when version changes, but PRESERVE projects
+    const currentVersion = '3.0-six-layers-v2';
     const storedVersion = localStorage.getItem('levelEditor_configVersion');
     if (storedVersion !== currentVersion) {
-        console.log(`[INIT] Config version changed from ${storedVersion} to ${currentVersion}, clearing localStorage`);
-        localStorage.clear();
+        console.log(`[INIT] Config version changed from ${storedVersion} to ${currentVersion}, clearing old config (preserving projects)`);
+        // Only clear non-project keys - preserve tsic_ prefixed keys
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && !key.startsWith('tsic_')) {
+                keysToRemove.push(key);
+            }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
         localStorage.setItem('levelEditor_configVersion', currentVersion);
     }
 
+
     // Load configuration
+    console.log('[INIT] Loading config...');
+    let t0 = performance.now();
     const loaded = await configManager.loadConfig();
+    console.log(`[INIT] Config loaded in ${(performance.now() - t0).toFixed(1)}ms, success: ${loaded}`);
     if (!loaded) {
         console.warn('Using default configuration');
     }
 
     // Initialize color mapper
+    console.log('[INIT] Loading color mapper...');
+    t0 = performance.now();
     const config = await fetch('config/biomes.json').then(r => r.json());
     colorMapper.loadFromConfig(config);
+    console.log(`[INIT] Color mapper loaded in ${(performance.now() - t0).toFixed(1)}ms`);
     console.log('[ColorMapper] Initialized:', colorMapper.getSummary());
 
     // Initialize dynamic validator
+    console.log('[INIT] Loading dynamic validator...');
+    t0 = performance.now();
     dynamicValidator = new DynamicRLEValidator();
     const validatorLoaded = await dynamicValidator.loadConfig('config/biomes.json');
+    console.log(`[INIT] Dynamic validator loaded in ${(performance.now() - t0).toFixed(1)}ms`);
     if (!validatorLoaded.success) {
         console.error('Failed to load dynamic validator config:', validatorLoaded.error);
         console.warn('Falling back to hardcoded validator');
@@ -289,17 +1551,52 @@ async function init() {
     }
 
     // Create editor
+    console.log('[INIT] Creating editor...');
+    t0 = performance.now();
     editor = new LevelEditor();
     window.editor = editor; // Expose for testing
+    console.log(`[INIT] Editor created in ${(performance.now() - t0).toFixed(1)}ms`);
+
+    console.log('[INIT] Initializing layers...');
+    t0 = performance.now();
     editor.initializeLayers(configManager);
+    console.log(`[INIT] Layers initialized in ${(performance.now() - t0).toFixed(1)}ms`);
 
     // Initialize UI
+    console.log('[INIT] Initializing UI components...');
+    t0 = performance.now();
     initializeColorPalette();
+    console.log(`[INIT] Color palette initialized in ${(performance.now() - t0).toFixed(1)}ms`);
+
+    // Set initial palette state based on active layer
+    const activeLayer = editor.layerManager.getActiveLayer();
+    if (activeLayer && typeof window.updatePaletteForLayer === 'function') {
+        window.updatePaletteForLayer(activeLayer.layerType || activeLayer.name);
+    }
+
+    t0 = performance.now();
     initializeLayersPanel();
+    console.log(`[INIT] Layers panel initialized in ${(performance.now() - t0).toFixed(1)}ms`);
+
+    t0 = performance.now();
     initializeToolButtons();
+    console.log(`[INIT] Tool buttons initialized in ${(performance.now() - t0).toFixed(1)}ms`);
+
+    t0 = performance.now();
     initializeToolbar();
+    console.log(`[INIT] Toolbar initialized in ${(performance.now() - t0).toFixed(1)}ms`);
+
+    t0 = performance.now();
     initializeKeyboardShortcuts();
+    console.log(`[INIT] Keyboard shortcuts initialized in ${(performance.now() - t0).toFixed(1)}ms`);
+
+    t0 = performance.now();
     initializeAutoSaveCheckbox();
+    console.log(`[INIT] Auto-save checkbox initialized in ${(performance.now() - t0).toFixed(1)}ms`);
+
+    t0 = performance.now();
+    initializeRandomGenPanel();
+    console.log(`[INIT] Random generation panel initialized in ${(performance.now() - t0).toFixed(1)}ms`);
 
     // Initialize layer visibility (show only first layer)
     if (editor.layerManager.layers.length > 0) {
@@ -316,46 +1613,73 @@ async function init() {
         editor.selectTileset(firstTileset);
     }
 
-    // Filter color palette based on active layer
-    const activeLayer = editor.layerManager.getActiveLayer();
-    if (activeLayer) {
-        filterColorsByLayer(activeLayer.layerType);
-        ensureValidColorForLayer(activeLayer.layerType);
-    }
-
     // Start auto-save
     startAutoSave();
 
     // Initialize maze visualizer
+    console.log('[INIT] Initializing maze visualizer...');
+    t0 = performance.now();
     editor.mazeVisualizer = new MazeVisualizerManager(editor);
     window.mazeVisualizer = editor.mazeVisualizer; // For debugging/console access
     initializeMazeVisualizer();
+    console.log(`[INIT] Maze visualizer initialized in ${(performance.now() - t0).toFixed(1)}ms`);
+
+    // Initialize stamps system
+    console.log('[INIT] Initializing stamps...');
+    t0 = performance.now();
+    initializeStamps();
+    console.log(`[INIT] Stamps initialized in ${(performance.now() - t0).toFixed(1)}ms`);
 
     // Auto-load test JSON if it exists (for e2e testing) - do this before loading projects
+    console.log('[INIT] Checking for test JSON...');
+    t0 = performance.now();
     await loadTestJSON();
+    console.log(`[INIT] Test JSON check complete in ${(performance.now() - t0).toFixed(1)}ms, currentFileName: ${editor.currentFileName}`);
 
     // Initialize project system (only if no test JSON was loaded)
     if (!editor.currentFileName) {
+        console.log('[INIT] No current file, initializing project system...');
         // Populate project dropdown
+        t0 = performance.now();
         updateProjectDropdown();
+        console.log(`[INIT] Project dropdown updated in ${(performance.now() - t0).toFixed(1)}ms`);
 
-        // Load active project if one exists
+        // Auto-load last active project if one exists
         const activeProject = getActiveProject();
         if (activeProject) {
+            console.log(`[INIT] Auto-loading last active project: "${activeProject}"`);
             await loadProjectByName(activeProject);
         } else {
-            updateProjectUI(); // Update UI for no project state
+            updateProjectUI();
+            console.log('[INIT] No previous project - select from dropdown');
         }
     }
 
     // Update status
     if (!editor.currentFileName) {
         document.getElementById('status-message').textContent = 'Ready - No project loaded';
+
+        // Fill layers with valid defaults when no project is loaded
+        // This ensures no invalid/empty tiles exist
+        console.log('[INIT] No project loaded - filling layers with valid defaults...');
+        t0 = performance.now();
+        for (const layer of editor.layerManager.layers) {
+            const defaultColor = editor.getDefaultColorForLayer(layer.layerType);
+            if (defaultColor) {
+                editor.layerManager.fillLayerWithDefault(layer, defaultColor);
+            }
+        }
+        console.log(`[INIT] Layers filled with defaults in ${(performance.now() - t0).toFixed(1)}ms`);
+
+        // Render after filling
+        editor.render();
+        editor.renderMinimap();
     }
+    console.log(`[INIT] ========== INITIALIZATION COMPLETE in ${(performance.now() - initStart).toFixed(1)}ms ==========`);
 }
 
 /**
- * Initialize color palette with category folders
+ * Initialize color palette with tabs and subcategories
  */
 function initializeColorPalette() {
     const paletteContainer = document.getElementById('color-palette');
@@ -363,78 +1687,206 @@ function initializeColorPalette() {
 
     paletteContainer.innerHTML = '';
 
-    // Group tilesets by category
-    const categories = {};
-    for (const [name, tileset] of Object.entries(tilesets)) {
-        const category = tileset.category || 'Other';
-        if (!categories[category]) {
-            categories[category] = [];
+    // Define biome subcategories
+    const biomeSubcategories = {
+        'Shared': ['Biome_None', 'Biome_Blocked', 'Biome_Pit'],
+        'Sky': ['Biome_SkyEmpty', 'Biome_SkyCeiling', 'Biome_Bathroom'],
+        'Ground': ['Biome_ShowFloor', 'Biome_Restaurant', 'Biome_Warehouse', 'Biome_Kids', 'Biome_Gardening', 'Biome_StaffRoom'],
+        'Underground': ['Biome_CarPark', 'Biome_SCPBase']
+    };
+
+    // Define POI biomes
+    const poiBiomes = [
+        'Biome_Spawn', 'Biome_Map', 'Biome_HelpPoint', 'Biome_LostAndFound', 'Biome_AbandonedCamp',
+        'Biome_SCPBaseEntrance', 'Biome_SCPBaseExit', 'Biome_SCPBasePower',
+        'Biome_CarParkEntrance', 'Biome_CarParkExit'
+    ];
+
+    // Helper function to create a color item
+    function createColorItem(name, tileset) {
+        const colorItem = document.createElement('div');
+        colorItem.className = 'color-item';
+        colorItem.dataset.name = name;
+        colorItem.dataset.color = tileset.color.toLowerCase();
+        colorItem.title = `${tileset.displayName || name}\nRight-click to lock/unlock`;
+
+        const swatch = document.createElement('div');
+        swatch.className = 'color-swatch';
+        swatch.style.backgroundColor = tileset.color;
+
+        if (tileset.icon) {
+            const icon = document.createElement('span');
+            icon.className = 'color-icon';
+            icon.textContent = tileset.icon;
+            swatch.appendChild(icon);
         }
-        categories[category].push({ name, tileset });
-    }
 
-    // Order categories for better UX - updated to match new categories
-    const categoryOrder = ['Biomes', 'Difficulty', 'Height', 'Hazards', 'Other'];
+        const label = document.createElement('div');
+        label.className = 'color-name';
+        label.textContent = tileset.displayName || name;
 
-    for (const categoryName of categoryOrder) {
-        if (!categories[categoryName]) continue;
+        colorItem.appendChild(swatch);
+        colorItem.appendChild(label);
 
-        // Create category folder
-        const categoryDiv = document.createElement('div');
-        categoryDiv.className = 'color-category';
-
-        const categoryHeader = document.createElement('div');
-        categoryHeader.className = 'color-category-header';
-        categoryHeader.textContent = categoryName;
-        categoryHeader.addEventListener('click', () => {
-            categoryDiv.classList.toggle('collapsed');
+        colorItem.addEventListener('click', () => {
+            editor.selectTileset(name);
+            document.querySelectorAll('.color-item').forEach(item => item.classList.remove('selected'));
+            colorItem.classList.add('selected');
         });
 
-        const categoryContent = document.createElement('div');
-        categoryContent.className = 'color-category-content';
+        colorItem.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const color = tileset.color;
+            const isLocked = editor.toggleColorLock(color);
+            colorItem.classList.toggle('locked', isLocked);
 
-        // Add colors to this category
-        for (const { name, tileset } of categories[categoryName]) {
-            const colorItem = document.createElement('div');
-            colorItem.className = 'color-item';
-            colorItem.dataset.name = name;
+            const statusMsg = isLocked
+                ? `Locked: ${tileset.displayName || name} (cannot be painted over)`
+                : `Unlocked: ${tileset.displayName || name}`;
+            document.getElementById('status-message').textContent = statusMsg;
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 2000);
 
-            const swatch = document.createElement('div');
-            swatch.className = 'color-swatch';
-            swatch.style.backgroundColor = tileset.color;
-
-            // Add icon if present
-            if (tileset.icon) {
-                const icon = document.createElement('span');
-                icon.className = 'color-icon';
-                icon.textContent = tileset.icon;
-                swatch.appendChild(icon);
+            if (typeof window.updatePOIButton === 'function') {
+                window.updatePOIButton();
             }
+        });
 
-            const label = document.createElement('div');
-            label.className = 'color-name';
-            label.textContent = tileset.displayName || name;
+        return colorItem;
+    }
 
-            colorItem.appendChild(swatch);
-            colorItem.appendChild(label);
+    // Helper function to create a subcategory section
+    function createSubcategory(title, items) {
+        const section = document.createElement('div');
+        section.className = 'color-subcategory';
 
-            colorItem.addEventListener('click', () => {
-                editor.selectTileset(name);
-                // Update selected state
-                document.querySelectorAll('.color-item').forEach(item => item.classList.remove('selected'));
-                colorItem.classList.add('selected');
-            });
+        const header = document.createElement('div');
+        header.className = 'color-subcategory-header';
+        header.textContent = title;
 
-            categoryContent.appendChild(colorItem);
+        const content = document.createElement('div');
+        content.className = 'color-category-content';
+
+        for (const item of items) {
+            content.appendChild(item);
         }
 
-        categoryDiv.appendChild(categoryHeader);
-        categoryDiv.appendChild(categoryContent);
-        paletteContainer.appendChild(categoryDiv);
+        section.appendChild(header);
+        section.appendChild(content);
+        return section;
     }
+
+    // Create tab content containers
+    const biomesTab = document.createElement('div');
+    biomesTab.className = 'palette-tab-content active';
+    biomesTab.dataset.tab = 'biomes';
+
+    const poiTab = document.createElement('div');
+    poiTab.className = 'palette-tab-content';
+    poiTab.dataset.tab = 'poi';
+
+    const otherTab = document.createElement('div');
+    otherTab.className = 'palette-tab-content';
+    otherTab.dataset.tab = 'other';
+
+    // Populate Biomes tab with subcategories
+    for (const [subcat, biomeNames] of Object.entries(biomeSubcategories)) {
+        const items = [];
+        for (const biomeName of biomeNames) {
+            const tileset = tilesets[biomeName];
+            if (tileset) {
+                items.push(createColorItem(biomeName, tileset));
+            }
+        }
+        if (items.length > 0) {
+            biomesTab.appendChild(createSubcategory(subcat, items));
+        }
+    }
+
+    // Populate POI tab
+    const poiItems = [];
+    for (const biomeName of poiBiomes) {
+        const tileset = tilesets[biomeName];
+        if (tileset) {
+            poiItems.push(createColorItem(biomeName, tileset));
+        }
+    }
+    if (poiItems.length > 0) {
+        const poiContent = document.createElement('div');
+        poiContent.className = 'color-category-content';
+        for (const item of poiItems) {
+            poiContent.appendChild(item);
+        }
+        poiTab.appendChild(poiContent);
+    }
+
+    // Populate Other tab (Height, Difficulty, Hazards)
+    const otherCategories = ['Height', 'Difficulty', 'Hazards'];
+    for (const category of otherCategories) {
+        const items = [];
+        for (const [name, tileset] of Object.entries(tilesets)) {
+            if (tileset.category === category) {
+                items.push(createColorItem(name, tileset));
+            }
+        }
+        if (items.length > 0) {
+            otherTab.appendChild(createSubcategory(category, items));
+        }
+    }
+
+    // Add tabs to container
+    paletteContainer.appendChild(biomesTab);
+    paletteContainer.appendChild(poiTab);
+    paletteContainer.appendChild(otherTab);
+
+    // Initialize tab switching
+    document.querySelectorAll('.palette-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.dataset.tab;
+
+            // Update tab buttons
+            document.querySelectorAll('.palette-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.palette-tab-content').forEach(content => {
+                content.classList.toggle('active', content.dataset.tab === tabName);
+            });
+        });
+    });
 
     // Initialize color search
     initializeColorSearch();
+
+    // Initialize color lock controls
+    const poiBtn = document.getElementById('btn-lock-poi');
+
+    function updatePOIButton() {
+        if (editor.hasLockedPOI()) {
+            poiBtn.textContent = 'Unlock POI';
+            poiBtn.classList.add('poi-locked');
+        } else {
+            poiBtn.textContent = 'Lock POI';
+            poiBtn.classList.remove('poi-locked');
+        }
+    }
+
+    poiBtn.addEventListener('click', () => {
+        if (editor.hasLockedPOI()) {
+            editor.unlockAllPOI();
+        } else {
+            editor.lockAllPOI();
+        }
+        updatePOIButton();
+    });
+
+    document.getElementById('btn-unlock-all').addEventListener('click', () => {
+        editor.clearAllColorLocks();
+        updatePOIButton();
+    });
+
+    window.updatePOIButton = updatePOIButton;
 }
 
 /**
@@ -477,38 +1929,63 @@ function initializeColorSearch() {
      * Filter colors based on search query
      */
     function filterColors(query) {
-        const categories = paletteContainer.querySelectorAll('.color-category');
+        const tabContents = paletteContainer.querySelectorAll('.palette-tab-content');
+        const subcategories = paletteContainer.querySelectorAll('.color-subcategory');
         let totalVisibleColors = 0;
 
-        categories.forEach(category => {
-            const categoryHeader = category.querySelector('.color-category-header');
-            const categoryName = categoryHeader.textContent.toLowerCase();
-            const colorItems = category.querySelectorAll('.color-item');
+        // When searching, show all tabs' content temporarily
+        if (query !== '') {
+            tabContents.forEach(tab => tab.classList.add('active'));
+        } else {
+            // Restore normal tab behavior
+            const activeTabName = document.querySelector('.palette-tab.active')?.dataset.tab || 'biomes';
+            tabContents.forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.tab === activeTabName);
+            });
+        }
 
-            let visibleInCategory = 0;
+        // Filter within subcategories
+        subcategories.forEach(subcategory => {
+            const header = subcategory.querySelector('.color-subcategory-header');
+            const subcatName = header ? header.textContent.toLowerCase() : '';
+            const colorItems = subcategory.querySelectorAll('.color-item');
+
+            let visibleInSubcat = 0;
 
             colorItems.forEach(colorItem => {
                 const colorName = colorItem.dataset.name.toLowerCase();
+                const displayName = colorItem.querySelector('.color-name')?.textContent.toLowerCase() || '';
 
-                // Match query against color name or category name
                 const matches = query === '' ||
                               colorName.includes(query) ||
-                              categoryName.includes(query);
+                              displayName.includes(query) ||
+                              subcatName.includes(query);
 
                 colorItem.classList.toggle('hidden', !matches);
 
                 if (matches) {
-                    visibleInCategory++;
+                    visibleInSubcat++;
                     totalVisibleColors++;
                 }
             });
 
-            // Hide category if no colors match
-            category.classList.toggle('hidden', visibleInCategory === 0);
+            subcategory.classList.toggle('hidden', visibleInSubcat === 0);
+        });
 
-            // Expand categories with matches
-            if (visibleInCategory > 0 && query !== '') {
-                category.classList.remove('collapsed');
+        // Also filter color items not in subcategories (like POI tab)
+        const directColorItems = paletteContainer.querySelectorAll('.palette-tab-content > .color-category-content > .color-item');
+        directColorItems.forEach(colorItem => {
+            const colorName = colorItem.dataset.name.toLowerCase();
+            const displayName = colorItem.querySelector('.color-name')?.textContent.toLowerCase() || '';
+
+            const matches = query === '' ||
+                          colorName.includes(query) ||
+                          displayName.includes(query);
+
+            colorItem.classList.toggle('hidden', !matches);
+
+            if (matches) {
+                totalVisibleColors++;
             }
         });
 
@@ -533,6 +2010,86 @@ function initializeColorSearch() {
     // Expose for testing
     window.filterColors = filterColors;
 }
+
+/**
+ * Update palette based on active layer type
+ * Switches to appropriate tab and disables irrelevant tabs
+ */
+function updatePaletteForLayer(layerType) {
+    const tabButtons = document.querySelectorAll('.palette-tab');
+    const tabContents = document.querySelectorAll('.palette-tab-content');
+
+    // Determine which tabs are valid for this layer type
+    const isDataLayer = (layerType === 'Height' || layerType === 'Difficulty' || layerType === 'Hazard');
+
+    // Enable/disable tabs based on layer type
+    tabButtons.forEach(btn => {
+        const tabName = btn.dataset.tab;
+        if (isDataLayer) {
+            // Data layers can only use Other tab
+            btn.disabled = (tabName !== 'other');
+            btn.classList.toggle('disabled', tabName !== 'other');
+        } else {
+            // Biome layers can use Biomes and POI, not Other
+            btn.disabled = (tabName === 'other');
+            btn.classList.toggle('disabled', tabName === 'other');
+        }
+    });
+
+    // Determine which tab to show
+    let targetTab = 'biomes'; // default for biome layers
+    if (isDataLayer) {
+        targetTab = 'other';
+    } else {
+        // If current active tab is disabled, switch to biomes
+        const currentActiveTab = document.querySelector('.palette-tab.active');
+        if (currentActiveTab && currentActiveTab.disabled) {
+            targetTab = 'biomes';
+        } else if (currentActiveTab) {
+            targetTab = currentActiveTab.dataset.tab;
+        }
+    }
+
+    // Switch to the target tab
+    tabButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === targetTab);
+    });
+    tabContents.forEach(content => {
+        content.classList.toggle('active', content.dataset.tab === targetTab);
+    });
+
+    // For the "Other" tab, show only the relevant subcategory for the layer type
+    if (isDataLayer) {
+        const subcategories = document.querySelectorAll('.palette-tab-content[data-tab="other"] .color-subcategory');
+        subcategories.forEach(subcat => {
+            const header = subcat.querySelector('.color-subcategory-header');
+            const subcatName = header ? header.textContent : '';
+            const shouldShow = subcatName.toLowerCase().includes(layerType.toLowerCase());
+            subcat.classList.toggle('hidden', !shouldShow);
+        });
+    }
+
+    // For biome layers, show all biome subcategories
+    if (!isDataLayer) {
+        const subcategories = document.querySelectorAll('.palette-tab-content[data-tab="biomes"] .color-subcategory');
+        subcategories.forEach(subcat => {
+            subcat.classList.remove('hidden');
+        });
+    }
+
+    // Clear any active search when switching layers
+    const searchInput = document.getElementById('color-search');
+    if (searchInput && searchInput.value) {
+        searchInput.value = '';
+        document.getElementById('color-search-clear').classList.remove('visible');
+        if (typeof window.filterColors === 'function') {
+            window.filterColors('');
+        }
+    }
+}
+
+// Make it globally available
+window.updatePaletteForLayer = updatePaletteForLayer;
 
 /**
  * Initialize layers panel
@@ -716,12 +2273,17 @@ async function renderLayerThumbnail(layerIndex) {
  * Render all layer thumbnails asynchronously
  */
 async function renderAllLayerThumbnails() {
+    const t0 = performance.now();
+    console.log('[THUMBNAILS] Starting to render all layer thumbnails...');
     const layers = editor.layerManager.layers;
 
     // Render thumbnails one at a time to avoid blocking
     for (let i = 0; i < layers.length; i++) {
+        const layerStart = performance.now();
         await renderLayerThumbnail(i);
+        console.log(`[THUMBNAILS] Layer ${i} (${layers[i]?.name}) thumbnail rendered in ${(performance.now() - layerStart).toFixed(1)}ms`);
     }
+    console.log(`[THUMBNAILS] All ${layers.length} thumbnails rendered in ${(performance.now() - t0).toFixed(1)}ms`);
 }
 
 /**
@@ -848,31 +2410,8 @@ function updateLayersPanel() {
         layerName.className = 'layer-name';
         layerName.textContent = layer.name;
 
-        // Check for wrong data types in layer and add warning
-        const warnings = checkLayerDataTypes(layer);
-        if (warnings.length > 0) {
-            const warningIcon = document.createElement('span');
-            warningIcon.textContent = ' ⚠️';
-            warningIcon.title = warnings.join('\n') + '\n\nClick to remove all invalid colors';
-            warningIcon.style.color = '#ffa500';
-            warningIcon.style.cursor = 'pointer';
-            warningIcon.addEventListener('click', (e) => {
-                e.stopPropagation(); // Prevent layer selection
-                if (confirm(`Remove all invalid colors from layer "${layer.name}"?\n\n${warnings.join('\n')}`)) {
-                    editor.saveState();
-                    clearInvalidDataTypes(layer);
-                    updateLayersPanel();
-                    editor.render();
-                    editor.renderMinimap();
-                    editor.isDirty = true;
-                    document.getElementById('status-message').textContent = 'Invalid colors removed';
-                    setTimeout(() => {
-                        document.getElementById('status-message').textContent = 'Ready';
-                    }, 2000);
-                }
-            });
-            layerName.appendChild(warningIcon);
-        }
+        // Note: Layer data type validation removed from hot path for performance
+        // Use validateAllLayers() on-demand (e.g., before export) instead
 
         // Add thumbnail canvas
         const thumbnail = document.createElement('canvas');
@@ -886,9 +2425,15 @@ function updateLayersPanel() {
 
         // Click to select layer
         layerItem.addEventListener('click', () => {
+            console.log(`[UI] Layer clicked: ${i} (${layer.name})`);
             const wasActive = (editor.layerManager.activeLayerIndex === i);
 
             editor.layerManager.setActiveLayer(i);
+
+            // Update palette to show appropriate colors for this layer type
+            if (typeof window.updatePaletteForLayer === 'function') {
+                window.updatePaletteForLayer(layer.layerType || layer.name);
+            }
 
             // TOGGLE BEHAVIOR: Click active layer to toggle solo/multi view
             if (wasActive) {
@@ -983,30 +2528,30 @@ function updateLayersPanel() {
  * Initialize tool buttons
  */
 function initializeToolButtons() {
+    console.log('[TOOLS] Initializing tool buttons...');
     const toolButtons = document.querySelectorAll('.tool-btn');
+    console.log(`[TOOLS] Found ${toolButtons.length} tool buttons`);
 
     toolButtons.forEach(button => {
         button.addEventListener('click', () => {
             const tool = button.dataset.tool;
-            editor.setTool(tool);
+            console.log(`[TOOLS] Tool button clicked: ${tool}`);
 
-            // Update active state
-            toolButtons.forEach(btn => btn.classList.remove('active'));
+            // Set the tool
+            editor.setTool(tool);
+            console.log(`[TOOLS] Tool set to: ${tool}, currentTool:`, editor.currentTool);
+
+            // Update active state - use fresh query to avoid stale references
+            document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
 
-            // Show/hide wand options when wand tool is selected
-            const wandOptions = document.getElementById('wand-options');
-            if (wandOptions) {
-                wandOptions.style.display = (tool === 'wand') ? 'flex' : 'none';
-            }
-
-            // Show/hide shape options when rectangle tool is selected
-            const shapeOptions = document.getElementById('shape-options');
-            if (shapeOptions) {
-                shapeOptions.style.display = (tool === 'rectangle') ? 'flex' : 'none';
-            }
+            // Update context-sensitive tool options
+            updateToolOptions(tool);
         });
     });
+
+    // Initialize tool options for default tool (pencil)
+    updateToolOptions('pencil');
 
     // Brush size slider
     const brushSizeSlider = document.getElementById('brush-size');
@@ -1128,14 +2673,6 @@ function initializeToolbar() {
     // Import
     document.getElementById('btn-import').addEventListener('click', () => {
         document.getElementById('file-input').click();
-    });
-
-    // Load Test Map
-    document.getElementById('btn-load-test-map').addEventListener('click', () => {
-        if (editor.isDirty && !confirm('Discard unsaved changes and generate test map?')) {
-            return;
-        }
-        generateTestMap();
     });
 
     document.getElementById('file-input').addEventListener('change', (e) => {
@@ -1267,6 +2804,11 @@ function initializeToolbar() {
         exportLevel();
     });
 
+    // Save As
+    document.getElementById('btn-save-as').addEventListener('click', () => {
+        saveAsProject();
+    });
+
     // Grid size resize
     document.getElementById('btn-resize-grid').addEventListener('click', () => {
         const newSize = parseInt(document.getElementById('grid-size-select').value);
@@ -1284,6 +2826,7 @@ function initializeToolbar() {
 
     // Zoom with adaptive increments
     document.getElementById('btn-zoom-in').addEventListener('click', () => {
+        console.log(`[UI] Zoom in clicked, current zoom: ${editor.zoom}`);
         let delta;
         if (editor.zoom < 0.2) {
             delta = 0.01; // Very fine at low zoom
@@ -1295,9 +2838,11 @@ function initializeToolbar() {
             delta = 0.25; // Normal above 100%
         }
         editor.setZoom(editor.zoom + delta);
+        console.log(`[UI] Zoom in complete, new zoom: ${editor.zoom}`);
     });
 
     document.getElementById('btn-zoom-out').addEventListener('click', () => {
+        console.log(`[UI] Zoom out clicked, current zoom: ${editor.zoom}`);
         let delta;
         if (editor.zoom < 0.2) {
             delta = 0.01; // Very fine at low zoom
@@ -1309,10 +2854,13 @@ function initializeToolbar() {
             delta = 0.25; // Normal above 100%
         }
         editor.setZoom(editor.zoom - delta);
+        console.log(`[UI] Zoom out complete, new zoom: ${editor.zoom}`);
     });
 
     document.getElementById('btn-zoom-fit').addEventListener('click', () => {
+        console.log(`[UI] Fit to view clicked`);
         editor.fitToView();
+        console.log(`[UI] Fit to view complete, zoom: ${editor.zoom}`);
     });
 
     // Show grid
@@ -1347,7 +2895,9 @@ function initializeToolbar() {
 
     // Undo/Redo
     document.getElementById('btn-undo').addEventListener('click', () => {
+        console.log(`[UI] Undo clicked`);
         editor.undo();
+        console.log(`[UI] Undo complete`);
         updateLayersPanel(); // Refresh layer panel to show correct highlighting
     });
 
@@ -1356,11 +2906,77 @@ function initializeToolbar() {
         updateLayersPanel(); // Refresh layer panel to show correct highlighting
     });
 
+    // Selection transform buttons
+    document.getElementById('btn-rotate')?.addEventListener('click', () => {
+        if (editor.currentTool && editor.currentTool.rotateSelection) {
+            editor.currentTool.rotateSelection(editor);
+        }
+    });
+
+    document.getElementById('btn-hflip')?.addEventListener('click', () => {
+        if (editor.currentTool && editor.currentTool.flipHorizontal) {
+            editor.currentTool.flipHorizontal(editor);
+        }
+    });
+
+    document.getElementById('btn-vflip')?.addEventListener('click', () => {
+        if (editor.currentTool && editor.currentTool.flipVertical) {
+            editor.currentTool.flipVertical(editor);
+        }
+    });
+
     // Update grid size inputs (if they exist)
     const gridWidthInput = document.getElementById('grid-width');
     const gridHeightInput = document.getElementById('grid-height');
     if (gridWidthInput) gridWidthInput.value = editor.layerManager.width;
     if (gridHeightInput) gridHeightInput.value = editor.layerManager.height;
+}
+
+/**
+ * Update context-sensitive tool options visibility
+ * @param {string} toolName - The name of the selected tool
+ */
+function updateToolOptions(toolName) {
+    // Tools that use brush size (line thickness)
+    const brushSizeTools = ['pencil', 'eraser', 'line', 'rectangle'];
+    // Tools that use brush shape
+    const brushShapeTools = ['pencil', 'eraser'];
+
+    // Brush size options
+    const brushSizeOptions = document.getElementById('brush-size-options');
+    if (brushSizeOptions) {
+        brushSizeOptions.style.display = brushSizeTools.includes(toolName) ? 'flex' : 'none';
+    }
+
+    // Brush shape options
+    const brushShapeOptions = document.getElementById('brush-shape-options');
+    if (brushShapeOptions) {
+        brushShapeOptions.style.display = brushShapeTools.includes(toolName) ? 'flex' : 'none';
+    }
+
+    // Shape fill options (rectangle tool)
+    const shapeFillOptions = document.getElementById('shape-fill-options');
+    if (shapeFillOptions) {
+        shapeFillOptions.style.display = (toolName === 'rectangle') ? 'flex' : 'none';
+    }
+
+    // Selection actions (selection and wand tools)
+    const selectionActions = document.getElementById('selection-actions');
+    if (selectionActions) {
+        selectionActions.style.display = (toolName === 'selection' || toolName === 'wand') ? 'flex' : 'none';
+    }
+
+    // Wand options (include diagonals)
+    const wandOptions = document.getElementById('wand-options');
+    if (wandOptions) {
+        wandOptions.style.display = (toolName === 'wand') ? 'flex' : 'none';
+    }
+
+    // Ruler options
+    const rulerOptions = document.getElementById('ruler-options');
+    if (rulerOptions) {
+        rulerOptions.style.display = (toolName === 'ruler') ? 'flex' : 'none';
+    }
 }
 
 /**
@@ -1378,12 +2994,14 @@ function initializeKeyboardShortcuts() {
             'b': 'pencil',
             'g': 'bucket',
             'l': 'line',
-            'r': 'rectangle',
+            'u': 'rectangle',  // Changed from R to U (R now for rotate)
             'i': 'eyedropper',
             'e': 'eraser',
-            'h': 'pan',
+            'p': 'pan',        // Changed from H to P (H now for h-flip)
             'm': 'selection',
-            'w': 'wand'
+            'w': 'wand',
+            't': 'stamp',      // New: Stamp tool
+            'k': 'ruler'       // New: Ruler tool
         };
 
         if (toolKeys[e.key.toLowerCase()] && !e.ctrlKey && !e.metaKey) {
@@ -1396,17 +3014,8 @@ function initializeKeyboardShortcuts() {
                 btn.classList.toggle('active', btn.dataset.tool === selectedTool);
             });
 
-            // Show/hide wand options
-            const wandOptions = document.getElementById('wand-options');
-            if (wandOptions) {
-                wandOptions.style.display = (selectedTool === 'wand') ? 'flex' : 'none';
-            }
-
-            // Show/hide shape options
-            const shapeOptions = document.getElementById('shape-options');
-            if (shapeOptions) {
-                shapeOptions.style.display = (selectedTool === 'rectangle') ? 'flex' : 'none';
-            }
+            // Update context-sensitive tool options
+            updateToolOptions(selectedTool);
 
             return;
         }
@@ -1436,9 +3045,9 @@ function initializeKeyboardShortcuts() {
             return;
         }
 
-        // Escape key - clear selection
+        // Escape key - clear selection or measurement
         if (e.key === 'Escape') {
-            if (editor.currentTool.name === 'selection') {
+            if (editor.currentTool.name === 'selection' || editor.currentTool.name === 'wand') {
                 e.preventDefault();
                 editor.currentTool.clearSelection(editor);
                 editor.render();
@@ -1446,8 +3055,36 @@ function initializeKeyboardShortcuts() {
                 setTimeout(() => {
                     document.getElementById('status-message').textContent = 'Ready';
                 }, 1500);
+            } else if (editor.currentTool.name === 'ruler') {
+                e.preventDefault();
+                editor.currentTool.clearMeasurement();
+                editor.render();
+                document.getElementById('status-message').textContent = 'Measurement cleared';
+                setTimeout(() => {
+                    document.getElementById('status-message').textContent = 'Ready';
+                }, 1500);
             }
             return;
+        }
+
+        // Selection Transform hotkeys (R, H, V) - only when selection/wand tool has a selection
+        if ((editor.currentTool.name === 'selection' || editor.currentTool.name === 'wand') &&
+            editor.currentTool.hasSelection && editor.currentTool.hasSelection()) {
+            if (e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                editor.currentTool.rotateSelection(editor);
+                return;
+            }
+            if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                editor.currentTool.flipHorizontal(editor);
+                return;
+            }
+            if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                editor.currentTool.flipVertical(editor);
+                return;
+            }
         }
 
         // Space key - temporary pan mode (hold space)
@@ -1519,7 +3156,12 @@ function initializeKeyboardShortcuts() {
 
                 case 's':
                     e.preventDefault();
-                    exportLevel();
+                    if (e.shiftKey) {
+                        // Ctrl+Shift+S: Save selection as stamp
+                        saveSelectionAsStamp();
+                    } else {
+                        exportLevel();
+                    }
                     break;
 
                 case 'n':
@@ -1682,13 +3324,17 @@ function loadAutoSave() {
 async function loadTestJSON() {
     try {
         console.log('[E2E] Starting test JSON load...');
-        document.getElementById('status-message').textContent = 'Loading test data...';
+        // Don't set status here - only set it if we actually find the file
 
         const response = await fetch('e2e-test-data.json');
         if (!response.ok) {
-            console.log('[E2E] No test JSON file found, skipping auto-load');
+            console.log('[E2E] No test JSON file found (404), skipping auto-load');
+            // Status will be set by the caller
             return;
         }
+
+        // Only show loading message if file actually exists
+        document.getElementById('status-message').textContent = 'Loading test data...';
 
         console.log('[E2E] Fetched test data, parsing JSON...');
         const data = await response.json();
@@ -1756,13 +3402,35 @@ async function loadTestJSON() {
 // ============================================================================
 
 /**
- * Get all projects from cache
+ * Get project key for localStorage
+ */
+function getProjectKey(projectName) {
+    return `tsic_project_${projectName}`;
+}
+
+/**
+ * Get all projects from cache (reconstructed from individual keys)
  * @returns {Object} Projects object {projectName: {data, timestamp}, ...}
  */
 function getAllProjectsFromCache() {
     try {
-        const projectsJson = localStorage.getItem('tsic_projects');
-        return projectsJson ? JSON.parse(projectsJson) : {};
+        const t0 = performance.now();
+        const projects = {};
+
+        // Get list of project names from index
+        const indexJson = localStorage.getItem('tsic_project_index');
+        const projectNames = indexJson ? JSON.parse(indexJson) : [];
+
+        // Load each project individually
+        for (const name of projectNames) {
+            const projectJson = localStorage.getItem(getProjectKey(name));
+            if (projectJson) {
+                projects[name] = JSON.parse(projectJson);
+            }
+        }
+
+        console.log(`[CACHE] getAllProjectsFromCache: loaded ${Object.keys(projects).length} projects in ${(performance.now() - t0).toFixed(1)}ms`);
+        return projects;
     } catch (error) {
         console.error('Error loading projects from cache:', error);
         return {};
@@ -1770,12 +3438,23 @@ function getAllProjectsFromCache() {
 }
 
 /**
- * Save all projects to cache
+ * Save all projects to cache (for migration only)
  * @param {Object} projects - Projects object
  */
 function saveAllProjectsToCache(projects) {
     try {
-        localStorage.setItem('tsic_projects', JSON.stringify(projects));
+        const t0 = performance.now();
+        const projectNames = Object.keys(projects);
+
+        // Save index
+        localStorage.setItem('tsic_project_index', JSON.stringify(projectNames));
+
+        // Save each project individually
+        for (const name of projectNames) {
+            localStorage.setItem(getProjectKey(name), JSON.stringify(projects[name]));
+        }
+
+        console.log(`[CACHE] saveAllProjectsToCache: saved ${projectNames.length} projects in ${(performance.now() - t0).toFixed(1)}ms`);
     } catch (error) {
         console.error('Error saving projects to cache:', error);
         if (error.name === 'QuotaExceededError') {
@@ -1806,69 +3485,116 @@ function setActiveProject(projectName) {
 }
 
 /**
- * Save a project to cache
+ * Save a project to cache (individual key for speed)
  * @param {string} projectName - Name of the project
  * @param {Object} data - Level data object (RLE format)
  */
 function saveProjectToCache(projectName, data) {
-    const projects = getAllProjectsFromCache();
+    const t0 = performance.now();
 
-    projects[projectName] = {
-        data: data,
-        timestamp: Date.now()
-    };
+    try {
+        // Save project data to its own key
+        const projectData = {
+            data: data,
+            timestamp: Date.now()
+        };
 
-    saveAllProjectsToCache(projects);
-    setActiveProject(projectName);
+        const t1 = performance.now();
+        const json = JSON.stringify(projectData);
+        const stringifyTime = performance.now() - t1;
 
-    console.log(`Saved project "${projectName}" to cache`);
+        const t2 = performance.now();
+        localStorage.setItem(getProjectKey(projectName), json);
+        const writeTime = performance.now() - t2;
+
+        // Update index (only if project is new)
+        const indexJson = localStorage.getItem('tsic_project_index');
+        const projectNames = indexJson ? JSON.parse(indexJson) : [];
+        if (!projectNames.includes(projectName)) {
+            projectNames.push(projectName);
+            localStorage.setItem('tsic_project_index', JSON.stringify(projectNames));
+        }
+
+        setActiveProject(projectName);
+
+        const size = (json.length / 1024 / 1024).toFixed(2);
+        console.log(`[CACHE] saveProjectToCache "${projectName}": stringify=${stringifyTime.toFixed(1)}ms, write=${writeTime.toFixed(1)}ms, size=${size}MB, total=${(performance.now() - t0).toFixed(1)}ms`);
+    } catch (error) {
+        console.error('Error saving project to cache:', error);
+        if (error.name === 'QuotaExceededError') {
+            throw new Error('Storage quota exceeded. Please delete some projects or export them to files.');
+        }
+        throw error;
+    }
 }
 
 /**
- * Load a project from cache
+ * Load a project from cache (individual key for speed)
  * @param {string} projectName - Name of the project to load
  * @returns {Object|null} Project data or null if not found
  */
 function loadProjectFromCache(projectName) {
-    const projects = getAllProjectsFromCache();
+    const t0 = performance.now();
 
-    if (projects[projectName]) {
-        return projects[projectName].data;
+    try {
+        const projectJson = localStorage.getItem(getProjectKey(projectName));
+        if (!projectJson) {
+            console.log(`[CACHE] loadProjectFromCache "${projectName}": not found`);
+            return null;
+        }
+
+        const projectData = JSON.parse(projectJson);
+        const size = (projectJson.length / 1024 / 1024).toFixed(2);
+        console.log(`[CACHE] loadProjectFromCache "${projectName}": size=${size}MB, time=${(performance.now() - t0).toFixed(1)}ms`);
+
+        return projectData.data;
+    } catch (error) {
+        console.error('Error loading project from cache:', error);
+        return null;
     }
-
-    return null;
 }
 
 /**
- * Get list of all project names
+ * Get list of all project names (fast - just reads index)
  * @returns {Array<string>} Array of project names
  */
 function getAllCachedProjectNames() {
-    const projects = getAllProjectsFromCache();
-    return Object.keys(projects).sort();
+    try {
+        const indexJson = localStorage.getItem('tsic_project_index');
+        const projectNames = indexJson ? JSON.parse(indexJson) : [];
+        return projectNames.sort();
+    } catch (error) {
+        console.error('Error reading project index:', error);
+        return [];
+    }
 }
 
 /**
- * Delete a project from cache
+ * Delete a project from cache (fast - individual key)
  * @param {string} projectName - Name of project to delete
  */
 function deleteProjectFromCache(projectName) {
-    const projects = getAllProjectsFromCache();
+    try {
+        // Remove project data
+        localStorage.removeItem(getProjectKey(projectName));
 
-    if (projects[projectName]) {
-        delete projects[projectName];
-        saveAllProjectsToCache(projects);
+        // Update index
+        const indexJson = localStorage.getItem('tsic_project_index');
+        let projectNames = indexJson ? JSON.parse(indexJson) : [];
+        projectNames = projectNames.filter(n => n !== projectName);
+        localStorage.setItem('tsic_project_index', JSON.stringify(projectNames));
 
         // If this was the active project, clear active
         if (getActiveProject() === projectName) {
             setActiveProject(null);
         }
 
-        console.log(`Deleted project "${projectName}" from cache`);
+        console.log(`[CACHE] Deleted project "${projectName}"`);
         return true;
+    } catch (error) {
+        console.error('Error deleting project:', error);
+        return false;
     }
-
-    return false;
 }
 
 /**
@@ -1880,43 +3606,60 @@ function deleteProjectFromCache(projectName) {
 function renameProjectInCache(oldName, newName) {
     if (oldName === newName) return true;
 
-    const projects = getAllProjectsFromCache();
+    try {
+        // Load old project data
+        const projectJson = localStorage.getItem(getProjectKey(oldName));
+        if (!projectJson) {
+            console.error(`Project "${oldName}" not found`);
+            return false;
+        }
 
-    if (!projects[oldName]) {
-        console.error(`Project "${oldName}" not found`);
+        // Check if new name already exists
+        if (localStorage.getItem(getProjectKey(newName))) {
+            console.error(`Project "${newName}" already exists`);
+            return false;
+        }
+
+        // Save under new name
+        localStorage.setItem(getProjectKey(newName), projectJson);
+
+        // Remove old key
+        localStorage.removeItem(getProjectKey(oldName));
+
+        // Update index
+        const indexJson = localStorage.getItem('tsic_project_index');
+        let projectNames = indexJson ? JSON.parse(indexJson) : [];
+        projectNames = projectNames.filter(n => n !== oldName);
+        if (!projectNames.includes(newName)) {
+            projectNames.push(newName);
+        }
+        localStorage.setItem('tsic_project_index', JSON.stringify(projectNames));
+
+        // Update active project if this was it
+        if (getActiveProject() === oldName) {
+            setActiveProject(newName);
+        }
+
+        console.log(`[CACHE] Renamed project "${oldName}" to "${newName}"`);
+        return true;
+    } catch (error) {
+        console.error('Error renaming project:', error);
         return false;
     }
-
-    if (projects[newName]) {
-        console.error(`Project "${newName}" already exists`);
-        return false;
-    }
-
-    projects[newName] = projects[oldName];
-    delete projects[oldName];
-
-    saveAllProjectsToCache(projects);
-
-    // Update active project if this was it
-    if (getActiveProject() === oldName) {
-        setActiveProject(newName);
-    }
-
-    console.log(`Renamed project "${oldName}" to "${newName}"`);
-    return true;
 }
 
 /**
- * Migrate old single-file localStorage to new multi-project system
+ * Migrate old storage formats to new per-project system
  * This runs once on page load if old data exists
  */
 function migrateOldStorageToCache() {
     try {
+        // Migration 1: Very old single-file format
         const oldData = localStorage.getItem('tsic_currentFile_data');
         const oldFilename = localStorage.getItem('tsic_currentFile_name');
 
         if (oldData && oldFilename) {
-            console.log('Migrating old localStorage format to new multi-project cache...');
+            console.log('[MIGRATE] Migrating old single-file format...');
 
             const data = JSON.parse(oldData);
             const projectName = oldFilename.replace(/\.json$/, '');
@@ -1929,11 +3672,35 @@ function migrateOldStorageToCache() {
             localStorage.removeItem('tsic_currentFile_name');
             localStorage.removeItem('tsic_currentFile_timestamp');
 
-            console.log(`Migrated "${projectName}" to new cache system`);
+            console.log(`[MIGRATE] Migrated "${projectName}" from single-file format`);
             return projectName;
         }
+
+        // Migration 2: Old all-in-one tsic_projects format
+        const oldProjects = localStorage.getItem('tsic_projects');
+        if (oldProjects && !localStorage.getItem('tsic_project_index')) {
+            console.log('[MIGRATE] Migrating old all-in-one projects format...');
+
+            const projects = JSON.parse(oldProjects);
+            const projectNames = Object.keys(projects);
+
+            // Save each project to its own key
+            for (const name of projectNames) {
+                localStorage.setItem(getProjectKey(name), JSON.stringify(projects[name]));
+                console.log(`[MIGRATE] Migrated project "${name}"`);
+            }
+
+            // Create index
+            localStorage.setItem('tsic_project_index', JSON.stringify(projectNames));
+
+            // Remove old all-in-one key
+            localStorage.removeItem('tsic_projects');
+
+            console.log(`[MIGRATE] Migrated ${projectNames.length} projects to per-project format`);
+            return projectNames[0] || null;
+        }
     } catch (error) {
-        console.error('Error during migration:', error);
+        console.error('[MIGRATE] Error during migration:', error);
     }
 
     return null;
@@ -1985,6 +3752,12 @@ function updateProjectUI() {
  * Create a new project (async for spinner)
  */
 async function createNewProject() {
+    const totalSteps = 8;
+    let currentStep = 0;
+    const createStart = performance.now();
+
+    console.log('[CREATE] ========== STARTING NEW PROJECT CREATION ==========');
+
     const input = document.getElementById('project-name-input');
     const projectName = input.value.trim();
 
@@ -1992,6 +3765,8 @@ async function createNewProject() {
         alert('Please enter a project name');
         return;
     }
+
+    console.log(`[CREATE] Project name: "${projectName}"`);
 
     // Check if project already exists
     const existing = getAllCachedProjectNames();
@@ -2011,47 +3786,178 @@ async function createNewProject() {
     document.getElementById('btn-create-project').style.display = 'none';
     document.getElementById('btn-cancel-new-project').style.display = 'none';
 
-    // Allow UI to update before blocking with heavy work
-    await new Promise(resolve => setTimeout(resolve, 10));
-
     try {
-        // Clear editor
+        // Step 1: Exit solo mode
+        currentStep++;
+        reportProgress('Exiting solo mode...', currentStep, totalSteps);
+        console.log(`[CREATE] Step ${currentStep}/${totalSteps}: Exiting solo mode`);
+        await yieldToBrowser();
+        let stepStart = performance.now();
         exitSoloMode();
-        editor.clearAll();
+        console.log(`[CREATE] Step ${currentStep} completed in ${(performance.now() - stepStart).toFixed(1)}ms`);
 
-        // Reset visibility to show first layer only
+        // Step 2: Clear layer manager
+        currentStep++;
+        reportProgress('Clearing layers...', currentStep, totalSteps);
+        console.log(`[CREATE] Step ${currentStep}/${totalSteps}: Clearing layer manager`);
+        await yieldToBrowser();
+        stepStart = performance.now();
+        editor.layerManager.clearAll();
+        console.log(`[CREATE] Step ${currentStep} completed in ${(performance.now() - stepStart).toFixed(1)}ms`);
+
+        // Step 3: Fill layers with defaults (this is expensive!)
+        currentStep++;
+        const layerCount = editor.layerManager.layers.length;
+        console.log(`[CREATE] Step ${currentStep}/${totalSteps}: Filling ${layerCount} layers with defaults`);
+        for (let i = 0; i < layerCount; i++) {
+            const layer = editor.layerManager.layers[i];
+            reportProgress(`Filling layer: ${layer.name}`, currentStep, totalSteps);
+            console.log(`[CREATE]   Filling layer ${i + 1}/${layerCount}: ${layer.name} (${editor.layerManager.width}x${editor.layerManager.height} tiles)`);
+            await yieldToBrowser();
+            stepStart = performance.now();
+
+            const defaultColor = editor.getDefaultColorForLayer(layer.layerType);
+            if (defaultColor) {
+                editor.layerManager.fillLayerWithDefault(layer, defaultColor);
+            }
+            console.log(`[CREATE]   Layer ${layer.name} filled in ${(performance.now() - stepStart).toFixed(1)}ms`);
+        }
+
+        // Step 4: Reset visibility and undo stacks
+        currentStep++;
+        reportProgress('Resetting layer state...', currentStep, totalSteps);
+        console.log(`[CREATE] Step ${currentStep}/${totalSteps}: Resetting visibility and undo stacks`);
+        await yieldToBrowser();
+        stepStart = performance.now();
         editor.recentLayerSelections = [0];
         editor.layerManager.layers.forEach((layer, idx) => {
             layer.visible = (idx === 0);
-            // Clear per-layer undo/redo stacks
             layer.undoStack = [];
             layer.redoStack = [];
         });
-
         editor.updateUndoRedoButtons();
         editor.isDirty = false;
+        console.log(`[CREATE] Step ${currentStep} completed in ${(performance.now() - stepStart).toFixed(1)}ms`);
+
+        // Step 5: Update layers panel
+        currentStep++;
+        reportProgress('Updating layers panel...', currentStep, totalSteps);
+        console.log(`[CREATE] Step ${currentStep}/${totalSteps}: Updating layers panel`);
+        await yieldToBrowser();
+        stepStart = performance.now();
         updateLayersPanel();
+        console.log(`[CREATE] Step ${currentStep} completed in ${(performance.now() - stepStart).toFixed(1)}ms`);
+
+        // Step 6: Render canvas
+        currentStep++;
+        reportProgress('Rendering canvas...', currentStep, totalSteps);
+        console.log(`[CREATE] Step ${currentStep}/${totalSteps}: Rendering canvas and minimap`);
+        await yieldToBrowser();
+        stepStart = performance.now();
         editor.render();
         editor.renderMinimap();
+        console.log(`[CREATE] Step ${currentStep} completed in ${(performance.now() - stepStart).toFixed(1)}ms`);
 
-        // Save to cache immediately
+        // Step 7: Export to RLE format
+        currentStep++;
+        reportProgress('Exporting project data...', currentStep, totalSteps);
+        console.log(`[CREATE] Step ${currentStep}/${totalSteps}: Exporting to RLE format`);
+        await yieldToBrowser();
+        stepStart = performance.now();
         const rleData = editor.layerManager.exportRLEData(
             projectName,
             'Generated by TSIC Level Editor',
             Date.now()
         );
+        console.log(`[CREATE] Step ${currentStep} completed in ${(performance.now() - stepStart).toFixed(1)}ms`);
+
+        // Step 8: Save to cache
+        currentStep++;
+        reportProgress('Saving to cache...', currentStep, totalSteps);
+        console.log(`[CREATE] Step ${currentStep}/${totalSteps}: Saving to localStorage cache`);
+        await yieldToBrowser();
+        stepStart = performance.now();
+        saveProjectToCache(projectName, rleData);
+        console.log(`[CREATE] Step ${currentStep} completed in ${(performance.now() - stepStart).toFixed(1)}ms`);
+
+        // Final UI updates
+        console.log('[CREATE] Updating final UI state');
+        updateProjectDropdown();
+        updateProjectUI();
+
+        const totalTime = performance.now() - createStart;
+        console.log(`[CREATE] ========== PROJECT CREATED IN ${totalTime.toFixed(1)}ms ==========`);
+        reportProgress(`Created: ${projectName}`);
+        setTimeout(() => {
+            reportProgress('Ready');
+        }, 2000);
+    } catch (error) {
+        console.error('[CREATE] ERROR during project creation:', error);
+        reportProgress('Error creating project');
+        throw error;
+    } finally {
+        // Hide spinner
+        spinner.style.display = 'none';
+    }
+}
+
+/**
+ * Save current project with a new name (Save As)
+ */
+async function saveAsProject() {
+    const newName = prompt('Enter new project name:');
+
+    if (!newName || !newName.trim()) {
+        return;
+    }
+
+    const projectName = newName.trim();
+
+    // Check if project already exists
+    const existing = getAllCachedProjectNames();
+    if (existing.includes(projectName)) {
+        alert(`Project "${projectName}" already exists. Please choose a different name.`);
+        return;
+    }
+
+    const spinner = document.getElementById('project-loading-spinner');
+    spinner.style.display = 'inline-block';
+
+    try {
+        reportProgress('Saving as new project...', 1, 2);
+        await yieldToBrowser();
+
+        // Export current canvas data with new name
+        const rleData = editor.layerManager.exportRLEData(
+            projectName,
+            'Generated by TSIC Level Editor',
+            Date.now()
+        );
+
+        reportProgress('Writing to cache...', 2, 2);
+        await yieldToBrowser();
+
+        // Save to cache
         saveProjectToCache(projectName, rleData);
 
         // Update UI
         updateProjectDropdown();
+
+        // Select the new project in dropdown
+        const dropdown = document.getElementById('project-dropdown');
+        dropdown.value = projectName;
         updateProjectUI();
 
-        document.getElementById('status-message').textContent = `Created: ${projectName}`;
+        reportProgress(`Saved as: ${projectName}`);
         setTimeout(() => {
-            document.getElementById('status-message').textContent = 'Ready';
+            reportProgress('Ready');
         }, 2000);
+
+        console.log(`[SAVE AS] Project saved as "${projectName}"`);
+    } catch (error) {
+        console.error('[SAVE AS] ERROR:', error);
+        reportProgress('Error saving project');
     } finally {
-        // Hide spinner
         spinner.style.display = 'none';
     }
 }
@@ -2060,30 +3966,71 @@ async function createNewProject() {
  * Load a project by name (async to allow spinner to render)
  */
 async function loadProjectByName(projectName) {
+    const totalSteps = 7;
+    let currentStep = 0;
+    const loadStart = performance.now();
+    console.log(`[LOAD] ========== LOADING PROJECT "${projectName}" ==========`);
+
     const spinner = document.getElementById('project-loading-spinner');
 
     // Show spinner
     spinner.style.display = 'inline-block';
 
-    // Allow UI to update before blocking with heavy work
-    await new Promise(resolve => setTimeout(resolve, 10));
-
+    // Step 1: Load from cache
+    currentStep++;
+    reportProgress('Loading from cache...', currentStep, totalSteps);
+    console.log(`[LOAD] Step ${currentStep}/${totalSteps}: Loading project data from cache`);
+    await yieldToBrowser();
+    let t0 = performance.now();
     const projectData = loadProjectFromCache(projectName);
+    console.log(`[LOAD] Cache read took ${(performance.now() - t0).toFixed(1)}ms`);
 
     if (!projectData) {
         spinner.style.display = 'none';
-        alert(`Project "${projectName}" not found in cache`);
+        // Clear the active project since it no longer exists
+        setActiveProject(null);
+        updateProjectDropdown();
+        updateProjectUI();
+        console.warn(`[LOAD] Project "${projectName}" not found in cache - cleared active project`);
+        reportProgress('Previous project not found');
+        setTimeout(() => {
+            reportProgress('Ready - No project loaded');
+        }, 3000);
         return;
     }
 
-    try {
-        // Import RLE data
-        editor.layerManager.importRLEData(projectData, configManager);
+    console.log(`[LOAD] Project data found, metadata:`, projectData.metadata);
+    console.log(`[LOAD] Layers in data: ${projectData.layers ? projectData.layers.length : 'N/A'}`);
 
-        // Resize canvas to match imported world size
+    try {
+        // Step 2: Import RLE data
+        currentStep++;
+        reportProgress('Importing layer data...', currentStep, totalSteps);
+        console.log(`[LOAD] Step ${currentStep}/${totalSteps}: Importing RLE data`);
+        await yieldToBrowser();
+        t0 = performance.now();
+        editor.layerManager.importRLEData(projectData, configManager);
+        console.log(`[LOAD] RLE import took ${(performance.now() - t0).toFixed(1)}ms`);
+
+        // Step 3: Resize canvas
+        currentStep++;
         const worldSize = projectData.metadata.world_size;
+        reportProgress(`Resizing to ${worldSize}x${worldSize}...`, currentStep, totalSteps);
+        console.log(`[LOAD] Step ${currentStep}/${totalSteps}: Resizing to ${worldSize}x${worldSize}`);
+        await yieldToBrowser();
+        t0 = performance.now();
         editor.layerManager.resize(worldSize, worldSize);
+        console.log(`[LOAD] Layer resize took ${(performance.now() - t0).toFixed(1)}ms`);
+
+        t0 = performance.now();
         editor.resizeCanvas();
+        console.log(`[LOAD] Canvas resize took ${(performance.now() - t0).toFixed(1)}ms`);
+
+        // Step 4: Set up state
+        currentStep++;
+        reportProgress('Setting up editor state...', currentStep, totalSteps);
+        console.log(`[LOAD] Step ${currentStep}/${totalSteps}: Setting up editor state`);
+        await yieldToBrowser();
 
         // Set current filename
         editor.currentFileName = projectName;
@@ -2098,19 +4045,50 @@ async function loadProjectByName(projectName) {
         editor.layerManager.layers.forEach((layer, idx) => {
             layer.visible = (idx === activeIdx);
         });
+        console.log(`[LOAD] Editor state configured`);
 
+        // Step 5: Render main canvas
+        currentStep++;
+        reportProgress('Rendering canvas...', currentStep, totalSteps);
+        console.log(`[LOAD] Step ${currentStep}/${totalSteps}: Rendering main canvas`);
+        await yieldToBrowser();
+        t0 = performance.now();
         editor.render();
+        console.log(`[LOAD] Main render took ${(performance.now() - t0).toFixed(1)}ms`);
+
+        // Step 6: Render minimap
+        currentStep++;
+        reportProgress('Rendering minimap...', currentStep, totalSteps);
+        console.log(`[LOAD] Step ${currentStep}/${totalSteps}: Rendering minimap`);
+        await yieldToBrowser();
+        t0 = performance.now();
         editor.renderMinimap();
+        console.log(`[LOAD] Minimap render took ${(performance.now() - t0).toFixed(1)}ms`);
+
+        // Step 7: Update UI
+        currentStep++;
+        reportProgress('Updating UI...', currentStep, totalSteps);
+        console.log(`[LOAD] Step ${currentStep}/${totalSteps}: Updating UI panels`);
+        await yieldToBrowser();
+        t0 = performance.now();
         updateLayersPanel();
+        console.log(`[LOAD] Layers panel update took ${(performance.now() - t0).toFixed(1)}ms`);
+
+        t0 = performance.now();
         updateProjectUI();
+        console.log(`[LOAD] Project UI update took ${(performance.now() - t0).toFixed(1)}ms`);
+
         editor.isDirty = false;
 
-        document.getElementById('status-message').textContent = `Loaded: ${projectName}`;
+        const totalTime = performance.now() - loadStart;
+        console.log(`[LOAD] ========== PROJECT LOADED in ${totalTime.toFixed(1)}ms ==========`);
+        reportProgress(`Loaded: ${projectName}`);
         setTimeout(() => {
-            document.getElementById('status-message').textContent = 'Ready';
+            reportProgress('Ready');
         }, 2000);
     } catch (error) {
-        console.error('Error loading project:', error);
+        console.error('[LOAD] Error loading project:', error);
+        reportProgress('Error loading project');
         alert('Error loading project: ' + error.message);
     } finally {
         // Hide spinner
@@ -2122,21 +4100,31 @@ async function loadProjectByName(projectName) {
  * Auto-save current project to cache (always-on)
  */
 function autoSaveCurrentProject() {
+    const saveStart = performance.now();
+    console.log('[AUTOSAVE] Starting auto-save...');
+
     const projectName = getActiveProject();
     if (!projectName) {
+        console.log('[AUTOSAVE] No active project, skipping');
         return; // No active project
     }
 
     try {
         // Generate RLE data
+        console.log('[AUTOSAVE] Exporting RLE data...');
+        let t0 = performance.now();
         const rleData = editor.layerManager.exportRLEData(
             projectName,
             'Generated by TSIC Level Editor',
             Date.now()
         );
+        console.log(`[AUTOSAVE] RLE export took ${(performance.now() - t0).toFixed(1)}ms`);
 
         // Save to cache
+        console.log('[AUTOSAVE] Saving to cache...');
+        t0 = performance.now();
         saveProjectToCache(projectName, rleData);
+        console.log(`[AUTOSAVE] Cache save took ${(performance.now() - t0).toFixed(1)}ms`);
 
         // Update status bar briefly
         document.getElementById('status-autosave').textContent = '💾 Auto-saved';
@@ -2145,8 +4133,9 @@ function autoSaveCurrentProject() {
         }, 1500);
 
         editor.isDirty = false;
+        console.log(`[AUTOSAVE] Complete in ${(performance.now() - saveStart).toFixed(1)}ms`);
     } catch (error) {
-        console.error('Auto-save error:', error);
+        console.error('[AUTOSAVE] Error:', error);
         if (error.message.includes('quota exceeded')) {
             document.getElementById('status-autosave').textContent = '❌ Cache full';
             setTimeout(() => {
@@ -2162,6 +4151,8 @@ function autoSaveCurrentProject() {
 function initializeAutoSaveCheckbox() {
     // Hook into editor's isDirty setter to trigger auto-save (always-on)
     let originalIsDirty = false;
+    let autoSaveInProgress = false;
+
     Object.defineProperty(editor, 'isDirty', {
         get() {
             return originalIsDirty;
@@ -2171,11 +4162,32 @@ function initializeAutoSaveCheckbox() {
 
             // Auto-save when dirty and a project is active (always-on)
             if (value && getActiveProject()) {
-                // Debounce auto-save to avoid too many saves
+                // Skip if save already in progress
+                if (autoSaveInProgress) {
+                    return;
+                }
+
+                // Debounce auto-save - wait 3 seconds after last change
                 clearTimeout(editor.autoSaveDebounce);
                 editor.autoSaveDebounce = setTimeout(() => {
-                    autoSaveCurrentProject();
-                }, 1000); // Wait 1 second after last change
+                    if (autoSaveInProgress) return;
+                    autoSaveInProgress = true;
+
+                    // Use requestIdleCallback to avoid blocking UI
+                    const doSave = () => {
+                        try {
+                            autoSaveCurrentProject();
+                        } finally {
+                            autoSaveInProgress = false;
+                        }
+                    };
+
+                    if (window.requestIdleCallback) {
+                        requestIdleCallback(doSave, { timeout: 5000 });
+                    } else {
+                        setTimeout(doSave, 100);
+                    }
+                }, 3000); // Wait 3 seconds after last change
 
                 // Update thumbnail for active layer (debounced)
                 clearTimeout(editor.thumbnailDebounce);
@@ -2197,6 +4209,353 @@ window.addEventListener('beforeunload', (e) => {
         return e.returnValue;
     }
 });
+
+// ============================================================================
+// STAMP STORAGE SYSTEM
+// ============================================================================
+
+/**
+ * Get all stamps from localStorage
+ * Stamps are organized by layer type: { Floor: [...], Underground: [...], etc }
+ * @returns {Object} Stamps object organized by layer type
+ */
+function getAllStamps() {
+    try {
+        const stampsJson = localStorage.getItem('tsic_stamps');
+        if (!stampsJson) return {};
+        return JSON.parse(stampsJson);
+    } catch (error) {
+        console.error('Error loading stamps:', error);
+        return {};
+    }
+}
+
+/**
+ * Save all stamps to localStorage
+ * @param {Object} stamps - Stamps object organized by layer type
+ */
+function saveAllStamps(stamps) {
+    try {
+        localStorage.setItem('tsic_stamps', JSON.stringify(stamps));
+    } catch (error) {
+        console.error('Error saving stamps:', error);
+        if (error.name === 'QuotaExceededError') {
+            alert('Storage quota exceeded. Please delete some stamps.');
+        }
+    }
+}
+
+/**
+ * Save the current selection as a stamp
+ */
+function saveSelectionAsStamp() {
+    if (!editor || !editor.currentTool) return;
+
+    const tool = editor.currentTool;
+    if (tool.name !== 'selection' && tool.name !== 'wand') {
+        document.getElementById('status-message').textContent = 'Switch to Selection or Wand tool first';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 2000);
+        return;
+    }
+
+    if (!tool.hasSelection || !tool.hasSelection()) {
+        document.getElementById('status-message').textContent = 'No selection to save as stamp';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 2000);
+        return;
+    }
+
+    // Get selection data
+    let selectionData;
+    if (tool.name === 'selection') {
+        // For box selection, lift if needed
+        if (!tool.isFloating && tool.selectionData === null) {
+            tool.liftSelection(editor);
+        }
+        selectionData = tool.selectionData;
+    } else {
+        // For wand tool
+        if (!tool.selectionData) {
+            tool.liftSelection(editor);
+        }
+        selectionData = tool.selectionData;
+    }
+
+    if (!selectionData || !selectionData.tiles || selectionData.tiles.length === 0) {
+        document.getElementById('status-message').textContent = 'Empty selection cannot be saved';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 2000);
+        return;
+    }
+
+    // Get layer type from active layer
+    const activeLayer = editor.layerManager.getActiveLayer();
+    const layerType = activeLayer ? activeLayer.layerType : 'Floor';
+
+    // Prompt for stamp name
+    const name = prompt('Enter stamp name:', `Stamp ${Date.now()}`);
+    if (!name) return;
+
+    // Convert tile data to color-based format (store colors, not tilesets)
+    const stampTiles = selectionData.tiles.map(tile => ({
+        x: tile.x,
+        y: tile.y,
+        color: tile.tileset ? tile.tileset.color : '#000000'
+    }));
+
+    // Create stamp object
+    const stamp = {
+        id: `stamp_${Date.now()}`,
+        name: name,
+        layerType: layerType,
+        width: selectionData.width,
+        height: selectionData.height,
+        tiles: stampTiles,
+        createdAt: Date.now()
+    };
+
+    // Save to storage
+    const stamps = getAllStamps();
+    if (!stamps[layerType]) {
+        stamps[layerType] = [];
+    }
+    stamps[layerType].push(stamp);
+    saveAllStamps(stamps);
+
+    document.getElementById('status-message').textContent = `Saved stamp: ${name} (${layerType})`;
+    setTimeout(() => {
+        document.getElementById('status-message').textContent = 'Ready';
+    }, 2000);
+
+    // Update stamps preview in sidebar
+    updateStampsSidebar();
+}
+
+/**
+ * Delete a stamp by ID
+ * @param {string} stampId - The stamp ID to delete
+ */
+function deleteStamp(stampId) {
+    const stamps = getAllStamps();
+    for (const layerType of Object.keys(stamps)) {
+        const index = stamps[layerType].findIndex(s => s.id === stampId);
+        if (index !== -1) {
+            stamps[layerType].splice(index, 1);
+            saveAllStamps(stamps);
+            updateStampsSidebar();
+            updateStampPicker();
+            return;
+        }
+    }
+}
+
+/**
+ * Open the stamp picker modal
+ */
+function openStampPicker() {
+    const modal = document.getElementById('stamp-picker-modal');
+    if (!modal) return;
+
+    // Get current layer type
+    const activeLayer = editor.layerManager.getActiveLayer();
+    const currentLayerType = activeLayer ? activeLayer.layerType : 'Floor';
+
+    // Update layer name display
+    const layerNameEl = document.getElementById('stamp-picker-layer-name');
+    if (layerNameEl) {
+        layerNameEl.textContent = currentLayerType;
+    }
+
+    // Populate stamp grid
+    updateStampPicker();
+
+    modal.classList.add('show');
+}
+
+/**
+ * Close the stamp picker modal
+ */
+function closeStampPicker() {
+    const modal = document.getElementById('stamp-picker-modal');
+    if (modal) {
+        modal.classList.remove('show');
+    }
+}
+
+/**
+ * Update the stamp picker modal content
+ */
+function updateStampPicker() {
+    const grid = document.getElementById('stamp-picker-grid');
+    if (!grid) return;
+
+    const activeLayer = editor.layerManager.getActiveLayer();
+    const currentLayerType = activeLayer ? activeLayer.layerType : 'Floor';
+
+    const stamps = getAllStamps();
+    const layerStamps = stamps[currentLayerType] || [];
+
+    if (layerStamps.length === 0) {
+        grid.innerHTML = '<div class="stamps-empty">No stamps saved for this layer type</div>';
+        return;
+    }
+
+    grid.innerHTML = layerStamps.map(stamp => `
+        <div class="stamp-picker-item" data-stamp-id="${stamp.id}">
+            <div class="stamp-picker-preview">
+                <canvas class="stamp-preview-canvas" data-stamp-id="${stamp.id}" width="64" height="64"></canvas>
+            </div>
+            <div class="stamp-picker-info">
+                <span class="stamp-picker-name">${stamp.name}</span>
+                <span class="stamp-picker-size">${stamp.width}×${stamp.height}</span>
+            </div>
+            <button class="stamp-picker-delete" data-stamp-id="${stamp.id}" title="Delete stamp">×</button>
+        </div>
+    `).join('');
+
+    // Render stamp previews
+    layerStamps.forEach(stamp => {
+        renderStampPreview(stamp);
+    });
+
+    // Add click handlers
+    grid.querySelectorAll('.stamp-picker-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            if (e.target.classList.contains('stamp-picker-delete')) return;
+            const stampId = item.dataset.stampId;
+            const stamp = layerStamps.find(s => s.id === stampId);
+            if (stamp) {
+                selectStamp(stamp);
+                closeStampPicker();
+            }
+        });
+    });
+
+    grid.querySelectorAll('.stamp-picker-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const stampId = btn.dataset.stampId;
+            if (confirm('Delete this stamp?')) {
+                deleteStamp(stampId);
+            }
+        });
+    });
+}
+
+/**
+ * Render a stamp preview on a canvas
+ */
+function renderStampPreview(stamp) {
+    const canvas = document.querySelector(`canvas[data-stamp-id="${stamp.id}"]`);
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 64, 64);
+
+    // Calculate scale to fit
+    const scale = Math.min(64 / stamp.width, 64 / stamp.height);
+    const offsetX = (64 - stamp.width * scale) / 2;
+    const offsetY = (64 - stamp.height * scale) / 2;
+
+    // Draw tiles
+    for (const tile of stamp.tiles) {
+        ctx.fillStyle = tile.color;
+        ctx.fillRect(
+            offsetX + tile.x * scale,
+            offsetY + tile.y * scale,
+            scale,
+            scale
+        );
+    }
+}
+
+/**
+ * Select a stamp for the stamp tool
+ */
+function selectStamp(stamp) {
+    // Switch to stamp tool if not already
+    editor.setTool('stamp');
+
+    // Update UI
+    document.querySelectorAll('.tool-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tool === 'stamp');
+    });
+
+    // Update context-sensitive tool options
+    updateToolOptions('stamp');
+
+    // Set the stamp on the tool
+    if (editor.currentTool && editor.currentTool.name === 'stamp') {
+        editor.currentTool.selectStamp(stamp);
+    }
+
+    updateStampsSidebar();
+
+    document.getElementById('status-message').textContent = `Selected stamp: ${stamp.name}`;
+    setTimeout(() => {
+        document.getElementById('status-message').textContent = 'Ready';
+    }, 1500);
+}
+
+/**
+ * Update the stamps sidebar section
+ */
+function updateStampsSidebar() {
+    const preview = document.getElementById('stamps-preview');
+    if (!preview) return;
+
+    if (editor.currentTool && editor.currentTool.name === 'stamp' && editor.currentTool.selectedStamp) {
+        const stamp = editor.currentTool.selectedStamp;
+        preview.innerHTML = `
+            <div class="stamp-preview-info">
+                <strong>${stamp.name}</strong>
+                <span>${stamp.width}×${stamp.height} (${stamp.layerType})</span>
+            </div>
+        `;
+    } else {
+        preview.innerHTML = '<div class="stamps-empty">No stamp selected</div>';
+    }
+}
+
+/**
+ * Initialize stamp-related event handlers
+ */
+function initializeStamps() {
+    // Open Stamps button
+    const openBtn = document.getElementById('btn-open-stamps');
+    if (openBtn) {
+        openBtn.addEventListener('click', openStampPicker);
+    }
+
+    // Close stamp picker
+    const closeBtn = document.getElementById('stamp-picker-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeStampPicker);
+    }
+
+    // Close on backdrop click
+    const modal = document.getElementById('stamp-picker-modal');
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeStampPicker();
+            }
+        });
+    }
+
+    // Save as stamp button in tool options
+    const saveStampBtn = document.getElementById('btn-save-stamp');
+    if (saveStampBtn) {
+        saveStampBtn.addEventListener('click', saveSelectionAsStamp);
+    }
+
+    // Expose openStampPicker for the stamp tool
+    window.openStampPicker = openStampPicker;
+}
 
 // ============================================================================
 // MAZE VISUALIZER INITIALIZATION
@@ -2294,13 +4653,6 @@ function initializeMazeVisualizer() {
         exportMazeData();
     });
 
-    // Tile inspector close button
-    const tileInspectorClose = document.getElementById('tile-inspector-close');
-    if (tileInspectorClose) {
-        tileInspectorClose.addEventListener('click', () => {
-            document.getElementById('tile-inspector').style.display = 'none';
-        });
-    }
 }
 
 /**
@@ -2395,11 +4747,21 @@ function exportMazeData() {
 // Export functions for editor access
 if (typeof window !== 'undefined') {
     window.updateLayersPanel = updateLayersPanel;
+    window.validateAllLayers = validateAllLayers;
+    window.showValidationResults = showValidationResults;
+    window.reportProgress = reportProgress;
+    window.checkLayerDataTypes = checkLayerDataTypes;
 }
 
 // Initialize when DOM is loaded
+console.log('[APP] Setting up init, document.readyState:', document.readyState);
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    console.log('[APP] DOM still loading, adding DOMContentLoaded listener');
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('[APP] DOMContentLoaded fired, calling init()');
+        init();
+    });
 } else {
+    console.log('[APP] DOM already loaded, calling init() immediately');
     init();
 }
