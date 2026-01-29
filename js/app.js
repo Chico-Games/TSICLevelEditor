@@ -1689,7 +1689,7 @@ function initializeColorPalette() {
 
     // Define biome subcategories
     const biomeSubcategories = {
-        'Shared': ['Biome_None', 'Biome_Blocked', 'Biome_Pit'],
+        'Shared': ['Biome_Empty', 'Biome_Blocked', 'Biome_Pit'],
         'Sky': ['Biome_SkyEmpty', 'Biome_SkyCeiling', 'Biome_Bathroom'],
         'Ground': ['Biome_ShowFloor', 'Biome_Restaurant', 'Biome_Warehouse', 'Biome_Kids', 'Biome_Gardening', 'Biome_StaffRoom'],
         'Underground': ['Biome_CarPark', 'Biome_SCPBase']
@@ -2569,6 +2569,30 @@ function initializeToolButtons() {
         brushSizeLabel.textContent = `Brush Size: ${size}`;
     });
 
+    // Brush size arrow buttons
+    const brushSizeDecrease = document.getElementById('brush-size-decrease');
+    const brushSizeIncrease = document.getElementById('brush-size-increase');
+
+    if (brushSizeDecrease) {
+        brushSizeDecrease.addEventListener('click', () => {
+            const currentSize = parseInt(brushSizeSlider.value);
+            const newSize = Math.max(1, currentSize - 1);
+            brushSizeSlider.value = newSize;
+            editor.brushSize = newSize;
+            brushSizeLabel.textContent = `Brush Size: ${newSize}`;
+        });
+    }
+
+    if (brushSizeIncrease) {
+        brushSizeIncrease.addEventListener('click', () => {
+            const currentSize = parseInt(brushSizeSlider.value);
+            const newSize = Math.min(50, currentSize + 1);
+            brushSizeSlider.value = newSize;
+            editor.brushSize = newSize;
+            brushSizeLabel.textContent = `Brush Size: ${newSize}`;
+        });
+    }
+
     // Layer opacity slider
     const layerOpacitySlider = document.getElementById('layer-opacity');
     const layerOpacityLabel = document.getElementById('layer-opacity-label');
@@ -2599,6 +2623,60 @@ function initializeToolButtons() {
     document.getElementById('fill-mode').addEventListener('change', (e) => {
         editor.fillMode = e.target.checked ? 'filled' : 'outline';
     });
+
+    // POI Label dropdown
+    const poiToggle = document.getElementById('poi-label-toggle');
+    const poiMenu = document.getElementById('poi-label-menu');
+
+    if (poiToggle && poiMenu) {
+        // Toggle dropdown
+        poiToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            poiMenu.classList.toggle('open');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.poi-label-dropdown')) {
+                poiMenu.classList.remove('open');
+            }
+        });
+
+        // Handle Select All / Clear All
+        poiMenu.querySelectorAll('[data-action]').forEach(option => {
+            option.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const action = option.dataset.action;
+                const checkboxes = poiMenu.querySelectorAll('input[type="checkbox"]');
+                checkboxes.forEach(cb => {
+                    cb.checked = (action === 'select-all');
+                });
+                updatePOIToggleLabel();
+                editor.render();
+            });
+        });
+
+        // Handle individual checkbox changes
+        poiMenu.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', () => {
+                updatePOIToggleLabel();
+                editor.render();
+            });
+        });
+
+        // Update toggle button label based on selection
+        function updatePOIToggleLabel() {
+            const checkboxes = poiMenu.querySelectorAll('input[type="checkbox"]');
+            const checked = Array.from(checkboxes).filter(cb => cb.checked).length;
+            if (checked === 0) {
+                poiToggle.textContent = 'None';
+            } else if (checked === checkboxes.length) {
+                poiToggle.textContent = 'All POIs';
+            } else {
+                poiToggle.textContent = `${checked} POIs`;
+            }
+        }
+    }
 }
 
 /**
@@ -2979,6 +3057,9 @@ function updateToolOptions(toolName) {
     }
 }
 
+// Make updateToolOptions globally available for tools.js
+window.updateToolOptions = updateToolOptions;
+
 /**
  * Initialize keyboard shortcuts
  */
@@ -3020,17 +3101,115 @@ function initializeKeyboardShortcuts() {
             return;
         }
 
-        // Number keys 1-9 for brush size (when no modifiers and Alt is NOT pressed)
-        if (e.key >= '1' && e.key <= '9' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Number keys 1-9 for layer selection (Ctrl+number for secondary layer)
+        if (e.key >= '1' && e.key <= '9' && !e.metaKey && !e.altKey) {
             e.preventDefault();
-            const brushSizes = [1, 2, 3, 5, 7, 10, 15, 20, 25];
-            const sizeIndex = parseInt(e.key) - 1;
-            if (sizeIndex < brushSizes.length) {
-                const size = brushSizes[sizeIndex];
-                editor.brushSize = size;
-                document.getElementById('brush-size').value = size;
-                document.getElementById('brush-size-label').textContent = `Brush Size: ${size}`;
-                document.getElementById('status-message').textContent = `Brush size: ${size}×${size}`;
+            const layerIndex = parseInt(e.key) - 1;
+            const layers = editor.layerManager.layers;
+
+            if (layerIndex < layers.length) {
+                const layer = layers[layerIndex];
+
+                if (e.ctrlKey) {
+                    // Ctrl+number: Set as secondary layer
+                    const primaryIndex = editor.recentLayerSelections[0] || 0;
+                    if (layerIndex !== primaryIndex) {
+                        editor.recentLayerSelections = [primaryIndex, layerIndex];
+                        // Update visibility
+                        layers.forEach((l, idx) => {
+                            l.visible = editor.recentLayerSelections.includes(idx);
+                        });
+                        document.getElementById('status-message').textContent = `Secondary layer: ${layer.name}`;
+                    }
+                } else {
+                    // Number only: Set as primary layer (with toggle behavior for already-selected layer)
+                    const wasActive = (editor.layerManager.activeLayerIndex === layerIndex);
+
+                    editor.layerManager.setActiveLayer(layerIndex);
+
+                    // Update palette for this layer
+                    if (typeof window.updatePaletteForLayer === 'function') {
+                        window.updatePaletteForLayer(layer.layerType || layer.name);
+                    }
+
+                    // TOGGLE BEHAVIOR: Press number for already-active layer to toggle solo/multi view
+                    if (wasActive) {
+                        if (editor.layerSoloMode) {
+                            // EXIT SOLO MODE: Restore previous configuration
+                            layers.forEach((l, idx) => {
+                                l.visible = editor.preSoloVisibility[idx] || false;
+                            });
+                            editor.topLayerOpacity = editor.preSoloOpacity;
+                            editor.recentLayerSelections = editor.preSoloRecentSelections.length > 0
+                                ? [...editor.preSoloRecentSelections]
+                                : [layerIndex];
+                            editor.layerSoloMode = false;
+
+                            // Update UI opacity slider
+                            document.getElementById('layer-opacity').value = Math.round(editor.topLayerOpacity * 100);
+                            document.getElementById('layer-opacity-label').textContent = `Top Layer Opacity: ${Math.round(editor.topLayerOpacity * 100)}%`;
+                            document.getElementById('status-message').textContent = `Exited solo mode: ${layer.name}`;
+                        } else {
+                            // ENTER SOLO MODE: Save current config, show only this layer, 100% opacity
+                            editor.preSoloVisibility = layers.map(l => l.visible);
+                            editor.preSoloOpacity = editor.topLayerOpacity;
+                            editor.preSoloRecentSelections = [...editor.recentLayerSelections];
+
+                            // Show only this layer
+                            layers.forEach((l, idx) => {
+                                l.visible = (idx === layerIndex);
+                            });
+                            editor.recentLayerSelections = [layerIndex];
+                            editor.topLayerOpacity = 1.0;
+                            editor.layerSoloMode = true;
+
+                            // Update UI opacity slider
+                            document.getElementById('layer-opacity').value = 100;
+                            document.getElementById('layer-opacity-label').textContent = `Top Layer Opacity: 100%`;
+                            document.getElementById('status-message').textContent = `Solo mode: ${layer.name}`;
+                        }
+                    } else {
+                        // SWITCHING LAYERS: Exit solo mode if active, then normal behavior
+                        if (editor.layerSoloMode) {
+                            // Restore from solo mode first
+                            layers.forEach((l, idx) => {
+                                l.visible = editor.preSoloVisibility[idx] || false;
+                            });
+                            editor.topLayerOpacity = editor.preSoloOpacity;
+                            editor.recentLayerSelections = editor.preSoloRecentSelections.length > 0
+                                ? [...editor.preSoloRecentSelections]
+                                : [layerIndex];
+                            editor.layerSoloMode = false;
+
+                            // Update UI opacity slider
+                            document.getElementById('layer-opacity').value = Math.round(editor.topLayerOpacity * 100);
+                            document.getElementById('layer-opacity-label').textContent = `Top Layer Opacity: ${Math.round(editor.topLayerOpacity * 100)}%`;
+                        }
+
+                        // Normal layer switching: Update recent selections (show last 2)
+                        editor.recentLayerSelections = editor.recentLayerSelections.filter(idx => idx !== layerIndex);
+                        editor.recentLayerSelections.unshift(layerIndex);
+                        if (editor.recentLayerSelections.length > 2) {
+                            editor.recentLayerSelections.pop();
+                        }
+
+                        // Update visibility for all layers (show only last 2 selected)
+                        layers.forEach((l, idx) => {
+                            l.visible = editor.recentLayerSelections.includes(idx);
+                        });
+
+                        document.getElementById('status-message').textContent = `Layer: ${layer.name}`;
+                    }
+
+                    filterColorsByLayer(layer.layerType);
+                    ensureValidColorForLayer(layer.layerType);
+                }
+
+                updateLayersPanel();
+                editor.render();
+                editor.renderMinimap();
+                editor.updateUndoRedoButtons();
+
                 setTimeout(() => {
                     document.getElementById('status-message').textContent = 'Ready';
                 }, 1500);
@@ -3065,6 +3244,16 @@ function initializeKeyboardShortcuts() {
                 }, 1500);
             }
             return;
+        }
+
+        // Delete/Backspace key - fill selection with layer default color
+        if ((e.key === 'Delete' || e.key === 'Backspace') && !e.ctrlKey && !e.metaKey) {
+            if ((editor.currentTool.name === 'selection' || editor.currentTool.name === 'wand') &&
+                editor.currentTool.hasSelection && editor.currentTool.hasSelection()) {
+                e.preventDefault();
+                editor.currentTool.fillSelectionWithDefault(editor);
+                return;
+            }
         }
 
         // Selection Transform hotkeys (R, H, V) - only when selection/wand tool has a selection

@@ -52,7 +52,9 @@ class SeededRandom {
 
 /**
  * Convert 1D world index to 2D coordinates.
- * Uses top-down coordinate system: Y=0 at TOP, Y increases DOWNWARD.
+ * Uses bottom-up coordinate system: Y=0 at BOTTOM, Y increases UPWARD.
+ * Note: The index formula (index = y * width + x) maps grid coordinates to storage.
+ * Grid Y=0 corresponds to the visual bottom of the world.
  *
  * @param {number} index - World tile index (0 to worldWidth*worldHeight-1)
  * @param {number} worldWidth - Width of the world grid
@@ -83,8 +85,9 @@ function coordsToIndex(x, y, worldWidth) {
  * Prevents wrap-around at grid edges.
  *
  * Direction encoding (matches technical spec):
- * - 0 = North (Up, toward Y=0)
- * - 1 = South (Down, toward larger Y)
+ * Uses bottom-up coordinate system: Y=0 at BOTTOM, Y increases UPWARD.
+ * - 0 = North (Up, toward larger Y)
+ * - 1 = South (Down, toward smaller Y / Y=0)
  * - 2 = East (Right, toward larger X)
  * - 3 = West (Left, toward smaller X)
  *
@@ -100,11 +103,11 @@ function getNeighborIndex(index, direction, worldWidth, worldHeight) {
     let newY = coords.y;
 
     switch (direction) {
-        case 0: // North (up)
-            newY--;
-            break;
-        case 1: // South (down)
+        case 0: // North (up = toward larger Y in bottom-up coords)
             newY++;
+            break;
+        case 1: // South (down = toward smaller Y in bottom-up coords)
+            newY--;
             break;
         case 2: // East (right)
             newX++;
@@ -126,6 +129,7 @@ function getNeighborIndex(index, direction, worldWidth, worldHeight) {
 
 /**
  * Validate if a neighbor in the given direction is valid (within bounds, no wrap-around).
+ * Uses bottom-up coordinate system: Y=0 at BOTTOM, Y increases UPWARD.
  *
  * @param {number} index - Current tile index
  * @param {number} direction - Direction (0-3)
@@ -136,12 +140,13 @@ function getNeighborIndex(index, direction, worldWidth, worldHeight) {
 function isValidNeighbor(index, direction, worldWidth, worldHeight) {
     // Check wrap-around conditions
     const x = index % worldWidth;
+    const y = Math.floor(index / worldWidth);
 
     switch (direction) {
-        case 0: // North
-            return index >= worldWidth; // Not in top row
-        case 1: // South
-            return index < worldWidth * (worldHeight - 1); // Not in bottom row
+        case 0: // North (toward larger Y = not at top row of storage)
+            return y < worldHeight - 1;
+        case 1: // South (toward smaller Y = not at bottom row of storage)
+            return y > 0;
         case 2: // East
             return x < worldWidth - 1; // Not at right edge
         case 3: // West

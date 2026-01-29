@@ -357,6 +357,7 @@ class MazeVisualizerManager {
      * Uses golden angle hue spacing for distinct colors.
      *
      * Technical Spec Reference: Section 5.2 - Region Visualization
+     * Uses bottom-left origin: Y=0 at BOTTOM, Y increases UPWARD
      *
      * @param {CanvasRenderingContext2D} ctx - Canvas context
      * @param {number} startX - Visible start X tile
@@ -368,6 +369,7 @@ class MazeVisualizerManager {
         const editor = this.editor;
         const tileSize = editor.tileSize;  // Use base tile size (context is already scaled)
         const width = editor.layerManager.width;
+        const height = editor.layerManager.height;
 
         // Render only the selected layer
         const layerIndex = this.selectedLayer;
@@ -389,8 +391,9 @@ class MazeVisualizerManager {
                 const color = this.getRegionColor(regionIndex);
 
                 // Calculate world position (context already has transform applied)
+                // Flip Y: grid Y=0 is at bottom, but canvas Y=0 is at top
                 const worldX = x * tileSize;
-                const worldY = y * tileSize;
+                const worldY = (height - 1 - y) * tileSize;
 
                 // Draw filled rectangle
                 ctx.fillStyle = color;
@@ -402,12 +405,13 @@ class MazeVisualizerManager {
     /**
      * Render maze directions as colored arrows.
      * Each direction has a unique color:
-     * - North (bit 0): Green
-     * - South (bit 1): Blue
+     * - North (bit 0): Green - points UP visually (toward larger grid Y)
+     * - South (bit 1): Blue - points DOWN visually (toward smaller grid Y)
      * - East (bit 2): Red
      * - West (bit 3): Yellow
      *
      * Technical Spec Reference: Section 5.3 - Arrow Visualization
+     * Uses bottom-left origin: Y=0 at BOTTOM, Y increases UPWARD
      *
      * @param {CanvasRenderingContext2D} ctx - Canvas context
      * @param {number} startX - Visible start X tile
@@ -419,6 +423,7 @@ class MazeVisualizerManager {
         const editor = this.editor;
         const tileSize = editor.tileSize;  // Use base tile size (context is already scaled)
         const width = editor.layerManager.width;
+        const height = editor.layerManager.height;
         const arrowLength = tileSize * 0.3;
 
         // Render for each selected layer
@@ -438,19 +443,22 @@ class MazeVisualizerManager {
                 if (directions === 0) continue;
 
                 // Calculate tile center in world coordinates
+                // Flip Y: grid Y=0 is at bottom, but canvas Y=0 is at top
                 const centerX = x * tileSize + tileSize / 2;
-                const centerY = y * tileSize + tileSize / 2;
+                const centerY = (height - 1 - y) * tileSize + tileSize / 2;
 
                 // Draw arrows for each direction
                 ctx.lineWidth = 2;
 
-                // North (bit 0) - Green arrow up
+                // North (bit 0) - Green arrow pointing UP visually (negative canvas Y)
+                // In bottom-up coords, North = toward larger grid Y = toward top of screen
                 if (directions & 0b0001) {
                     ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
                     this.drawArrow(ctx, centerX, centerY, centerX, centerY - arrowLength);
                 }
 
-                // South (bit 1) - Blue arrow down
+                // South (bit 1) - Blue arrow pointing DOWN visually (positive canvas Y)
+                // In bottom-up coords, South = toward smaller grid Y = toward bottom of screen
                 if (directions & 0b0010) {
                     ctx.strokeStyle = 'rgba(0, 100, 255, 0.8)';
                     this.drawArrow(ctx, centerX, centerY, centerX, centerY + arrowLength);
@@ -511,6 +519,7 @@ class MazeVisualizerManager {
      * Draws black lines on edges without connections.
      *
      * Technical Spec Reference: Section 5.4 - Wall Visualization
+     * Uses bottom-left origin: Y=0 at BOTTOM, Y increases UPWARD
      *
      * @param {CanvasRenderingContext2D} ctx - Canvas context
      * @param {number} startX - Visible start X tile
@@ -522,6 +531,7 @@ class MazeVisualizerManager {
         const editor = this.editor;
         const tileSize = editor.tileSize;  // Use base tile size (context is already scaled)
         const width = editor.layerManager.width;
+        const height = editor.layerManager.height;
 
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.lineWidth = 2;
@@ -542,16 +552,19 @@ class MazeVisualizerManager {
                 const directions = mazeData[index];
 
                 // Calculate world position
+                // Flip Y: grid Y=0 is at bottom, but canvas Y=0 is at top
                 const worldX = x * tileSize;
-                const worldY = y * tileSize;
+                const worldY = (height - 1 - y) * tileSize;
 
                 // Draw wall on North edge if no North connection
+                // North = top edge visually (smaller canvas Y)
                 if (!(directions & 0b0001)) {
                     ctx.moveTo(worldX, worldY);
                     ctx.lineTo(worldX + tileSize, worldY);
                 }
 
                 // Draw wall on South edge if no South connection
+                // South = bottom edge visually (larger canvas Y)
                 if (!(directions & 0b0010)) {
                     ctx.moveTo(worldX, worldY + tileSize);
                     ctx.lineTo(worldX + tileSize, worldY + tileSize);
@@ -579,6 +592,7 @@ class MazeVisualizerManager {
      * Only draws North and East connections to avoid duplication.
      *
      * Technical Spec Reference: Section 5.5 - Connection Visualization
+     * Uses bottom-left origin: Y=0 at BOTTOM, Y increases UPWARD
      *
      * @param {CanvasRenderingContext2D} ctx - Canvas context
      * @param {number} startX - Visible start X tile
@@ -611,12 +625,13 @@ class MazeVisualizerManager {
                 const directions = mazeData[index];
 
                 // Calculate tile center in world coordinates
+                // Flip Y: grid Y=0 is at bottom, but canvas Y=0 is at top
                 const centerX = x * tileSize + tileSize / 2;
-                const centerY = y * tileSize + tileSize / 2;
+                const centerY = (height - 1 - y) * tileSize + tileSize / 2;
 
-                // Draw North connection
-                if ((directions & 0b0001) && y > 0) {
-                    const neighborCenterY = (y - 1) * tileSize + tileSize / 2;
+                // Draw North connection (toward larger grid Y = toward top of screen)
+                if ((directions & 0b0001) && y < height - 1) {
+                    const neighborCenterY = (height - 1 - (y + 1)) * tileSize + tileSize / 2;
                     ctx.moveTo(centerX, centerY);
                     ctx.lineTo(centerX, neighborCenterY);
                 }

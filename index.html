@@ -84,14 +84,18 @@
         <!-- Context-sensitive options -->
         <div class="option-group" id="brush-size-options" style="display: none;">
             <label for="brush-size" id="brush-size-label">Brush Size: 1</label>
-            <input type="range" id="brush-size" min="1" max="50" value="1" style="width: 120px;">
+            <div class="slider-with-arrows">
+                <button class="slider-arrow" id="brush-size-decrease" title="Decrease size">&#9664;</button>
+                <input type="range" id="brush-size" min="1" max="50" value="1" style="width: 100px;">
+                <button class="slider-arrow" id="brush-size-increase" title="Increase size">&#9654;</button>
+            </div>
         </div>
 
         <div class="option-group" id="brush-shape-options" style="display: none;">
             <span class="option-label">Shape:</span>
             <div class="segmented-control" id="brush-shape-control" role="group" aria-label="Brush shape">
-                <button class="segment active" data-value="square">Square</button>
-                <button class="segment" data-value="circle">Circle</button>
+                <button class="segment" data-value="square">Square</button>
+                <button class="segment active" data-value="circle">Circle</button>
             </div>
         </div>
 
@@ -125,8 +129,37 @@
         <div class="option-divider"></div>
 
         <div class="option-group option-fixed">
-            <label for="layer-opacity" id="layer-opacity-label">Top Layer Opacity: 100%</label>
-            <input type="range" id="layer-opacity" min="0" max="100" value="100" style="width: 120px;">
+            <label class="checkbox-label">
+                <input type="checkbox" id="auto-entrance-exit" checked>
+                Auto Entrance/Exit
+            </label>
+        </div>
+
+        <div class="option-group option-fixed">
+            <label class="option-label">POI Labels:</label>
+            <div class="poi-label-dropdown" id="poi-label-dropdown">
+                <button class="poi-label-toggle" id="poi-label-toggle">All POIs</button>
+                <div class="poi-label-menu" id="poi-label-menu">
+                    <div class="poi-label-option" data-action="select-all">Select All</div>
+                    <div class="poi-label-option" data-action="clear-all">Clear All</div>
+                    <div class="poi-label-divider"></div>
+                    <label class="poi-label-option"><input type="checkbox" data-poi="spawn" checked> Spawn</label>
+                    <label class="poi-label-option"><input type="checkbox" data-poi="map" checked> Map</label>
+                    <label class="poi-label-option"><input type="checkbox" data-poi="help-point" checked> Help Point</label>
+                    <label class="poi-label-option"><input type="checkbox" data-poi="lost-found" checked> Lost & Found</label>
+                    <label class="poi-label-option"><input type="checkbox" data-poi="abandoned-camp" checked> Abandoned Camp</label>
+                    <label class="poi-label-option"><input type="checkbox" data-poi="scp-entrance" checked> SCP Entrance</label>
+                    <label class="poi-label-option"><input type="checkbox" data-poi="scp-exit" checked> SCP Exit</label>
+                    <label class="poi-label-option"><input type="checkbox" data-poi="scp-power" checked> SCP Power</label>
+                    <label class="poi-label-option"><input type="checkbox" data-poi="carpark-entrance" checked> Car Park Entrance</label>
+                    <label class="poi-label-option"><input type="checkbox" data-poi="carpark-exit" checked> Car Park Exit</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="option-group option-fixed">
+            <label for="layer-opacity" id="layer-opacity-label">Top Layer Opacity: 65%</label>
+            <input type="range" id="layer-opacity" min="0" max="100" value="65" style="width: 120px;">
         </div>
     </div>
 

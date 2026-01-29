@@ -4,6 +4,29 @@
  * Colors define what they represent (biome, height, difficulty, hazard)
  */
 
+/**
+ * Get default color for a layer type (used for filling transparent pixels)
+ * Mirrors the logic in editor.js getDefaultColorForLayer
+ */
+function getDefaultColorForLayerType(layerType) {
+    switch(layerType) {
+        case 'Height':
+            return '#0a0a0a'; // Height_0
+        case 'Difficulty':
+            return '#90ee90'; // Difficulty_Easy
+        case 'Hazard':
+            return '#1a1a1a'; // Hazard_None
+        case 'Sky':
+            return '#d3d3d3'; // Biome_SkyEmpty
+        case 'Floor':
+            return '#ff6b6b'; // Biome_ShowFloor
+        case 'Underground':
+            return '#2f2f2f'; // Biome_Blocked
+        default:
+            return '#000000'; // Fallback
+    }
+}
+
 class WorldLayer {
     constructor(name, width, height, options = {}) {
         this.name = name;
@@ -146,23 +169,25 @@ class WorldLayer {
     /**
      * Export to JSON-RLE format
      * Returns a single RLE array of colors
+     * Replaces any transparent (#000000) pixels with the layer's default color
      */
     exportRLEData() {
         const exportStart = performance.now();
         const totalTiles = this.width * this.height;
-        const defaultColor = '#000000'; // Default empty color
+        const layerDefaultColor = getDefaultColorForLayerType(this.layerType);
 
-        // Create color grid
+        // Create color grid filled with layer's default color
         let t0 = performance.now();
-        const colorGrid = new Array(totalTiles).fill(defaultColor);
+        const colorGrid = new Array(totalTiles).fill(layerDefaultColor);
         console.log(`[WorldLayer.exportRLEData] ${this.name}: Array creation took ${(performance.now() - t0).toFixed(1)}ms for ${totalTiles} tiles`);
 
-        // Fill grid from tile data (which now only stores colors)
+        // Fill grid from tile data, replacing #000000 with default
         t0 = performance.now();
         for (const [key, color] of this.tileData.entries()) {
             const [x, y] = key.split(',').map(Number);
             const index = y * this.width + x;
-            colorGrid[index] = color;
+            // Replace transparent with layer default
+            colorGrid[index] = (color === '#000000') ? layerDefaultColor : color;
         }
         console.log(`[WorldLayer.exportRLEData] ${this.name}: Grid fill took ${(performance.now() - t0).toFixed(1)}ms for ${this.tileData.size} tiles`);
 
@@ -213,19 +238,20 @@ class WorldLayer {
     /**
      * Export to base64-RLE format (ultra-compact)
      * Returns RLE data encoded as base64 string
+     * Replaces any transparent (#000000) pixels with the layer's default color
      */
     exportRLEDataBase64() {
         const totalTiles = this.width * this.height;
-        const defaultColor = '#000000'; // Default empty color
+        const layerDefaultColor = getDefaultColorForLayerType(this.layerType);
 
-        // Create color grid
-        const colorGrid = new Array(totalTiles).fill(defaultColor);
+        // Create color grid filled with layer's default color
+        const colorGrid = new Array(totalTiles).fill(layerDefaultColor);
 
-        // Fill grid from tile data
+        // Fill grid from tile data, replacing #000000 with default
         for (const [key, color] of this.tileData.entries()) {
             const [x, y] = key.split(',').map(Number);
             const index = y * this.width + x;
-            colorGrid[index] = color;
+            colorGrid[index] = (color === '#000000') ? layerDefaultColor : color;
         }
 
         // Build palette
@@ -309,12 +335,14 @@ class WorldLayer {
 
         // Decompress RLE directly to tileData (avoid building massive intermediate array)
         const hasPalette = palette && Array.isArray(palette);
-        const defaultColor = '#000000';
+        const transparentColor = '#000000';
+        const layerDefaultColor = getDefaultColorForLayerType(this.layerType);
         const maxIndex = this.width * this.height;
         let currentIndex = 0;
         let tilesSet = 0;
 
         console.log(`[WorldLayer.importRLEData] Decompressing RLE to ${this.width}x${this.height} grid (${maxIndex} tiles)...`);
+        console.log(`[WorldLayer.importRLEData] Layer default color: ${layerDefaultColor}`);
         t0 = performance.now();
 
         for (const entry of colorData) {
@@ -323,7 +351,7 @@ class WorldLayer {
             if (Array.isArray(entry)) {
                 // Palette-array format: [paletteIndex, count]
                 const [paletteIndex, runCount] = entry;
-                color = hasPalette ? palette[paletteIndex] : defaultColor;
+                color = hasPalette ? palette[paletteIndex] : transparentColor;
                 count = runCount;
             } else {
                 // Old object format: { color: "#rrggbb", count: n }
@@ -340,10 +368,9 @@ class WorldLayer {
             const remainingTiles = maxIndex - currentIndex;
             const actualCount = Math.min(count, remainingTiles);
 
-            // Skip default empty color - just advance the index
-            if (color === defaultColor) {
-                currentIndex += actualCount;
-                continue;
+            // Replace transparent color with layer default
+            if (color === transparentColor) {
+                color = layerDefaultColor;
             }
 
             // Set tiles for this run
@@ -458,6 +485,7 @@ class WorldLayer {
 
             // Render all tiles of same color together using Path2D
             // Chunk into batches to avoid browser hang on massive paths
+            // Flip Y: grid Y=0 is at bottom, but canvas Y=0 is at top
             const CHUNK_SIZE = 10000;
             t0 = performance.now();
             for (const [color, tiles] of colorBatches.entries()) {
@@ -466,7 +494,7 @@ class WorldLayer {
                     const chunk = tiles.slice(i, i + CHUNK_SIZE);
                     const path = new Path2D();
                     for (const tile of chunk) {
-                        path.rect(tile.x * tileSize, tile.y * tileSize, tileSize, tileSize);
+                        path.rect(tile.x * tileSize, (this.height - 1 - tile.y) * tileSize, tileSize, tileSize);
                     }
                     ctx.fill(path);
                 }
@@ -479,13 +507,14 @@ class WorldLayer {
             console.log(`[WorldLayer.renderToCache] "${this.name}": FULL render complete in ${(performance.now() - renderStart).toFixed(1)}ms`);
         }
         // Incremental update - only update changed tiles (FAST!)
+        // Flip Y: grid Y=0 is at bottom, but canvas Y=0 is at top
         else if (this.dirtyTiles.size > 0) {
             const dirtyCount = this.dirtyTiles.size;
             // Update only the dirty tiles
             for (const key of this.dirtyTiles) {
                 const [x, y] = key.split(',').map(Number);
                 const pixelX = x * tileSize;
-                const pixelY = y * tileSize;
+                const pixelY = (this.height - 1 - y) * tileSize;
 
                 // Clear this tile's area
                 ctx.clearRect(pixelX, pixelY, tileSize, tileSize);
@@ -732,6 +761,13 @@ class LayerManager {
                 mappings.hazards[color] = entry;
             }
         }
+
+        // Add #000000 fallback for all layer types (used as default empty color)
+        const emptyEntry = { value: 0, name: 'Empty', description: 'Empty/default tile' };
+        if (!mappings.biomes['#000000']) mappings.biomes['#000000'] = emptyEntry;
+        if (!mappings.heights['#000000']) mappings.heights['#000000'] = emptyEntry;
+        if (!mappings.difficulty['#000000']) mappings.difficulty['#000000'] = emptyEntry;
+        if (!mappings.hazards['#000000']) mappings.hazards['#000000'] = emptyEntry;
 
         return mappings;
     }

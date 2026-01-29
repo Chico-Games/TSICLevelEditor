@@ -34,8 +34,9 @@ class LevelEditor {
         this.previousTool = null; // Track previous tool for eyedropper auto-switch
         this.selectedTileset = null;
         this.brushSize = 1;
-        this.brushShape = 'square';
+        this.brushShape = 'circle';
         this.fillMode = 'filled';
+        this.prePOIBrushSize = null; // Store brush size before selecting a POI
 
         // Locked colors - colors in this set cannot be painted over
         this.lockedColors = new Set();
@@ -43,8 +44,6 @@ class LevelEditor {
         // Points of Interest - special biomes that are often worth protecting
         this.pointsOfInterest = [
             '#00ff7f', // Spawn
-            '#2f1b0c', // Pit
-            '#2f2f2f', // Blocked
             '#f59e0b', // Map
             '#bb8fce', // HelpPoint
             '#3b82f6', // SCPBaseEntrance
@@ -65,7 +64,7 @@ class LevelEditor {
         this.showGuides = true; // Show composition guide lines
         this.guideHorizontal = 2; // Number of horizontal divisions
         this.guideVertical = 2; // Number of vertical divisions
-        this.topLayerOpacity = 1.0; // Global opacity for top layer(s)
+        this.topLayerOpacity = 0.65; // Global opacity for top layer(s)
 
         // Mouse state
         this.mouseX = -1;
@@ -152,24 +151,24 @@ class LevelEditor {
 
     /**
      * Get default color for a layer type
-     * Returns transparent (#000000) for most layers, or a valid color if needed
+     * Every tile must have a valid color - no empty/transparent tiles allowed
      */
     getDefaultColorForLayer(layerType) {
-        // Most layers use transparent black (#000000) as default
-        // This renders as transparent and represents "None" values
         switch(layerType) {
-            case 'Floor':
-            case 'Underground':
-            case 'Sky':
-                return '#000000'; // Biome_None - renders transparent
             case 'Height':
-                return '#525d6b'; // Height_Ground - Ground floor (default height)
+                return '#0a0a0a'; // Height_0
             case 'Difficulty':
-                return '#90ee90'; // Difficulty_Easy - lowest difficulty
+                return '#90ee90'; // Difficulty_Easy
             case 'Hazard':
-                return '#1a1a1a'; // Hazard_None - no hazard
+                return '#1a1a1a'; // Hazard_None
+            case 'Sky':
+                return '#d3d3d3'; // Biome_SkyEmpty
+            case 'Floor':
+                return '#ff6b6b'; // Biome_ShowFloor
+            case 'Underground':
+                return '#2f2f2f'; // Biome_Blocked
             default:
-                return '#000000'; // Default transparent
+                return '#000000'; // Fallback
         }
     }
 
@@ -292,17 +291,23 @@ class LevelEditor {
         this.mouseY = e.clientY - rect.top;
         this.updateGridPosition();
 
-        // Right-click: Lock/unlock color at position
+        // Right-click behavior depends on current tool
         if (e.button === 2) {
             e.preventDefault();
-            console.log(`[MOUSE] Right-click at grid (${this.gridX}, ${this.gridY}), bounds: ${this.layerManager.width}x${this.layerManager.height}`);
+            console.log(`[MOUSE] Right-click at grid (${this.gridX}, ${this.gridY}), tool=${this.currentTool?.name}`);
             const inBounds = this.gridX >= 0 && this.gridY >= 0 &&
                 this.gridX < this.layerManager.width &&
                 this.gridY < this.layerManager.height;
-            console.log(`[MOUSE] In bounds: ${inBounds}`);
+
             if (inBounds) {
-                console.log(`[MOUSE] Calling lockColorAtPosition...`);
-                this.lockColorAtPosition(this.gridX, this.gridY);
+                // For drawing tools (pencil, bucket, line, rectangle), right-click picks color
+                const colorPickTools = ['pencil', 'bucket', 'line', 'rectangle'];
+                if (colorPickTools.includes(this.currentTool?.name)) {
+                    console.log(`[MOUSE] Right-click color pick for tool: ${this.currentTool.name}`);
+                    this.pickColorAtPosition(this.gridX, this.gridY);
+                }
+                // For other tools, do nothing on canvas right-click
+                // (color locking only happens from palette right-click now)
             }
             return;
         }
@@ -676,7 +681,24 @@ class LevelEditor {
             return;
         }
 
+        // Entrance/Exit pairs for automatic placement
+        // Maps entrance color -> exit color and vice versa
+        const entranceExitPairs = {
+            '#3b82f6': '#1e40af', // SCP Entrance -> SCP Exit
+            '#1e40af': '#3b82f6', // SCP Exit -> SCP Entrance
+            '#9ca3af': '#4b5563', // Car Park Entrance -> Car Park Exit
+            '#4b5563': '#9ca3af'  // Car Park Exit -> Car Park Entrance
+        };
+
+        // Entrances go down (place exit on layer below)
+        const entranceColors = ['#3b82f6', '#9ca3af'];
+        // Exits go up (place entrance on layer above)
+        const exitColors = ['#1e40af', '#4b5563'];
+
         let skippedLocked = 0;
+        const placedColor = this.selectedTileset.color.toLowerCase();
+        const pairedColor = entranceExitPairs[placedColor];
+
         for (const tile of tiles) {
             // Check if existing tile has a locked color
             const key = `${tile.x},${tile.y}`;
@@ -686,6 +708,37 @@ class LevelEditor {
                 continue; // Skip tiles with locked colors
             }
             layer.setTile(tile.x, tile.y, this.selectedTileset.value, this.selectedTileset);
+
+            // Auto-place paired entrance/exit on adjacent layer (if enabled)
+            const autoEntranceExit = document.getElementById('auto-entrance-exit');
+            if (pairedColor && autoEntranceExit && autoEntranceExit.checked) {
+                const layerIndex = this.layerManager.layers.indexOf(layer);
+                let targetLayerIndex = -1;
+
+                // Determine target layer based on whether this is an entrance or exit
+                if (entranceColors.includes(placedColor)) {
+                    // Entrance placed - put exit on layer below (higher index)
+                    targetLayerIndex = layerIndex + 1;
+                } else if (exitColors.includes(placedColor)) {
+                    // Exit placed - put entrance on layer above (lower index)
+                    targetLayerIndex = layerIndex - 1;
+                }
+
+                // Place on target layer if it's a valid biome layer (Sky, Floor, Underground)
+                if (targetLayerIndex >= 0 && targetLayerIndex < this.layerManager.layers.length) {
+                    const targetLayer = this.layerManager.layers[targetLayerIndex];
+                    const validLayerTypes = ['Sky', 'Floor', 'Underground'];
+
+                    if (targetLayer && validLayerTypes.includes(targetLayer.layerType) &&
+                        !targetLayer.locked && targetLayer.editable) {
+                        // Check if target tile is locked
+                        const targetExistingColor = targetLayer.tileData.get(key);
+                        if (!targetExistingColor || !this.lockedColors.has(targetExistingColor.toLowerCase())) {
+                            targetLayer.setTile(tile.x, tile.y, 0, { color: pairedColor });
+                        }
+                    }
+                }
+            }
         }
 
         // Show feedback if tiles were skipped due to locked colors
@@ -705,7 +758,7 @@ class LevelEditor {
     }
 
     /**
-     * Clear tiles (used by eraser)
+     * Clear tiles (used by eraser) - paints the layer's default color
      */
     clearTiles(tiles) {
         const layer = this.layerManager.getActiveLayer();
@@ -720,6 +773,9 @@ class LevelEditor {
             return;
         }
 
+        // Get the default color for this layer type
+        const defaultColor = this.getDefaultColorForLayer(layer.layerType);
+
         let skippedLocked = 0;
         for (const tile of tiles) {
             // Check if existing tile has a locked color
@@ -729,7 +785,8 @@ class LevelEditor {
                 skippedLocked++;
                 continue; // Skip tiles with locked colors
             }
-            layer.clearTile(tile.x, tile.y);
+            // Paint with default color instead of clearing
+            layer.setTile(tile.x, tile.y, 0, { color: defaultColor });
         }
 
         // Show feedback if tiles were skipped due to locked colors
@@ -858,6 +915,47 @@ class LevelEditor {
     }
 
     /**
+     * Pick the color at a specific grid position (eyedropper functionality)
+     * Used by right-click on canvas with drawing tools
+     * @param {number} x - Grid X coordinate
+     * @param {number} y - Grid Y coordinate
+     */
+    pickColorAtPosition(x, y) {
+        const layer = this.layerManager.getActiveLayer();
+        if (!layer) {
+            document.getElementById('status-message').textContent = 'No active layer';
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 1500);
+            return;
+        }
+
+        // Get the color directly from the layer's tile data
+        const key = `${x},${y}`;
+        const color = layer.tileData.get(key);
+
+        if (color) {
+            // Try to find the tileset from the color
+            const enumData = window.colorMapper?.getEnumFromColor(color);
+            if (enumData) {
+                this.selectTileset(enumData.name);
+                document.getElementById('status-message').textContent = `Picked: ${enumData.name}`;
+            } else {
+                // Color exists but no matching tileset - still show the color
+                document.getElementById('status-message').textContent = `Picked color: ${color}`;
+            }
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 1500);
+        } else {
+            document.getElementById('status-message').textContent = 'No tile at this position';
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 1500);
+        }
+    }
+
+    /**
      * Lock/unlock the color at a specific grid position
      * Used by right-click on canvas
      * @param {number} x - Grid X coordinate
@@ -938,6 +1036,27 @@ class LevelEditor {
             document.querySelectorAll('.color-item').forEach(item => {
                 item.classList.toggle('selected', item.dataset.name === name);
             });
+
+            // Auto-adjust brush size for POIs
+            const isPOI = this.pointsOfInterest.includes(tileset.color.toLowerCase());
+            const brushSizeSlider = document.getElementById('brush-size');
+            const brushSizeLabel = document.getElementById('brush-size-label');
+
+            if (isPOI) {
+                // Save current brush size and set to 1 for POIs
+                if (this.brushSize > 1) {
+                    this.prePOIBrushSize = this.brushSize;
+                }
+                this.brushSize = 1;
+                if (brushSizeSlider) brushSizeSlider.value = 1;
+                if (brushSizeLabel) brushSizeLabel.textContent = 'Brush Size: 1';
+            } else if (this.prePOIBrushSize !== null) {
+                // Restore previous brush size when selecting non-POI
+                this.brushSize = this.prePOIBrushSize;
+                if (brushSizeSlider) brushSizeSlider.value = this.prePOIBrushSize;
+                if (brushSizeLabel) brushSizeLabel.textContent = `Brush Size: ${this.prePOIBrushSize}`;
+                this.prePOIBrushSize = null;
+            }
         }
     }
 
@@ -1202,6 +1321,9 @@ class LevelEditor {
             this.renderRulerMeasurement(ctx);
         }
 
+        // Render POI labels (if any are enabled in dropdown)
+        this.renderPOILabels(ctx);
+
         ctx.restore();
 
         // Update statistics
@@ -1377,6 +1499,231 @@ class LevelEditor {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(labelText, midX, midY);
+    }
+
+    /**
+     * Render POI labels on the canvas
+     * Shows names, warnings for unpaired entrances/exits, and metadata for certain POIs
+     * Only shows labels for the active (primary) layer
+     */
+    renderPOILabels(ctx) {
+        const tileSize = this.tileSize;
+
+        // POI colors and their display names, with dropdown data-poi attribute
+        const poiInfo = {
+            '#00ff7f': { name: 'Spawn', type: 'poi', poiId: 'spawn' },
+            '#f59e0b': { name: 'Map', type: 'poi', poiId: 'map' },
+            '#bb8fce': { name: 'Help Point', type: 'metadata', poiId: 'help-point' },
+            '#3b82f6': { name: 'SCP Entrance', type: 'entrance', pair: '#1e40af', poiId: 'scp-entrance' },
+            '#1e40af': { name: 'SCP Exit', type: 'exit', pair: '#3b82f6', poiId: 'scp-exit' },
+            '#fbbf24': { name: 'SCP Power', type: 'poi', poiId: 'scp-power' },
+            '#9ca3af': { name: 'Car Park Entrance', type: 'entrance', pair: '#4b5563', poiId: 'carpark-entrance' },
+            '#4b5563': { name: 'Car Park Exit', type: 'exit', pair: '#9ca3af', poiId: 'carpark-exit' },
+            '#9370db': { name: 'Lost & Found', type: 'metadata', poiId: 'lost-found' },
+            '#8b4513': { name: 'Abandoned Camp', type: 'metadata', poiId: 'abandoned-camp' }
+        };
+
+        // Get enabled POIs from dropdown
+        const enabledPOIs = new Set();
+        const poiMenu = document.getElementById('poi-label-menu');
+        if (poiMenu) {
+            poiMenu.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+                enabledPOIs.add(cb.dataset.poi);
+            });
+        }
+
+        // If no POIs enabled, don't render anything
+        if (enabledPOIs.size === 0) return;
+
+        // Difficulty and Height color mappings for metadata display
+        const difficultyNames = {
+            '#90ee90': 'Easy',
+            '#ffd700': 'Normal',
+            '#ff8c00': 'Hard',
+            '#ff6347': 'Nightmare',
+            '#8b0000': 'Apocalypse'
+        };
+
+        const heightNames = {
+            '#0a0a0a': '0', '#1a1a2e': '1', '#525d6b': '2', '#778994': '3', '#9db5bd': '4',
+            '#b0cbd1': '5', '#c3e1e6': '6', '#d6f5fa': '7', '#e8f7fa': '8', '#ffffff': '9'
+        };
+
+        // Find Difficulty and Height layers
+        const difficultyLayer = this.layerManager.layers.find(l => l.layerType === 'Difficulty');
+        const heightLayer = this.layerManager.layers.find(l => l.layerType === 'Height');
+
+        // Only show labels for the active (primary) layer
+        const activeLayer = this.layerManager.getActiveLayer();
+        if (!activeLayer || !['Sky', 'Floor', 'Underground'].includes(activeLayer.layerType)) {
+            return;
+        }
+
+        // First, scan ALL biome layers to build entrance/exit position maps for pairing check
+        const allEntrancePositions = new Map(); // color -> Set of "x,y" positions
+        const allExitPositions = new Map(); // color -> Set of "x,y" positions
+
+        for (const layer of this.layerManager.layers) {
+            if (!['Sky', 'Floor', 'Underground'].includes(layer.layerType)) continue;
+
+            for (const [key, color] of layer.tileData.entries()) {
+                const normalizedColor = color.toLowerCase();
+                const info = poiInfo[normalizedColor];
+                if (!info) continue;
+
+                if (info.type === 'entrance') {
+                    if (!allEntrancePositions.has(normalizedColor)) {
+                        allEntrancePositions.set(normalizedColor, new Set());
+                    }
+                    allEntrancePositions.get(normalizedColor).add(key);
+                } else if (info.type === 'exit') {
+                    if (!allExitPositions.has(normalizedColor)) {
+                        allExitPositions.set(normalizedColor, new Set());
+                    }
+                    allExitPositions.get(normalizedColor).add(key);
+                }
+            }
+        }
+
+        // Now collect POIs from active layer only for display
+        const pois = [];
+
+        for (const [key, color] of activeLayer.tileData.entries()) {
+            const normalizedColor = color.toLowerCase();
+            const info = poiInfo[normalizedColor];
+            if (!info) continue;
+
+            // Skip if this POI type is not enabled in dropdown
+            if (!enabledPOIs.has(info.poiId)) continue;
+
+            const [x, y] = key.split(',').map(Number);
+
+            // Get metadata for certain POIs
+            let metadata = '';
+            if (info.type === 'metadata') {
+                const parts = [];
+                if (difficultyLayer) {
+                    const diffColor = difficultyLayer.tileData.get(key);
+                    if (diffColor) {
+                        const diffName = difficultyNames[diffColor.toLowerCase()];
+                        if (diffName) parts.push(diffName);
+                    }
+                }
+                if (heightLayer) {
+                    const hColor = heightLayer.tileData.get(key);
+                    if (hColor) {
+                        const hName = heightNames[hColor.toLowerCase()];
+                        if (hName !== undefined) parts.push(`H${hName}`);
+                    }
+                }
+                if (parts.length > 0) {
+                    metadata = ` (${parts.join(', ')})`;
+                }
+            }
+
+            pois.push({
+                x, y, color: normalizedColor, info, key, metadata, layer: activeLayer.layerType
+            });
+        }
+
+        // Check for unpaired entrances/exits using ALL layers data
+        const warnings = new Set();
+        for (const [entranceColor, positions] of allEntrancePositions) {
+            const info = poiInfo[entranceColor];
+            if (!info || !info.pair) continue;
+            const exitColor = info.pair;
+            const exits = allExitPositions.get(exitColor) || new Set();
+
+            for (const pos of positions) {
+                if (!exits.has(pos)) {
+                    warnings.add(pos + ':entrance:' + entranceColor);
+                }
+            }
+        }
+
+        for (const [exitColor, positions] of allExitPositions) {
+            const info = poiInfo[exitColor];
+            if (!info || !info.pair) continue;
+            const entranceColor = info.pair;
+            const entrances = allEntrancePositions.get(entranceColor) || new Set();
+
+            for (const pos of positions) {
+                if (!entrances.has(pos)) {
+                    warnings.add(pos + ':exit:' + exitColor);
+                }
+            }
+        }
+
+        // Render labels
+        const fontSize = Math.max(10, 12 / this.zoom);
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+
+        for (const poi of pois) {
+            const px = poi.x * tileSize + tileSize / 2;
+            // Flip Y coordinate (grid Y=0 is bottom, canvas Y=0 is top)
+            const flippedY = this.layerManager.height - 1 - poi.y;
+            const py = flippedY * tileSize + tileSize + 1;
+
+            // Check for warning
+            let hasWarning = false;
+            let warningType = '';
+            if (poi.info.type === 'entrance') {
+                if (warnings.has(poi.key + ':entrance:' + poi.color)) {
+                    hasWarning = true;
+                    warningType = 'No Exit!';
+                }
+            } else if (poi.info.type === 'exit') {
+                if (warnings.has(poi.key + ':exit:' + poi.color)) {
+                    hasWarning = true;
+                    warningType = 'No Entrance!';
+                }
+            }
+
+            // Build label text
+            let labelText = poi.info.name + poi.metadata;
+            if (hasWarning) {
+                labelText += ` [${warningType}]`;
+            }
+
+            // Measure text for background
+            const textMetrics = ctx.measureText(labelText);
+            const textWidth = textMetrics.width;
+            const textHeight = fontSize + 2;
+            const padding = 2;
+
+            // Position label just below the tile
+            const labelX = px - textWidth / 2 - padding;
+            const labelY = py - padding;
+
+            // Draw background with tile's color (semi-transparent)
+            ctx.fillStyle = poi.color;
+            ctx.globalAlpha = 0.4;
+            ctx.fillRect(
+                labelX,
+                labelY,
+                textWidth + padding * 2,
+                textHeight + padding * 2
+            );
+            ctx.globalAlpha = 1.0;
+
+            // Draw border - red if warning, otherwise subtle dark
+            ctx.strokeStyle = hasWarning ? '#ff0000' : 'rgba(0, 0, 0, 0.5)';
+            ctx.lineWidth = hasWarning ? 2 : 1;
+            ctx.strokeRect(
+                labelX,
+                labelY,
+                textWidth + padding * 2,
+                textHeight + padding * 2
+            );
+
+            // Draw text with shadow for readability
+            ctx.fillStyle = '#000000';
+            ctx.fillText(labelText, px + 1, py + 1);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(labelText, px, py);
+        }
     }
 
     /**

@@ -731,10 +731,20 @@ class EyedropperTool extends Tool {
             return;
         }
 
-        const data = layer.getTile(x, y);
-        if (data && data.tileset) {
-            editor.selectTileset(data.tileset.name);
-            document.getElementById('status-message').textContent = `Picked ${data.tileset.name}`;
+        // Get the color directly from the layer's tile data
+        const key = `${x},${y}`;
+        const color = layer.tileData.get(key);
+
+        if (color) {
+            // Try to find the tileset from the color
+            const enumData = window.colorMapper?.getEnumFromColor(color);
+            if (enumData) {
+                editor.selectTileset(enumData.name);
+                document.getElementById('status-message').textContent = `Picked ${enumData.name}`;
+            } else {
+                // Color exists but no matching tileset - still show the color
+                document.getElementById('status-message').textContent = `Picked color ${color}`;
+            }
             setTimeout(() => {
                 document.getElementById('status-message').textContent = 'Ready';
             }, 1500);
@@ -754,6 +764,11 @@ class EyedropperTool extends Tool {
         toolButtons.forEach(btn => {
             btn.classList.toggle('active', btn.dataset.tool === toolToRestore);
         });
+
+        // Update tool options panel to show the restored tool's options
+        if (typeof window.updateToolOptions === 'function') {
+            window.updateToolOptions(toolToRestore);
+        }
     }
 }
 
@@ -895,7 +910,9 @@ class SelectionTool extends Tool {
         this.savedState = false; // Track if we've saved state for this operation
     }
 
-    onMouseDown(editor, x, y) {
+    onMouseDown(editor, x, y, e) {
+        const shiftKey = e && e.shiftKey;
+
         // Check if clicking inside existing selection
         if (this.hasSelection() && this.isInsideSelection(x, y)) {
             // Start moving the selection
@@ -907,7 +924,25 @@ class SelectionTool extends Tool {
             if (!this.isFloating) {
                 this.liftSelection(editor);
             }
+        } else if (this.hasSelection() && !shiftKey) {
+            // Clicking outside selection without shift - deselect
+            if (this.isFloating) {
+                this.finalizeSelection(editor);
+            }
+            this.clearSelection(editor);
+            editor.render();
+            editor.renderPreview();
         } else {
+            // No selection OR shift is held - start new selection
+            // Store previous selection bounds for additive selection
+            const prevBounds = shiftKey && this.hasSelection() ? {
+                minX: Math.min(this.startX, this.endX),
+                maxX: Math.max(this.startX, this.endX),
+                minY: Math.min(this.startY, this.endY),
+                maxY: Math.max(this.startY, this.endY)
+            } : null;
+            this.prevSelectionBounds = prevBounds;
+
             // Finalize any existing floating selection before starting new one
             if (this.isFloating) {
                 this.finalizeSelection(editor);
@@ -948,6 +983,23 @@ class SelectionTool extends Tool {
         if (this.mode === 'drawing') {
             // Finished drawing selection box
             this.mode = 'idle';
+
+            // If we had a previous selection (shift was held), merge the bounds
+            if (this.prevSelectionBounds) {
+                const newMinX = Math.min(this.startX, this.endX);
+                const newMaxX = Math.max(this.startX, this.endX);
+                const newMinY = Math.min(this.startY, this.endY);
+                const newMaxY = Math.max(this.startY, this.endY);
+
+                // Expand to include both old and new selection
+                this.startX = Math.min(this.prevSelectionBounds.minX, newMinX);
+                this.startY = Math.min(this.prevSelectionBounds.minY, newMinY);
+                this.endX = Math.max(this.prevSelectionBounds.maxX, newMaxX);
+                this.endY = Math.max(this.prevSelectionBounds.maxY, newMaxY);
+
+                this.prevSelectionBounds = null;
+                editor.renderPreview();
+            }
         } else if (this.mode === 'moving') {
             // Finished moving, but keep floating
             this.mode = 'idle';
@@ -1159,6 +1211,49 @@ class SelectionTool extends Tool {
         this.savedState = false;
     }
 
+    /**
+     * Fill selection with the layer's default color (used by Delete key)
+     */
+    fillSelectionWithDefault(editor) {
+        if (!this.hasSelection()) return;
+
+        const layer = editor.layerManager.getActiveLayer();
+        if (!layer || layer.locked) return;
+
+        const defaultColor = editor.getDefaultColorForLayer(layer.layerType);
+        if (!defaultColor) return;
+
+        const minX = Math.min(this.startX, this.endX);
+        const maxX = Math.max(this.startX, this.endX);
+        const minY = Math.min(this.startY, this.endY);
+        const maxY = Math.max(this.startY, this.endY);
+
+        let filledCount = 0;
+        for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+                if (x >= 0 && x < layer.width && y >= 0 && y < layer.height) {
+                    // Check if color is locked
+                    const key = `${x},${y}`;
+                    const existingColor = layer.tileData.get(key);
+                    if (existingColor && editor.lockedColors.has(existingColor.toLowerCase())) {
+                        continue;
+                    }
+                    layer.setTile(x, y, 0, { color: defaultColor });
+                    filledCount++;
+                }
+            }
+        }
+
+        editor.render();
+        document.getElementById('status-message').textContent = `Filled ${filledCount} tiles with default`;
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
+
+        // Clear selection after filling
+        this.clearSelection(editor);
+    }
+
     getPreview(editor, x, y) {
         if (!this.hasSelection()) return [];
 
@@ -1205,6 +1300,110 @@ class SelectionTool extends Tool {
 
         return preview;
     }
+
+    /**
+     * Rotate selection 90° clockwise
+     */
+    rotateSelection(editor) {
+        if (!this.hasSelection()) return;
+
+        // Auto-lift if not floating
+        if (!this.isFloating) {
+            this.liftSelection(editor);
+        }
+
+        if (!this.selectionData) return;
+
+        const oldWidth = this.selectionData.width;
+        const oldHeight = this.selectionData.height;
+
+        // Rotate tiles: newX = (height - 1) - oldY, newY = oldX
+        const newTiles = this.selectionData.tiles.map(tile => ({
+            x: (oldHeight - 1) - tile.y,
+            y: tile.x,
+            tileset: tile.tileset
+        }));
+
+        // Swap dimensions
+        this.selectionData.width = oldHeight;
+        this.selectionData.height = oldWidth;
+        this.selectionData.tiles = newTiles;
+
+        // Update selection bounds
+        const minX = Math.min(this.startX, this.endX);
+        const minY = Math.min(this.startY, this.endY);
+        this.startX = minX;
+        this.startY = minY;
+        this.endX = minX + this.selectionData.width - 1;
+        this.endY = minY + this.selectionData.height - 1;
+
+        editor.render();
+        editor.renderPreview();
+        document.getElementById('status-message').textContent = 'Selection rotated 90° CW';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
+    }
+
+    /**
+     * Flip selection horizontally
+     */
+    flipHorizontal(editor) {
+        if (!this.hasSelection()) return;
+
+        // Auto-lift if not floating
+        if (!this.isFloating) {
+            this.liftSelection(editor);
+        }
+
+        if (!this.selectionData) return;
+
+        const width = this.selectionData.width;
+
+        // Flip tiles: newX = (width - 1) - oldX
+        this.selectionData.tiles = this.selectionData.tiles.map(tile => ({
+            x: (width - 1) - tile.x,
+            y: tile.y,
+            tileset: tile.tileset
+        }));
+
+        editor.render();
+        editor.renderPreview();
+        document.getElementById('status-message').textContent = 'Selection flipped horizontally';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
+    }
+
+    /**
+     * Flip selection vertically
+     */
+    flipVertical(editor) {
+        if (!this.hasSelection()) return;
+
+        // Auto-lift if not floating
+        if (!this.isFloating) {
+            this.liftSelection(editor);
+        }
+
+        if (!this.selectionData) return;
+
+        const height = this.selectionData.height;
+
+        // Flip tiles: newY = (height - 1) - oldY
+        this.selectionData.tiles = this.selectionData.tiles.map(tile => ({
+            x: tile.x,
+            y: (height - 1) - tile.y,
+            tileset: tile.tileset
+        }));
+
+        editor.render();
+        editor.renderPreview();
+        document.getElementById('status-message').textContent = 'Selection flipped vertically';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
+    }
 }
 
 class WandTool extends Tool {
@@ -1220,7 +1419,9 @@ class WandTool extends Tool {
         this.clipboardData = null;
     }
 
-    onMouseDown(editor, x, y) {
+    onMouseDown(editor, x, y, e) {
+        const shiftKey = e && e.shiftKey;
+
         // Check if clicking inside existing selection
         if (this.hasSelection() && this.isInsideSelection(x, y)) {
             // Start moving the selection
@@ -1233,14 +1434,23 @@ class WandTool extends Tool {
             if (!this.isFloating) {
                 this.liftSelection(editor);
             }
+        } else if (this.hasSelection() && !shiftKey) {
+            // Clicking outside selection without shift - deselect
+            if (this.isFloating) {
+                this.finalizeSelection(editor);
+            }
+            this.clearSelection(editor);
+            editor.render();
+            editor.renderPreview();
         } else {
-            // Finalize any existing floating selection before starting new one
+            // No selection OR shift is held - start new/add to selection
+            // Finalize any existing floating selection before adding
             if (this.isFloating) {
                 this.finalizeSelection(editor);
             }
 
-            // Start new flood fill selection
-            this.floodFillSelect(editor, x, y);
+            // Flood fill select - if shift is held, add to existing selection
+            this.floodFillSelect(editor, x, y, shiftKey);
         }
     }
 
@@ -1267,7 +1477,7 @@ class WandTool extends Tool {
         }
     }
 
-    floodFillSelect(editor, startX, startY) {
+    floodFillSelect(editor, startX, startY, additive = false) {
         const layer = editor.layerManager.getActiveLayer();
         if (!layer) {
             document.getElementById('status-message').textContent = 'No active layer';
@@ -1294,7 +1504,17 @@ class WandTool extends Tool {
 
         const stack = [{ x: startX, y: startY }];
         const visited = new Set();
-        this.selectedTiles = [];
+
+        // If additive, keep existing tiles and mark them as visited
+        if (additive && this.selectedTiles.length > 0) {
+            for (const tile of this.selectedTiles) {
+                visited.add(`${tile.x},${tile.y}`);
+            }
+        } else {
+            this.selectedTiles = [];
+        }
+
+        const newTiles = [];
 
         while (stack.length > 0) {
             const { x, y } = stack.pop();
@@ -1309,7 +1529,7 @@ class WandTool extends Tool {
             if (currentColor !== targetColor) continue;
 
             visited.add(key);
-            this.selectedTiles.push({ x, y });
+            newTiles.push({ x, y });
 
             // Add cardinal neighbors
             stack.push({ x: x + 1, y });
@@ -1326,11 +1546,16 @@ class WandTool extends Tool {
             }
         }
 
+        // Add new tiles to selection
+        this.selectedTiles = this.selectedTiles.concat(newTiles);
+
         this.isFloating = false;
         this.savedState = false;
-        editor.requestRender();
+        editor.render();
+        editor.renderPreview();
 
-        document.getElementById('status-message').textContent = `Selected ${this.selectedTiles.length} tiles`;
+        const action = additive ? 'Added' : 'Selected';
+        document.getElementById('status-message').textContent = `${action} ${newTiles.length} tiles (total: ${this.selectedTiles.length})`;
         setTimeout(() => {
             document.getElementById('status-message').textContent = 'Ready';
         }, 1500);
@@ -1510,6 +1735,42 @@ class WandTool extends Tool {
         this.savedState = false;
     }
 
+    /**
+     * Fill selection with the layer's default color (used by Delete key)
+     */
+    fillSelectionWithDefault(editor) {
+        if (!this.hasSelection()) return;
+
+        const layer = editor.layerManager.getActiveLayer();
+        if (!layer || layer.locked) return;
+
+        const defaultColor = editor.getDefaultColorForLayer(layer.layerType);
+        if (!defaultColor) return;
+
+        let filledCount = 0;
+        for (const tile of this.selectedTiles) {
+            if (tile.x >= 0 && tile.x < layer.width && tile.y >= 0 && tile.y < layer.height) {
+                // Check if color is locked
+                const key = `${tile.x},${tile.y}`;
+                const existingColor = layer.tileData.get(key);
+                if (existingColor && editor.lockedColors.has(existingColor.toLowerCase())) {
+                    continue;
+                }
+                layer.setTile(tile.x, tile.y, 0, { color: defaultColor });
+                filledCount++;
+            }
+        }
+
+        editor.render();
+        document.getElementById('status-message').textContent = `Filled ${filledCount} tiles with default`;
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
+
+        // Clear selection after filling
+        this.clearSelection(editor);
+    }
+
     getPreview(editor, x, y) {
         if (!this.hasSelection()) return [];
 
@@ -1538,6 +1799,354 @@ class WandTool extends Tool {
 
         return preview;
     }
+
+    /**
+     * Rotate selection 90° clockwise
+     */
+    rotateSelection(editor) {
+        if (!this.hasSelection()) return;
+
+        // Auto-lift if not floating
+        if (!this.isFloating) {
+            this.liftSelection(editor);
+        }
+
+        if (!this.selectionData) return;
+
+        const oldWidth = this.selectionData.width;
+        const oldHeight = this.selectionData.height;
+        const bounds = this.getSelectionBounds();
+
+        // Rotate tiles: newX = (height - 1) - oldY, newY = oldX
+        const newTiles = this.selectionData.tiles.map(tile => ({
+            x: (oldHeight - 1) - tile.y,
+            y: tile.x,
+            tileset: tile.tileset
+        }));
+
+        // Swap dimensions
+        this.selectionData.width = oldHeight;
+        this.selectionData.height = oldWidth;
+        this.selectionData.tiles = newTiles;
+
+        // Rebuild selectedTiles to match new positions
+        this.selectedTiles = newTiles.map(tile => ({
+            x: bounds.minX + tile.x,
+            y: bounds.minY + tile.y
+        }));
+
+        editor.render();
+        editor.renderPreview();
+        document.getElementById('status-message').textContent = 'Selection rotated 90° CW';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
+    }
+
+    /**
+     * Flip selection horizontally
+     */
+    flipHorizontal(editor) {
+        if (!this.hasSelection()) return;
+
+        // Auto-lift if not floating
+        if (!this.isFloating) {
+            this.liftSelection(editor);
+        }
+
+        if (!this.selectionData) return;
+
+        const width = this.selectionData.width;
+        const bounds = this.getSelectionBounds();
+
+        // Flip tiles: newX = (width - 1) - oldX
+        this.selectionData.tiles = this.selectionData.tiles.map(tile => ({
+            x: (width - 1) - tile.x,
+            y: tile.y,
+            tileset: tile.tileset
+        }));
+
+        // Rebuild selectedTiles to match new positions
+        this.selectedTiles = this.selectionData.tiles.map(tile => ({
+            x: bounds.minX + tile.x,
+            y: bounds.minY + tile.y
+        }));
+
+        editor.render();
+        editor.renderPreview();
+        document.getElementById('status-message').textContent = 'Selection flipped horizontally';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
+    }
+
+    /**
+     * Flip selection vertically
+     */
+    flipVertical(editor) {
+        if (!this.hasSelection()) return;
+
+        // Auto-lift if not floating
+        if (!this.isFloating) {
+            this.liftSelection(editor);
+        }
+
+        if (!this.selectionData) return;
+
+        const height = this.selectionData.height;
+        const bounds = this.getSelectionBounds();
+
+        // Flip tiles: newY = (height - 1) - oldY
+        this.selectionData.tiles = this.selectionData.tiles.map(tile => ({
+            x: tile.x,
+            y: (height - 1) - tile.y,
+            tileset: tile.tileset
+        }));
+
+        // Rebuild selectedTiles to match new positions
+        this.selectedTiles = this.selectionData.tiles.map(tile => ({
+            x: bounds.minX + tile.x,
+            y: bounds.minY + tile.y
+        }));
+
+        editor.render();
+        editor.renderPreview();
+        document.getElementById('status-message').textContent = 'Selection flipped vertically';
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
+    }
+}
+
+/**
+ * Stamp Tool
+ * Place saved stamps on the canvas
+ */
+class StampTool extends Tool {
+    constructor() {
+        super('stamp');
+        this.selectedStamp = null;
+    }
+
+    onMouseDown(editor, x, y) {
+        // If no stamp selected, open the picker
+        if (!this.selectedStamp) {
+            window.openStampPicker && window.openStampPicker();
+            return;
+        }
+
+        // Check layer type compatibility
+        const layer = editor.layerManager.getActiveLayer();
+        if (!layer) return;
+
+        if (this.selectedStamp.layerType !== layer.layerType) {
+            document.getElementById('status-message').textContent =
+                `Stamp requires ${this.selectedStamp.layerType} layer (current: ${layer.layerType})`;
+            setTimeout(() => {
+                document.getElementById('status-message').textContent = 'Ready';
+            }, 2000);
+            return;
+        }
+
+        // Place the stamp
+        this.placeStamp(editor, x, y);
+    }
+
+    placeStamp(editor, x, y) {
+        if (!this.selectedStamp) return;
+
+        const layer = editor.layerManager.getActiveLayer();
+        if (!layer || layer.locked) return;
+
+        editor.saveState();
+
+        // Place stamp tiles (only non-empty positions)
+        for (const tile of this.selectedStamp.tiles) {
+            const tx = x + tile.x;
+            const ty = y + tile.y;
+            if (tx >= 0 && tx < layer.width && ty >= 0 && ty < layer.height) {
+                // Find the tileset for this color
+                const tileset = { color: tile.color, name: 'stamp_tile' };
+                layer.setTile(tx, ty, 0, tileset);
+            }
+        }
+
+        editor.requestRender();
+        editor.requestMinimapRender();
+        editor.isDirty = true;
+
+        document.getElementById('status-message').textContent = `Placed stamp: ${this.selectedStamp.name}`;
+        setTimeout(() => {
+            document.getElementById('status-message').textContent = 'Ready';
+        }, 1500);
+    }
+
+    selectStamp(stamp) {
+        this.selectedStamp = stamp;
+        this.updateStampPreview();
+    }
+
+    clearStamp() {
+        this.selectedStamp = null;
+        this.updateStampPreview();
+    }
+
+    updateStampPreview() {
+        const preview = document.getElementById('stamps-preview');
+        if (!preview) return;
+
+        if (this.selectedStamp) {
+            preview.innerHTML = `
+                <div class="stamp-preview-info">
+                    <strong>${this.selectedStamp.name}</strong>
+                    <span>${this.selectedStamp.width}×${this.selectedStamp.height}</span>
+                </div>
+            `;
+        } else {
+            preview.innerHTML = '<div class="stamps-empty">No stamp selected</div>';
+        }
+    }
+
+    getPreview(editor, x, y) {
+        if (!this.selectedStamp) return [];
+
+        const preview = [];
+        for (const tile of this.selectedStamp.tiles) {
+            const tx = x + tile.x;
+            const ty = y + tile.y;
+            if (tx >= 0 && tx < editor.layerManager.width &&
+                ty >= 0 && ty < editor.layerManager.height) {
+                preview.push({ x: tx, y: ty, color: tile.color });
+            }
+        }
+        return preview;
+    }
+}
+
+/**
+ * Ruler Tool
+ * Measure distances on the canvas
+ */
+class RulerTool extends Tool {
+    constructor() {
+        super('ruler');
+        this.isDrawing = false;
+        this.startX = -1;
+        this.startY = -1;
+        this.endX = -1;
+        this.endY = -1;
+        this.measurement = null; // Current measurement to render
+    }
+
+    onMouseDown(editor, x, y) {
+        this.isDrawing = true;
+        this.startX = x;
+        this.startY = y;
+        this.endX = x;
+        this.endY = y;
+        this.measurement = null;
+    }
+
+    onMouseMove(editor, x, y) {
+        if (this.isDrawing) {
+            // Snap to horizontal or vertical based on dominant direction
+            const dx = Math.abs(x - this.startX);
+            const dy = Math.abs(y - this.startY);
+
+            if (dx >= dy) {
+                // Horizontal
+                this.endX = x;
+                this.endY = this.startY;
+            } else {
+                // Vertical
+                this.endX = this.startX;
+                this.endY = y;
+            }
+
+            this.updateMeasurementDisplay();
+            editor.requestRender();
+        }
+    }
+
+    onMouseUp(editor, x, y) {
+        if (this.isDrawing) {
+            this.isDrawing = false;
+
+            // Snap final position
+            const dx = Math.abs(x - this.startX);
+            const dy = Math.abs(y - this.startY);
+
+            if (dx >= dy) {
+                this.endX = x;
+                this.endY = this.startY;
+            } else {
+                this.endX = this.startX;
+                this.endY = y;
+            }
+
+            // Calculate distance
+            const distance = Math.abs(this.endX - this.startX) + Math.abs(this.endY - this.startY);
+
+            // Store measurement for rendering
+            this.measurement = {
+                x1: this.startX,
+                y1: this.startY,
+                x2: this.endX,
+                y2: this.endY,
+                distance: distance
+            };
+
+            this.updateMeasurementDisplay();
+            editor.requestRender();
+        }
+    }
+
+    clearMeasurement() {
+        this.measurement = null;
+        this.startX = -1;
+        this.startY = -1;
+        this.endX = -1;
+        this.endY = -1;
+        this.updateMeasurementDisplay();
+    }
+
+    updateMeasurementDisplay() {
+        const display = document.getElementById('ruler-measurement');
+        if (!display) return;
+
+        if (this.measurement) {
+            display.textContent = `${this.measurement.distance} tiles`;
+        } else if (this.isDrawing) {
+            const distance = Math.abs(this.endX - this.startX) + Math.abs(this.endY - this.startY);
+            display.textContent = `${distance} tiles`;
+        } else {
+            display.textContent = 'Click and drag to measure';
+        }
+    }
+
+    getPreview(editor, x, y) {
+        // Preview is rendered in editor.js renderMeasurement()
+        return [];
+    }
+
+    /**
+     * Get current measurement for rendering
+     */
+    getMeasurement() {
+        if (this.measurement) {
+            return this.measurement;
+        }
+        if (this.isDrawing && this.startX >= 0) {
+            return {
+                x1: this.startX,
+                y1: this.startY,
+                x2: this.endX,
+                y2: this.endY,
+                distance: Math.abs(this.endX - this.startX) + Math.abs(this.endY - this.startY)
+            };
+        }
+        return null;
+    }
 }
 
 // Tool registry
@@ -1550,7 +2159,9 @@ const tools = {
     eraser: new EraserTool(),
     pan: new PanTool(),
     selection: new SelectionTool(),
-    wand: new WandTool()
+    wand: new WandTool(),
+    stamp: new StampTool(),
+    ruler: new RulerTool()
 };
 
 // Export classes and variables to window for testing
@@ -1567,5 +2178,7 @@ if (typeof window !== 'undefined') {
     window.PanTool = PanTool;
     window.SelectionTool = SelectionTool;
     window.WandTool = WandTool;
+    window.StampTool = StampTool;
+    window.RulerTool = RulerTool;
     window.tools = tools;
 }

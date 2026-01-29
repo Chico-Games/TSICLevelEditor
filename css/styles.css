@@ -160,6 +160,108 @@ select {
     background-color: #0052a3;
 }
 
+/* Slider with Arrow Buttons */
+.slider-with-arrows {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.slider-arrow {
+    background-color: #3c3c3c;
+    color: #e0e0e0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background-color 0.2s;
+}
+
+.slider-arrow:hover {
+    background-color: #4a4a4a;
+}
+
+.slider-arrow:active {
+    background-color: #0066cc;
+}
+
+/* POI Label Dropdown */
+.poi-label-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.poi-label-toggle {
+    background-color: #3c3c3c;
+    color: #e0e0e0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    min-width: 80px;
+    text-align: left;
+}
+
+.poi-label-toggle:hover {
+    background-color: #4a4a4a;
+}
+
+.poi-label-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background-color: #2d2d2d;
+    border: 1px solid #555;
+    border-radius: 4px;
+    min-width: 160px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.poi-label-menu.open {
+    display: block;
+}
+
+.poi-label-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: #e0e0e0;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.poi-label-option:hover {
+    background-color: #3c3c3c;
+}
+
+.poi-label-option[data-action] {
+    color: #4a9eff;
+    font-weight: 500;
+}
+
+.poi-label-option input[type="checkbox"] {
+    cursor: pointer;
+}
+
+.poi-label-divider {
+    height: 1px;
+    background-color: #555;
+    margin: 4px 0;
+}
+
 /* Project Selector Section */
 #project-selector-section {
     display: flex;
