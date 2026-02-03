@@ -1507,6 +1507,10 @@ class LevelEditor {
      * Only shows labels for the active (primary) layer
      */
     renderPOILabels(ctx) {
+        // Check master toggle first
+        const showPOILabels = document.getElementById('show-poi-labels');
+        if (showPOILabels && !showPOILabels.checked) return;
+
         const tileSize = this.tileSize;
 
         // POI colors and their display names, with dropdown data-poi attribute

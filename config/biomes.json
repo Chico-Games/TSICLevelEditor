@@ -40,7 +40,7 @@
       "description": "Storage/loading dock"
     },
     "Biome_SCPBase": {
-      "color": "#2563EB",
+      "color": "#AED6F1",
       "value": 4,
       "icon": "🔬",
       "tag": "Biome.SCPBase",
@@ -121,7 +121,7 @@
       "description": "Garden center"
     },
     "Biome_SkyEmpty": {
-      "color": "#D3D3D3",
+      "color": "#B8B8B8",
       "value": 13,
       "icon": "☁️",
       "tag": "Biome.SkyEmpty",
@@ -139,7 +139,7 @@
       "description": "Ceiling tiles (skybox)"
     },
     "Biome_Bathroom": {
-      "color": "#AED6F1",
+      "color": "#2563EB",
       "value": 15,
       "icon": "🚻",
       "tag": "Biome.Bathroom",
@@ -218,6 +218,15 @@
       "category": "Biomes",
       "displayName": "Spawn",
       "description": "Player spawn point"
+    },
+    "Biome_BrokenEmpty": {
+      "color": "#5C4033",
+      "value": 24,
+      "icon": "💔",
+      "tag": "Biome.BrokenEmpty",
+      "category": "Biomes",
+      "displayName": "Broken Empty",
+      "description": "Broken/damaged empty area"
     },
 
     "Difficulty_Easy": {
@@ -460,7 +469,7 @@
       "type": "biome",
       "name": "Biome",
       "description": "Biome/room type",
-      "valueRange": [0, 23],
+      "valueRange": [0, 24],
       "defaultValue": 0
     },
     {
@@ -523,7 +532,8 @@
       "Blocked": 20,
       "Pit": 21,
       "LostAndFound": 22,
-      "Spawn": 23
+      "Spawn": 23,
+      "BrokenEmpty": 24
     },
     "ECurrentStoreDifficulty": {
       "Easy": 0,

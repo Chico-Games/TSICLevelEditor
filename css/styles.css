@@ -678,8 +678,14 @@ select {
     color: #50c878;
 }
 
-#btn-unlock-all:hover {
+#btn-unlock-all:hover:not(:disabled) {
     background-color: #3a5a4a;
+}
+
+#btn-unlock-all:disabled {
+    background-color: #2a3a2a;
+    border-color: #3a4a3a;
+    color: #4a6a4a;
 }
 
 /* Palette Tabs */

@@ -485,9 +485,9 @@ class MazeGenerator {
         for (let mazeIdx = 0; mazeIdx < numTiles; mazeIdx++) {
             const worldIndex = mazeIndexToTile[mazeIdx];
 
-            // Check North neighbor (direction 0)
-            const northIndex = worldIndex - worldWidth;
-            if (northIndex >= 0 && tileToMazeIndex.has(northIndex)) {
+            // Check North neighbor (direction 0) - toward larger Y (+worldWidth)
+            const northIndex = worldIndex + worldWidth;
+            if (northIndex < totalWorldTiles && tileToMazeIndex.has(northIndex)) {
                 edges.push({
                     node1: mazeIdx,
                     node2: tileToMazeIndex.get(northIndex),
@@ -495,9 +495,9 @@ class MazeGenerator {
                 });
             }
 
-            // Check South neighbor (direction 1)
-            const southIndex = worldIndex + worldWidth;
-            if (tileToMazeIndex.has(southIndex)) {
+            // Check South neighbor (direction 1) - toward smaller Y (-worldWidth)
+            const southIndex = worldIndex - worldWidth;
+            if (southIndex >= 0 && tileToMazeIndex.has(southIndex)) {
                 edges.push({
                     node1: mazeIdx,
                     node2: tileToMazeIndex.get(southIndex),

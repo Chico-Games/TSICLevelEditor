@@ -326,14 +326,25 @@ class MazeVisualizerManager {
         if (!this.enabled || this.visualizationMode === 'off') return;
 
         const editor = this.editor;
+        const worldHeight = editor.layerManager.height;
 
         // Calculate visible tile bounds (viewport culling)
+        // Note: Rendering uses Y-flip (grid Y=0 at bottom, canvas Y=0 at top)
+        // Canvas Y = (worldHeight - 1 - gridY) * tileSize * zoom + offsetY
+        // So gridY = worldHeight - 1 - (canvasY - offsetY) / (tileSize * zoom)
+
         const startX = Math.max(0, Math.floor(-editor.offsetX / (editor.tileSize * editor.zoom)));
-        const startY = Math.max(0, Math.floor(-editor.offsetY / (editor.tileSize * editor.zoom)));
         const endX = Math.min(editor.layerManager.width,
                      startX + Math.ceil(editor.gridCanvas.width / (editor.tileSize * editor.zoom)) + 1);
-        const endY = Math.min(editor.layerManager.height,
-                     startY + Math.ceil(editor.gridCanvas.height / (editor.tileSize * editor.zoom)) + 1);
+
+        // For Y, we need to account for the flip
+        // Canvas top (Y=0) corresponds to high grid Y
+        // Canvas bottom (Y=canvas.height) corresponds to low grid Y
+        const canvasTopGridY = worldHeight - 1 - Math.floor(-editor.offsetY / (editor.tileSize * editor.zoom));
+        const canvasBottomGridY = worldHeight - 1 - Math.floor((-editor.offsetY + editor.gridCanvas.height) / (editor.tileSize * editor.zoom));
+
+        const startY = Math.max(0, Math.min(canvasBottomGridY, canvasTopGridY) - 1);
+        const endY = Math.min(worldHeight, Math.max(canvasBottomGridY, canvasTopGridY) + 2);
 
         // Render based on mode
         switch (this.visualizationMode) {

@@ -1689,7 +1689,7 @@ function initializeColorPalette() {
 
     // Define biome subcategories
     const biomeSubcategories = {
-        'Shared': ['Biome_Empty', 'Biome_Blocked', 'Biome_Pit'],
+        'Shared': ['Biome_Empty', 'Biome_Blocked', 'Biome_Pit', 'Biome_BrokenEmpty'],
         'Sky': ['Biome_SkyEmpty', 'Biome_SkyCeiling', 'Biome_Bathroom'],
         'Ground': ['Biome_ShowFloor', 'Biome_Restaurant', 'Biome_Warehouse', 'Biome_Kids', 'Biome_Gardening', 'Biome_StaffRoom'],
         'Underground': ['Biome_CarPark', 'Biome_SCPBase']
@@ -1750,6 +1750,9 @@ function initializeColorPalette() {
 
             if (typeof window.updatePOIButton === 'function') {
                 window.updatePOIButton();
+            }
+            if (typeof window.updateUnlockAllButton === 'function') {
+                window.updateUnlockAllButton();
             }
         });
 
@@ -1861,6 +1864,7 @@ function initializeColorPalette() {
 
     // Initialize color lock controls
     const poiBtn = document.getElementById('btn-lock-poi');
+    const unlockAllBtn = document.getElementById('btn-unlock-all');
 
     function updatePOIButton() {
         if (editor.hasLockedPOI()) {
@@ -1872,6 +1876,12 @@ function initializeColorPalette() {
         }
     }
 
+    function updateUnlockAllButton() {
+        const hasLocked = editor.lockedColors.size > 0;
+        unlockAllBtn.disabled = !hasLocked;
+        unlockAllBtn.classList.toggle('disabled', !hasLocked);
+    }
+
     poiBtn.addEventListener('click', () => {
         if (editor.hasLockedPOI()) {
             editor.unlockAllPOI();
@@ -1879,14 +1889,20 @@ function initializeColorPalette() {
             editor.lockAllPOI();
         }
         updatePOIButton();
+        updateUnlockAllButton();
     });
 
-    document.getElementById('btn-unlock-all').addEventListener('click', () => {
+    unlockAllBtn.addEventListener('click', () => {
         editor.clearAllColorLocks();
         updatePOIButton();
+        updateUnlockAllButton();
     });
 
+    // Initial state
+    updateUnlockAllButton();
+
     window.updatePOIButton = updatePOIButton;
+    window.updateUnlockAllButton = updateUnlockAllButton;
 }
 
 /**
@@ -2230,8 +2246,9 @@ async function renderLayerThumbnail(layerIndex) {
         for (let ty = startY; ty < endY; ty++) {
             for (let tx = 0; tx < thumbnailSize; tx++) {
                 // Sample the grid at this position
+                // Flip Y: grid Y=0 is at bottom, but thumbnail Y=0 is at top
                 const gx = Math.floor(tx * scale);
-                const gy = Math.floor(ty * scale);
+                const gy = Math.floor((thumbnailSize - 1 - ty) * scale);
 
                 // Get color directly from tileData (more performant)
                 const key = `${gx},${gy}`;
@@ -2953,6 +2970,11 @@ function initializeToolbar() {
         editor.render();
     });
 
+    // Show POI labels master toggle
+    document.getElementById('show-poi-labels').addEventListener('change', () => {
+        editor.render();
+    });
+
     // Horizontal guide divisions
     document.getElementById('guide-horizontal').addEventListener('input', (e) => {
         const value = parseInt(e.target.value);
@@ -3018,7 +3040,7 @@ function updateToolOptions(toolName) {
     // Tools that use brush size (line thickness)
     const brushSizeTools = ['pencil', 'eraser', 'line', 'rectangle'];
     // Tools that use brush shape
-    const brushShapeTools = ['pencil', 'eraser'];
+    const brushShapeTools = ['pencil', 'eraser', 'rectangle'];
 
     // Brush size options
     const brushSizeOptions = document.getElementById('brush-size-options');
