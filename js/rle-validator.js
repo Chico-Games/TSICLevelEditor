@@ -1,333 +1,418 @@
 /**
  * JSON-RLE World Format Validator
- * Validates exported world data according to TSIC specification
+ *
+ * Validates exported world data against the TSIC runtime contract implemented by
+ * Source/TSIC/Private/WorldGeneration/JsonRLEWorldLoader.cpp. This is the
+ * self-contained fallback validator (the config-driven DynamicRLEValidator is the
+ * primary). It encodes the loader's hardcoded rules so it stays useful even when
+ * config/biomes.json fails to load.
+ *
+ * Current export schema (Format 2 — palette + RLE):
+ * {
+ *   "metadata":      { "name", "description"?, "world_size", "maze_generation_seed" },
+ *   "layers":        [ { "layer_type", "palette": ["#rrggbb", ...], "color_data": [[paletteIndex, count], ...] } ],
+ *   "color_mappings":{ "biomes":{}, "heights":{}, "difficulty":{}, "hazards":{} },  // each: "#rrggbb" -> { value, name?, description? }
+ *   "format_info"?:  { ... }
+ * }
+ *
+ * Layer VALUES are resolved at load time by looking each palette colour up in the
+ * matching color_mappings category, so this validator cross-checks palette colours
+ * against color_mappings and range-checks the resolved values exactly as the loader does.
  */
 
 class RLEValidator {
     constructor() {
-        // Valid world sizes
+        // ValidateWorldSize() in the loader.
         this.validWorldSizes = [256, 512, 1024, 2048];
 
-        // Value ranges per data type
-        this.valueRanges = {
-            biome: { min: 0, max: 22, name: 'Biome' },
-            height: { min: 0, max: 255, name: 'Height' },
-            difficulty: { min: 0, max: 4, name: 'Difficulty' },
-            hazard: { min: 0, max: 6, name: 'Hazard' }
+        // ParseLayerType() accepted strings. "Showfloor" is a loader alias for "Floor".
+        this.validLayerTypes = [
+            'None', 'Floor', 'Showfloor', 'Sky', 'Underground',
+            'Height', 'Difficulty', 'Hazard',
+            'SkyHeightOffset', 'UndergroundHeightOffset'
+        ];
+
+        // ParseColorMappings() requires all four categories or load fails.
+        this.requiredColorMappingCategories = ['biomes', 'heights', 'difficulty', 'hazards'];
+
+        // Maps a layer_type to the color_mappings category its palette resolves against,
+        // plus the resolved-value range the loader enforces. `max: null` => no range check
+        // (Height is a raw uint8; biome indices are validated by palette membership).
+        this.layerTypeInfo = {
+            'Floor':                   { category: 'biomes',     max: null,                  label: 'Biome' },
+            'Showfloor':               { category: 'biomes',     max: null,                  label: 'Biome' },
+            'Sky':                     { category: 'biomes',     max: null,                  label: 'Biome' },
+            'Underground':             { category: 'biomes',     max: null,                  label: 'Biome' },
+            'Height':                  { category: 'heights',    max: null,                  label: 'Height' },
+            'Difficulty':              { category: 'difficulty', max: 4,                     label: 'Difficulty' }, // ECurrentStoreDifficulty::Apocalypse
+            'Hazard':                  { category: 'hazards',    max: 2,                     label: 'Hazard' },     // EEnvironmentalHazardType::Freezing
+            'SkyHeightOffset':         { category: 'heights',    max: 9,                     label: 'SkyHeightOffset' },
+            'UndergroundHeightOffset': { category: 'heights',    max: 9,                     label: 'UndergroundHeightOffset' }
+            // 'None' carries no data channel and is skipped.
         };
-
-        // Valid layer types
-        this.validLayerTypes = ['None', 'Floor', 'Sky', 'Underground', 'Hazard'];
-
-        // Required data arrays per layer
-        this.requiredDataArrays = ['biome_data', 'height_data', 'difficulty_data', 'hazard_data'];
     }
 
     /**
-     * Validate complete RLE world data
-     * @param {object} rleData - World data to validate
-     * @returns {object} - { valid: boolean, errors: string[], warnings: string[] }
+     * Validate complete RLE world data.
+     * @param {object} rleData
+     * @returns {{ valid: boolean, errors: string[], warnings: string[] }}
      */
     validate(rleData) {
         const errors = [];
         const warnings = [];
 
-        // Validate structure
         if (!rleData || typeof rleData !== 'object') {
-            errors.push('Invalid data format: Expected object');
+            errors.push('Invalid data format: expected an object');
             return { valid: false, errors, warnings };
         }
 
-        // Validate metadata
-        const metadataErrors = this.validateMetadata(rleData.metadata);
-        errors.push(...metadataErrors);
+        errors.push(...this.validateMetadata(rleData.metadata));
 
-        // Validate layers
-        const layersErrors = this.validateLayers(rleData.layers, rleData.metadata?.world_size);
-        errors.push(...layersErrors.errors);
-        warnings.push(...layersErrors.warnings);
+        const cm = this.validateColorMappings(rleData.color_mappings);
+        errors.push(...cm.errors);
+        warnings.push(...cm.warnings);
 
-        return {
-            valid: errors.length === 0,
-            errors,
-            warnings
-        };
+        const layers = this.validateLayers(rleData.layers, rleData.metadata?.world_size, rleData.color_mappings);
+        errors.push(...layers.errors);
+        warnings.push(...layers.warnings);
+
+        return { valid: errors.length === 0, errors, warnings };
     }
 
     /**
-     * Validate metadata section
-     * @param {object} metadata
-     * @returns {string[]} - Array of error messages
+     * metadata: name (non-empty), world_size (256/512/1024/2048), maze_generation_seed (integer).
+     * description is optional in the loader.
+     * @returns {string[]}
      */
     validateMetadata(metadata) {
         const errors = [];
 
-        if (!metadata) {
-            errors.push('Missing metadata section');
+        if (!metadata || typeof metadata !== 'object') {
+            errors.push('Missing required "metadata" section');
             return errors;
         }
 
-        // Validate name
         if (!metadata.name || typeof metadata.name !== 'string' || metadata.name.trim() === '') {
-            errors.push('Metadata: "name" must be a non-empty string');
+            errors.push('metadata.name must be a non-empty string');
         }
 
-        // Validate description
-        if (!metadata.description || typeof metadata.description !== 'string') {
-            errors.push('Metadata: "description" must be a string');
-        }
-
-        // Validate world_size
         if (!this.validWorldSizes.includes(metadata.world_size)) {
-            errors.push(`Metadata: "world_size" must be one of: ${this.validWorldSizes.join(', ')} (got ${metadata.world_size})`);
+            errors.push(`metadata.world_size must be one of ${this.validWorldSizes.join(', ')} (got ${metadata.world_size})`);
         }
 
-        // Validate maze_generation_seed
-        if (typeof metadata.maze_generation_seed !== 'number') {
-            errors.push('Metadata: "maze_generation_seed" must be a number');
-        } else if (!Number.isInteger(metadata.maze_generation_seed)) {
-            errors.push('Metadata: "maze_generation_seed" must be an integer');
+        if (typeof metadata.maze_generation_seed !== 'number' || !Number.isInteger(metadata.maze_generation_seed)) {
+            errors.push('metadata.maze_generation_seed must be an integer (the loader rejects maps without it)');
         }
 
         return errors;
     }
 
     /**
-     * Validate layers array
-     * @param {array} layers
-     * @param {number} worldSize
-     * @returns {object} - { errors: string[], warnings: string[] }
+     * color_mappings must exist and contain biomes/heights/difficulty/hazards. Each entry maps a
+     * hex colour to { value: int }. Biome names are resolved as gameplay tags at load time, so a
+     * biome whose name is not a "Tile.Biome.*" tag will silently load as an EMPTY tile in-game.
+     * @returns {{ errors: string[], warnings: string[] }}
      */
-    validateLayers(layers, worldSize) {
+    validateColorMappings(colorMappings) {
         const errors = [];
         const warnings = [];
 
-        // Check layers exist
+        if (!colorMappings || typeof colorMappings !== 'object') {
+            errors.push('Missing required "color_mappings" section');
+            return { errors, warnings };
+        }
+
+        for (const category of this.requiredColorMappingCategories) {
+            const table = colorMappings[category];
+            if (!table || typeof table !== 'object') {
+                errors.push(`color_mappings.${category} is missing (the loader requires all of: ${this.requiredColorMappingCategories.join(', ')})`);
+                continue;
+            }
+
+            for (const [color, entry] of Object.entries(table)) {
+                const where = `color_mappings.${category}["${color}"]`;
+
+                if (!this.isHexColor(color)) {
+                    warnings.push(`${where}: key is not a #rrggbb colour`);
+                }
+                if (!entry || typeof entry !== 'object') {
+                    errors.push(`${where}: entry must be an object`);
+                    continue;
+                }
+                if (typeof entry.value !== 'number' || !Number.isInteger(entry.value) || entry.value < 0) {
+                    errors.push(`${where}.value must be a non-negative integer (got ${entry.value})`);
+                }
+
+                // Guard the biome-name -> gameplay-tag contract. The #000000 fallback ("Empty")
+                // is the loader's value-0 default and is exempt.
+                if (category === 'biomes' && color.toLowerCase() !== '#000000') {
+                    if (typeof entry.name !== 'string' || !entry.name.startsWith('Tile.Biome.')) {
+                        errors.push(`${where}.name must be a "Tile.Biome.*" gameplay tag (got "${entry.name}") — otherwise this biome loads as an empty tile in-game`);
+                    }
+                }
+            }
+        }
+
+        return { errors, warnings };
+    }
+
+    /**
+     * layers: non-empty array; each validated against the expected tile count and its layer-type rules.
+     * @returns {{ errors: string[], warnings: string[] }}
+     */
+    validateLayers(layers, worldSize, colorMappings) {
+        const errors = [];
+        const warnings = [];
+
         if (!Array.isArray(layers)) {
-            errors.push('Layers must be an array');
+            errors.push('"layers" must be an array');
             return { errors, warnings };
         }
-
-        // Check at least one layer
         if (layers.length === 0) {
-            errors.push('At least one layer must be present');
+            errors.push('"layers" must contain at least one layer');
             return { errors, warnings };
         }
 
-        // Check for Floor layer (recommended)
-        const hasFloorLayer = layers.some(layer => layer.layer_type === 'Floor');
-        if (!hasFloorLayer) {
-            warnings.push('No "Floor" layer found - at least one Floor layer is recommended');
+        if (!layers.some(l => l && (l.layer_type === 'Floor' || l.layer_type === 'Showfloor'))) {
+            warnings.push('No "Floor" layer found — a Floor layer is normally required for a playable map');
         }
 
-        // Validate each layer
-        const expectedTileCount = worldSize * worldSize;
+        const expectedTileCount = (typeof worldSize === 'number') ? worldSize * worldSize : null;
+
         layers.forEach((layer, index) => {
-            const layerErrors = this.validateLayer(layer, index, expectedTileCount);
-            errors.push(...layerErrors);
+            const res = this.validateLayer(layer, index, expectedTileCount, colorMappings);
+            errors.push(...res.errors);
+            warnings.push(...res.warnings);
         });
 
         return { errors, warnings };
     }
 
     /**
-     * Validate a single layer
-     * @param {object} layer
-     * @param {number} index
-     * @param {number} expectedTileCount
-     * @returns {string[]} - Array of error messages
+     * A single layer: valid layer_type, a palette of known colours, and RLE color_data whose
+     * indices are in range, whose counts are positive, and whose total equals world_size².
+     * @returns {{ errors: string[], warnings: string[] }}
      */
-    validateLayer(layer, index, expectedTileCount) {
+    validateLayer(layer, index, expectedTileCount, colorMappings) {
         const errors = [];
-        const prefix = `Layer ${index} (${layer.layer_type || 'unknown'})`;
+        const warnings = [];
+        const prefix = `Layer ${index} (${layer && layer.layer_type ? layer.layer_type : 'unknown'})`;
 
-        // Validate layer_type
-        if (!layer.layer_type || !this.validLayerTypes.includes(layer.layer_type)) {
-            errors.push(`${prefix}: Invalid layer_type "${layer.layer_type}" - must be one of: ${this.validLayerTypes.join(', ')}`);
+        if (!layer || typeof layer !== 'object') {
+            errors.push(`${prefix}: layer must be an object`);
+            return { errors, warnings };
         }
 
-        // Validate each required data array
-        this.requiredDataArrays.forEach(dataArrayName => {
-            const dataType = dataArrayName.replace('_data', ''); // Extract 'biome', 'height', etc.
-            const dataErrors = this.validateDataArray(
-                layer[dataArrayName],
-                dataType,
-                expectedTileCount,
-                `${prefix}: ${dataArrayName}`
-            );
-            errors.push(...dataErrors);
-        });
+        const layerType = layer.layer_type;
+        if (!layerType || !this.validLayerTypes.includes(layerType)) {
+            errors.push(`${prefix}: invalid layer_type "${layerType}" — must be one of: ${this.validLayerTypes.join(', ')}`);
+            return { errors, warnings };
+        }
 
-        return errors;
+        // "None" has no data channel; nothing further to validate.
+        if (layerType === 'None') {
+            return { errors, warnings };
+        }
+
+        const info = this.layerTypeInfo[layerType];
+
+        // Base64-encoded RLE: structural checks only (decoding mirrors base64-rle-encoder.js and
+        // is out of scope here — flag, don't deep-validate).
+        if (layer.encoding === 'rle-base64-v1') {
+            if (typeof layer.data_b64 !== 'string' || layer.data_b64.length === 0) {
+                errors.push(`${prefix}: encoding "rle-base64-v1" requires a non-empty "data_b64" string`);
+            }
+            if (!Array.isArray(layer.palette) || layer.palette.length === 0) {
+                errors.push(`${prefix}: encoding "rle-base64-v1" requires a non-empty "palette" array`);
+            }
+            warnings.push(`${prefix}: base64-encoded layer — tile count and value ranges not deep-validated`);
+            this.checkPaletteColors(layer.palette, info, colorMappings, prefix, errors);
+            return { errors, warnings };
+        }
+
+        // Array RLE (the editor's default export).
+        if (!Array.isArray(layer.color_data)) {
+            errors.push(`${prefix}: missing "color_data" array (or "data_b64" with encoding "rle-base64-v1")`);
+            return { errors, warnings };
+        }
+        if (layer.color_data.length === 0) {
+            errors.push(`${prefix}: "color_data" must have at least one RLE run`);
+            return { errors, warnings };
+        }
+
+        const hasPalette = Array.isArray(layer.palette) && layer.palette.length > 0;
+        if (hasPalette) {
+            this.checkPaletteColors(layer.palette, info, colorMappings, prefix, errors);
+            this.validatePaletteRLE(layer, info, expectedTileCount, colorMappings, prefix, errors);
+        } else {
+            // Format 1 legacy direct RLE: [{ color, count }].
+            warnings.push(`${prefix}: no "palette" — validating as legacy direct RLE ({color,count}); the editor exports palette form`);
+            this.validateDirectRLE(layer.color_data, expectedTileCount, prefix, errors);
+        }
+
+        return { errors, warnings };
     }
 
     /**
-     * Validate a data array (RLE format)
-     * @param {array} dataArray
-     * @param {string} dataType - 'biome', 'height', 'difficulty', 'hazard'
-     * @param {number} expectedTileCount
-     * @param {string} prefix - Error message prefix
-     * @returns {string[]} - Array of error messages
+     * Every palette colour must exist in the matching color_mappings category, and (for ranged
+     * channels) its resolved value must be within range. Mirrors the loader's MapColorToValue.
      */
-    validateDataArray(dataArray, dataType, expectedTileCount, prefix) {
-        const errors = [];
-
-        // Check array exists
-        if (!Array.isArray(dataArray)) {
-            errors.push(`${prefix}: Must be an array`);
-            return errors;
+    checkPaletteColors(palette, info, colorMappings, prefix, errors) {
+        if (!info || !Array.isArray(palette)) {
+            return;
+        }
+        const table = colorMappings && colorMappings[info.category];
+        if (!table || typeof table !== 'object') {
+            // Missing category already reported by validateColorMappings; can't resolve here.
+            return;
         }
 
-        // Check array has at least one entry
-        if (dataArray.length === 0) {
-            errors.push(`${prefix}: Must have at least one RLE entry`);
-            return errors;
-        }
-
-        // Validate RLE entries and count tiles
-        let totalCount = 0;
-        const range = this.valueRanges[dataType];
-
-        dataArray.forEach((entry, entryIndex) => {
-            // Validate RLE entry structure
-            if (typeof entry !== 'object' || entry === null) {
-                errors.push(`${prefix}[${entryIndex}]: RLE entry must be an object`);
+        palette.forEach((color, i) => {
+            if (typeof color !== 'string' || !this.isHexColor(color)) {
+                errors.push(`${prefix}: palette[${i}] "${color}" is not a #rrggbb colour`);
                 return;
             }
-
-            if (!('value' in entry)) {
-                errors.push(`${prefix}[${entryIndex}]: Missing "value" field`);
+            const entry = table[color.toLowerCase()];
+            if (!entry) {
+                errors.push(`${prefix}: palette colour "${color}" is not defined in color_mappings.${info.category}`);
+                return;
             }
-            if (!('count' in entry)) {
-                errors.push(`${prefix}[${entryIndex}]: Missing "count" field`);
+            if (info.max !== null && typeof entry.value === 'number' && entry.value > info.max) {
+                errors.push(`${prefix}: ${info.label} value ${entry.value} (palette colour "${color}") exceeds max ${info.max}`);
             }
-
-            // Validate value type and range
-            if (typeof entry.value !== 'number') {
-                errors.push(`${prefix}[${entryIndex}]: "value" must be a number (got ${typeof entry.value})`);
-            } else if (!Number.isInteger(entry.value)) {
-                errors.push(`${prefix}[${entryIndex}]: "value" must be an integer (got ${entry.value})`);
-            } else if (entry.value < range.min || entry.value > range.max) {
-                errors.push(`${prefix}[${entryIndex}]: ${range.name} value ${entry.value} out of range [${range.min}-${range.max}]`);
-            }
-
-            // Validate count type and value
-            if (typeof entry.count !== 'number') {
-                errors.push(`${prefix}[${entryIndex}]: "count" must be a number (got ${typeof entry.count})`);
-            } else if (!Number.isInteger(entry.count)) {
-                errors.push(`${prefix}[${entryIndex}]: "count" must be an integer (got ${entry.count})`);
-            } else if (entry.count <= 0) {
-                errors.push(`${prefix}[${entryIndex}]: "count" must be positive (got ${entry.count})`);
-            }
-
-            totalCount += entry.count || 0;
         });
-
-        // Validate total tile count
-        if (totalCount !== expectedTileCount) {
-            errors.push(`${prefix}: Total tile count ${totalCount} does not match expected ${expectedTileCount} (world_size²)`);
-        }
-
-        return errors;
     }
 
     /**
-     * Generate validation report
-     * @param {object} result - Validation result
-     * @returns {string} - Formatted report
+     * Palette-form color_data: array of [paletteIndex, count]; indices in range, counts positive,
+     * total tiles == world_size².
+     */
+    validatePaletteRLE(layer, info, expectedTileCount, colorMappings, prefix, errors) {
+        const paletteLen = layer.palette.length;
+        let total = 0;
+
+        layer.color_data.forEach((run, i) => {
+            if (!Array.isArray(run) || run.length !== 2) {
+                errors.push(`${prefix}: color_data[${i}] must be a [paletteIndex, count] pair`);
+                return;
+            }
+            const [idx, count] = run;
+            if (!Number.isInteger(idx) || idx < 0 || idx >= paletteLen) {
+                errors.push(`${prefix}: color_data[${i}] palette index ${idx} out of range [0, ${paletteLen - 1}]`);
+            }
+            if (!Number.isInteger(count) || count <= 0) {
+                errors.push(`${prefix}: color_data[${i}] count must be a positive integer (got ${count})`);
+            } else {
+                total += count;
+            }
+        });
+
+        if (expectedTileCount !== null && total !== expectedTileCount) {
+            errors.push(`${prefix}: total tile count ${total} does not match expected ${expectedTileCount} (world_size²)`);
+        }
+    }
+
+    /**
+     * Legacy direct RLE: array of { color, count }.
+     */
+    validateDirectRLE(colorData, expectedTileCount, prefix, errors) {
+        let total = 0;
+        colorData.forEach((run, i) => {
+            if (!run || typeof run !== 'object') {
+                errors.push(`${prefix}: color_data[${i}] must be a { color, count } object`);
+                return;
+            }
+            if (typeof run.color !== 'string' || !this.isHexColor(run.color)) {
+                errors.push(`${prefix}: color_data[${i}].color must be a #rrggbb colour`);
+            }
+            if (!Number.isInteger(run.count) || run.count <= 0) {
+                errors.push(`${prefix}: color_data[${i}].count must be a positive integer (got ${run.count})`);
+            } else {
+                total += run.count;
+            }
+        });
+
+        if (expectedTileCount !== null && total !== expectedTileCount) {
+            errors.push(`${prefix}: total tile count ${total} does not match expected ${expectedTileCount} (world_size²)`);
+        }
+    }
+
+    /** #rgb or #rrggbb hex colour. */
+    isHexColor(value) {
+        return typeof value === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
+    }
+
+    /**
+     * Format a validation result as a human-readable report.
      */
     generateReport(result) {
-        const lines = [];
-
-        lines.push('=== JSON-RLE Validation Report ===\n');
-
-        if (result.valid) {
-            lines.push('✅ VALIDATION PASSED\n');
-        } else {
-            lines.push('❌ VALIDATION FAILED\n');
-        }
+        const lines = ['=== JSON-RLE Validation Report ===\n'];
+        lines.push(result.valid ? '✅ VALIDATION PASSED\n' : '❌ VALIDATION FAILED\n');
 
         if (result.errors.length > 0) {
             lines.push(`\nErrors (${result.errors.length}):`);
-            result.errors.forEach((error, i) => {
-                lines.push(`  ${i + 1}. ${error}`);
-            });
+            result.errors.forEach((e, i) => lines.push(`  ${i + 1}. ${e}`));
         }
-
         if (result.warnings.length > 0) {
             lines.push(`\nWarnings (${result.warnings.length}):`);
-            result.warnings.forEach((warning, i) => {
-                lines.push(`  ${i + 1}. ${warning}`);
-            });
+            result.warnings.forEach((w, i) => lines.push(`  ${i + 1}. ${w}`));
         }
-
         if (result.valid && result.warnings.length === 0) {
             lines.push('\nNo errors or warnings detected.');
-            lines.push('World data conforms to TSIC JSON-RLE specification.');
+            lines.push('World data conforms to the TSIC JSON-RLE specification.');
         }
-
         return lines.join('\n');
     }
 
-    /**
-     * Validate and generate detailed report
-     * @param {object} rleData
-     * @returns {object} - { valid, errors, warnings, report }
-     */
     validateWithReport(rleData) {
         const result = this.validate(rleData);
-        const report = this.generateReport(result);
-
-        return {
-            ...result,
-            report
-        };
+        return { ...result, report: this.generateReport(result) };
     }
 
-    /**
-     * Quick validation (just return boolean)
-     * @param {object} rleData
-     * @returns {boolean}
-     */
     isValid(rleData) {
         return this.validate(rleData).valid;
     }
 
     /**
-     * Get compression statistics
-     * @param {object} rleData
-     * @returns {object} - Compression statistics
+     * RLE compression stats for the palette-form export (one channel per layer).
      */
     getCompressionStats(rleData) {
-        if (!rleData || !rleData.metadata || !rleData.layers) {
+        if (!rleData || !rleData.metadata || !Array.isArray(rleData.layers)) {
             return null;
         }
 
         const worldSize = rleData.metadata.world_size;
-        const totalTiles = worldSize * worldSize * rleData.layers.length * 4; // 4 data types per layer
+        const layerCount = rleData.layers.length;
+        const totalTiles = worldSize * worldSize * layerCount;
 
         let totalRLEEntries = 0;
         rleData.layers.forEach(layer => {
-            totalRLEEntries += (layer.biome_data?.length || 0);
-            totalRLEEntries += (layer.height_data?.length || 0);
-            totalRLEEntries += (layer.difficulty_data?.length || 0);
-            totalRLEEntries += (layer.hazard_data?.length || 0);
+            totalRLEEntries += Array.isArray(layer.color_data) ? layer.color_data.length : 0;
         });
 
-        const compressionRatio = (totalRLEEntries / totalTiles) * 100;
+        const compressionRatio = totalTiles > 0 ? (totalRLEEntries / totalTiles) * 100 : 0;
 
         return {
             worldSize,
-            layerCount: rleData.layers.length,
+            layerCount,
             totalTiles,
             totalRLEEntries,
             compressionRatio: compressionRatio.toFixed(2) + '%',
             efficiency: compressionRatio < 50 ? 'Excellent' :
-                       compressionRatio < 75 ? 'Good' :
-                       compressionRatio < 90 ? 'Fair' : 'Poor'
+                        compressionRatio < 75 ? 'Good' :
+                        compressionRatio < 90 ? 'Fair' : 'Poor'
         };
     }
 }
 
-// Export singleton instance
+// Singleton (referenced as a global by app.js) plus standard exports for tests/modules.
 const rleValidator = new RLEValidator();
+
+if (typeof window !== 'undefined') {
+    window.RLEValidator = RLEValidator;
+    window.rleValidator = rleValidator;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { RLEValidator, rleValidator };
+}

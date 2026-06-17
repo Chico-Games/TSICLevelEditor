@@ -17,11 +17,14 @@ function getDefaultColorForLayerType(layerType) {
         case 'Hazard':
             return '#1a1a1a'; // Hazard_None
         case 'Sky':
-            return '#d3d3d3'; // Biome_SkyEmpty
+            return '#b8b8b8'; // Biome_SkyEmpty
         case 'Floor':
             return '#ff6b6b'; // Biome_ShowFloor
         case 'Underground':
             return '#2f2f2f'; // Biome_Blocked
+        case 'SkyHeightOffset':
+        case 'UndergroundHeightOffset':
+            return '#0a0a0a'; // Height_0 (no offset)
         default:
             return '#000000'; // Fallback
     }
@@ -751,7 +754,13 @@ class LayerManager {
                 description: tileset.description
             };
 
-            if (tileset.category === 'Biomes') {
+            if (tileset.category === 'Biomes' || tileset.category === 'POI') {
+                // The runtime resolves a biome's `name` here as a gameplay tag via the
+                // biome registry (Tile.Biome.X) / RequestGameplayTag. The config key
+                // (Biome_X) is NOT a valid tag and leaves the palette slot empty in-game,
+                // so emit the full Tile.* tag instead. Heights / difficulty / hazards are
+                // resolved by their numeric `value`, not by tag, so they keep the key.
+                entry.name = tileset.tag.startsWith('Tile.') ? tileset.tag : `Tile.${tileset.tag}`;
                 mappings.biomes[color] = entry;
             } else if (tileset.category === 'Height') {
                 mappings.heights[color] = entry;
@@ -838,6 +847,34 @@ class LayerManager {
 
         if (this.layers.length === 0) {
             this.addLayer('Floor', { layerType: 'Floor', worldLayer: 'Floor' });
+        }
+
+        // Add any config-defined layers missing from the saved data (e.g., newly added layer types)
+        if (configManager) {
+            const configLayers = configManager.getLayers ? configManager.getLayers() : (configManager.layers || []);
+            const importedTypes = new Set(this.layers.map(l => l.layerType));
+            for (const layerConfig of configLayers) {
+                if (!importedTypes.has(layerConfig.layerType)) {
+                    console.log(`[LayerManager.importRLEData] Adding missing layer from config: ${layerConfig.layerType}`);
+                    const layer = new WorldLayer(layerConfig.name, this.width, this.height, {
+                        layerType: layerConfig.layerType,
+                        worldLayer: layerConfig.worldLayer || layerConfig.layerType,
+                        visible: layerConfig.visible !== undefined ? layerConfig.visible : true,
+                        opacity: layerConfig.opacity || 0.8
+                    });
+                    // Fill with default color
+                    const defaultColor = getDefaultColorForLayerType(layerConfig.layerType);
+                    if (defaultColor) {
+                        for (let y = 0; y < this.height; y++) {
+                            for (let x = 0; x < this.width; x++) {
+                                layer.tileData.set(`${x},${y}`, defaultColor);
+                            }
+                        }
+                    }
+                    layer.cacheDirty = true;
+                    this.layers.push(layer);
+                }
+            }
         }
 
         console.log(`[LayerManager.importRLEData] Import complete in ${(performance.now() - importStart).toFixed(1)}ms`);

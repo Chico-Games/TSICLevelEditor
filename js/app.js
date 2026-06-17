@@ -433,7 +433,9 @@ const randomGenSettings = {
             'Sky': 'Biomes',
             'Height': 'Height',
             'Difficulty': 'Difficulty',
-            'Hazard': 'Hazards'
+            'Hazard': 'Hazards',
+            'SkyHeightOffset': 'Height',
+            'UndergroundHeightOffset': 'Height'
         };
 
         const targetCategory = categoryMap[layerType] || 'Biomes';
@@ -2036,7 +2038,7 @@ function updatePaletteForLayer(layerType) {
     const tabContents = document.querySelectorAll('.palette-tab-content');
 
     // Determine which tabs are valid for this layer type
-    const isDataLayer = (layerType === 'Height' || layerType === 'Difficulty' || layerType === 'Hazard');
+    const isDataLayer = (layerType === 'Height' || layerType === 'Difficulty' || layerType === 'Hazard' || layerType === 'SkyHeightOffset' || layerType === 'UndergroundHeightOffset');
 
     // Enable/disable tabs based on layer type
     tabButtons.forEach(btn => {
@@ -2127,7 +2129,9 @@ function checkLayerDataTypes(layer) {
         'hazard': ['Hazards'],
         'floor': ['Biomes'],
         'sky': ['Biomes'],
-        'underground': ['Biomes']
+        'underground': ['Biomes'],
+        'skyheightoffset': ['Height'],
+        'undergroundheightoffset': ['Height']
     };
 
     const layerType = (layer.layerType || '').toLowerCase();
@@ -2178,7 +2182,9 @@ function clearInvalidDataTypes(layer) {
         'hazard': ['Hazards'],
         'floor': ['Biomes'],
         'sky': ['Biomes'],
-        'underground': ['Biomes']
+        'underground': ['Biomes'],
+        'skyheightoffset': ['Height'],
+        'undergroundheightoffset': ['Height']
     };
 
     const layerType = (layer.layerType || '').toLowerCase();
@@ -2326,7 +2332,9 @@ function filterColorsByLayer(layerType) {
         'hazard': ['Hazards'],
         'floor': ['Biomes'],
         'sky': ['Biomes'],
-        'underground': ['Biomes']
+        'underground': ['Biomes'],
+        'skyheightoffset': ['Height'],
+        'undergroundheightoffset': ['Height']
     };
 
     const layerTypeLower = (layerType || '').toLowerCase();
@@ -2367,7 +2375,9 @@ function ensureValidColorForLayer(layerType) {
         'hazard': ['Hazards'],
         'floor': ['Biomes'],
         'sky': ['Biomes'],
-        'underground': ['Biomes']
+        'underground': ['Biomes'],
+        'skyheightoffset': ['Height'],
+        'undergroundheightoffset': ['Height']
     };
 
     const layerTypeLower = (layerType || '').toLowerCase();

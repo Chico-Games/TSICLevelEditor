@@ -162,11 +162,14 @@ class LevelEditor {
             case 'Hazard':
                 return '#1a1a1a'; // Hazard_None
             case 'Sky':
-                return '#d3d3d3'; // Biome_SkyEmpty
+                return '#b8b8b8'; // Biome_SkyEmpty
             case 'Floor':
                 return '#ff6b6b'; // Biome_ShowFloor
             case 'Underground':
                 return '#2f2f2f'; // Biome_Blocked
+            case 'SkyHeightOffset':
+            case 'UndergroundHeightOffset':
+                return '#0a0a0a'; // Height_0 (no offset)
             default:
                 return '#000000'; // Fallback
         }
