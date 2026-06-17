@@ -1,234 +1,7 @@
 {
   "version": "3.0",
   "comment": "JSON-RLE World Format Configuration - Matches TSIC Unreal Engine Enums",
-
   "tilesets": {
-    "Biome_Empty": {
-      "color": "#FFFFFF",
-      "value": 0,
-      "icon": "⬜",
-      "tag": "Biome.Empty",
-      "category": "Biomes",
-      "displayName": "Empty",
-      "description": "Empty tile (for Sky, Floor, Underground)"
-    },
-    "Biome_ShowFloor": {
-      "color": "#FF6B6B",
-      "value": 1,
-      "icon": "🏬",
-      "tag": "Biome.ShowFloor",
-      "category": "Biomes",
-      "displayName": "Show Floor",
-      "description": "Store showroom floor"
-    },
-    "Biome_Restaurant": {
-      "color": "#F7DC6F",
-      "value": 2,
-      "icon": "🍽️",
-      "tag": "Biome.Restaurant",
-      "category": "Biomes",
-      "displayName": "Restaurant",
-      "description": "Food court/restaurant area"
-    },
-    "Biome_Warehouse": {
-      "color": "#4ECDC4",
-      "value": 3,
-      "icon": "📦",
-      "tag": "Biome.Warehouse",
-      "category": "Biomes",
-      "displayName": "Warehouse",
-      "description": "Storage/loading dock"
-    },
-    "Biome_SCPBase": {
-      "color": "#AED6F1",
-      "value": 4,
-      "icon": "🔬",
-      "tag": "Biome.SCPBase",
-      "category": "Biomes",
-      "displayName": "SCP Base",
-      "description": "Main SCP base area"
-    },
-    "Biome_SCPBaseEntrance": {
-      "color": "#3B82F6",
-      "value": 5,
-      "icon": "⬇️",
-      "tag": "Biome.SCPBaseEntrance",
-      "category": "Biomes",
-      "displayName": "SCP Entrance",
-      "description": "Entry point to SCP base"
-    },
-    "Biome_Map": {
-      "color": "#F59E0B",
-      "value": 6,
-      "icon": "🗺️",
-      "tag": "Biome.Map",
-      "category": "Biomes",
-      "displayName": "Map Kiosk",
-      "description": "Map kiosk location"
-    },
-    "Biome_HelpPoint": {
-      "color": "#BB8FCE",
-      "value": 7,
-      "icon": "❓",
-      "tag": "Biome.HelpPoint",
-      "category": "Biomes",
-      "displayName": "Help Point",
-      "description": "Player assistance location"
-    },
-    "Biome_SCPBaseExit": {
-      "color": "#1E40AF",
-      "value": 8,
-      "icon": "⬆️",
-      "tag": "Biome.SCPBaseExit",
-      "category": "Biomes",
-      "displayName": "SCP Exit",
-      "description": "Exit point from SCP base"
-    },
-    "Biome_SCPBasePower": {
-      "color": "#FBBF24",
-      "value": 9,
-      "icon": "⚡",
-      "tag": "Biome.SCPBasePower",
-      "category": "Biomes",
-      "displayName": "SCP Power",
-      "description": "SCP base power room"
-    },
-    "Biome_AbandonedCamp": {
-      "color": "#8B4513",
-      "value": 10,
-      "icon": "🏕️",
-      "tag": "Biome.AbandonedCamp",
-      "category": "Biomes",
-      "displayName": "Abandoned Camp",
-      "description": "Previous survivor camp"
-    },
-    "Biome_Kids": {
-      "color": "#FF69B4",
-      "value": 11,
-      "icon": "🧸",
-      "tag": "Biome.Kids",
-      "category": "Biomes",
-      "displayName": "Kids Area",
-      "description": "Children's store/play area"
-    },
-    "Biome_Gardening": {
-      "color": "#22C55E",
-      "value": 12,
-      "icon": "🌱",
-      "tag": "Biome.Gardening",
-      "category": "Biomes",
-      "displayName": "Garden Center",
-      "description": "Garden center"
-    },
-    "Biome_SkyEmpty": {
-      "color": "#B8B8B8",
-      "value": 13,
-      "icon": "☁️",
-      "tag": "Biome.SkyEmpty",
-      "category": "Biomes",
-      "displayName": "Sky (Empty)",
-      "description": "Empty sky/void tiles"
-    },
-    "Biome_SkyCeiling": {
-      "color": "#87CEEB",
-      "value": 14,
-      "icon": "🏠",
-      "tag": "Biome.SkyCeiling",
-      "category": "Biomes",
-      "displayName": "Sky (Ceiling)",
-      "description": "Ceiling tiles (skybox)"
-    },
-    "Biome_Bathroom": {
-      "color": "#2563EB",
-      "value": 15,
-      "icon": "🚻",
-      "tag": "Biome.Bathroom",
-      "category": "Biomes",
-      "displayName": "Bathroom",
-      "description": "Restroom facilities"
-    },
-    "Biome_CarPark": {
-      "color": "#6B7280",
-      "value": 16,
-      "icon": "🅿️",
-      "tag": "Biome.CarPark",
-      "category": "Biomes",
-      "displayName": "Car Park",
-      "description": "Main parking area"
-    },
-    "Biome_CarParkEntrance": {
-      "color": "#9CA3AF",
-      "value": 17,
-      "icon": "🚗",
-      "tag": "Biome.CarParkEntrance",
-      "category": "Biomes",
-      "displayName": "Car Park Entrance",
-      "description": "Entry point to car park"
-    },
-    "Biome_CarParkExit": {
-      "color": "#4B5563",
-      "value": 18,
-      "icon": "🚕",
-      "tag": "Biome.CarParkExit",
-      "category": "Biomes",
-      "displayName": "Car Park Exit",
-      "description": "Exit point from car park"
-    },
-    "Biome_StaffRoom": {
-      "color": "#DEB887",
-      "value": 19,
-      "icon": "👔",
-      "tag": "Biome.StaffRoom",
-      "category": "Biomes",
-      "displayName": "Staff Room",
-      "description": "Employee break room"
-    },
-    "Biome_Blocked": {
-      "color": "#2F2F2F",
-      "value": 20,
-      "icon": "🚫",
-      "tag": "Biome.Blocked",
-      "category": "Biomes",
-      "displayName": "Blocked",
-      "description": "Permanently blocked tile"
-    },
-    "Biome_Pit": {
-      "color": "#2F1B0C",
-      "value": 21,
-      "icon": "🕳️",
-      "tag": "Biome.Pit",
-      "category": "Biomes",
-      "displayName": "Pit",
-      "description": "Dangerous pit/hole"
-    },
-    "Biome_LostAndFound": {
-      "color": "#9370DB",
-      "value": 22,
-      "icon": "📋",
-      "tag": "Biome.LostAndFound",
-      "category": "POI",
-      "displayName": "Lost & Found",
-      "description": "Lost and found area"
-    },
-    "Biome_Spawn": {
-      "color": "#00FF7F",
-      "value": 23,
-      "icon": "🎯",
-      "tag": "Biome.Spawn",
-      "category": "Biomes",
-      "displayName": "Spawn",
-      "description": "Player spawn point"
-    },
-    "Biome_BrokenEmpty": {
-      "color": "#5C4033",
-      "value": 24,
-      "icon": "💔",
-      "tag": "Biome.BrokenEmpty",
-      "category": "Biomes",
-      "displayName": "Broken Empty",
-      "description": "Broken/damaged empty area"
-    },
-
     "Difficulty_Easy": {
       "color": "#90EE90",
       "value": 0,
@@ -274,7 +47,6 @@
       "displayName": "Apocalypse",
       "description": "Maximum difficulty, overwhelming enemies"
     },
-
     "Hazard_None": {
       "color": "#1a1a1a",
       "value": 0,
@@ -302,7 +74,6 @@
       "displayName": "Freezing",
       "description": "Cold damage, slows movement"
     },
-
     "Height_0": {
       "color": "#0a0a0a",
       "value": 0,
@@ -392,9 +163,258 @@
       "category": "Height",
       "displayName": "9",
       "description": "Height level 9"
+    },
+    "Biome_Empty": {
+      "color": "#FFFFFF",
+      "value": 0,
+      "icon": "⬜",
+      "tag": "Tile.Biome.Empty",
+      "category": "Biomes",
+      "displayName": "Empty",
+      "description": "Empty tile (for Sky, Floor, Underground)",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_ShowFloor": {
+      "color": "#FF6B6B",
+      "value": 1,
+      "icon": "🏬",
+      "tag": "Tile.Biome.ShowFloor",
+      "category": "Biomes",
+      "displayName": "Show Floor",
+      "description": "Store showroom floor",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_Restaurant": {
+      "color": "#F7DC6F",
+      "value": 2,
+      "icon": "🍽️",
+      "tag": "Tile.Biome.Restaurant",
+      "category": "Biomes",
+      "displayName": "Restaurant",
+      "description": "Food court/restaurant area",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_Warehouse": {
+      "color": "#4ECDC4",
+      "value": 3,
+      "icon": "📦",
+      "tag": "Tile.Biome.Warehouse",
+      "category": "Biomes",
+      "displayName": "Warehouse",
+      "description": "Storage/loading dock",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_SCPBase": {
+      "color": "#AED6F1",
+      "value": 4,
+      "icon": "🔬",
+      "tag": "Tile.Biome.SCPBase",
+      "category": "Biomes",
+      "displayName": "SCP Base",
+      "description": "Main SCP base area",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_SCPBaseEntrance": {
+      "color": "#3B82F6",
+      "value": 5,
+      "icon": "⬇️",
+      "tag": "Tile.Biome.SCPBaseEntrance",
+      "category": "Biomes",
+      "displayName": "SCP Base Entrance",
+      "description": "Entry point to SCP base",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_Map": {
+      "color": "#F59E0B",
+      "value": 6,
+      "icon": "🗺️",
+      "tag": "Tile.Biome.Map",
+      "category": "Biomes",
+      "displayName": "Map Marker",
+      "description": "Map kiosk location",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_HelpPoint": {
+      "color": "#BB8FCE",
+      "value": 7,
+      "icon": "❓",
+      "tag": "Tile.Biome.HelpPoint",
+      "category": "Biomes",
+      "displayName": "Help Point",
+      "description": "Player assistance location",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_SCPBaseExit": {
+      "color": "#1E40AF",
+      "value": 8,
+      "icon": "⬆️",
+      "tag": "Tile.Biome.SCPBaseExit",
+      "category": "Biomes",
+      "displayName": "SCP Base Exit",
+      "description": "Exit point from SCP base",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_SCPBasePower": {
+      "color": "#FBBF24",
+      "value": 9,
+      "icon": "⚡",
+      "tag": "Tile.Biome.SCPBasePower",
+      "category": "Biomes",
+      "displayName": "SCP Base Power",
+      "description": "SCP base power room",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_AbandonedCamp": {
+      "color": "#8B4513",
+      "value": 10,
+      "icon": "🏕️",
+      "tag": "Tile.Biome.AbandonedCamp",
+      "category": "Biomes",
+      "displayName": "Abandoned Camp",
+      "description": "Previous survivor camp",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_Kids": {
+      "color": "#FF69B4",
+      "value": 11,
+      "icon": "🧸",
+      "tag": "Tile.Biome.Kids",
+      "category": "Biomes",
+      "displayName": "Kids' Area",
+      "description": "Children's store/play area",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_Gardening": {
+      "color": "#22C55E",
+      "value": 12,
+      "icon": "🌱",
+      "tag": "Tile.Biome.Gardening",
+      "category": "Biomes",
+      "displayName": "Gardening",
+      "description": "Garden center",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_SkyEmpty": {
+      "color": "#B8B8B8",
+      "value": 13,
+      "icon": "☁️",
+      "tag": "Tile.Biome.SkyEmpty",
+      "category": "Biomes",
+      "displayName": "Sky (Empty)",
+      "description": "Empty sky/void tiles",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_SkyCeiling": {
+      "color": "#87CEEB",
+      "value": 14,
+      "icon": "🏠",
+      "tag": "Tile.Biome.SkyCeiling",
+      "category": "Biomes",
+      "displayName": "Sky (Ceiling)",
+      "description": "Ceiling tiles (skybox)",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_Bathroom": {
+      "color": "#2563EB",
+      "value": 15,
+      "icon": "🚻",
+      "tag": "Tile.Biome.Bathroom",
+      "category": "Biomes",
+      "displayName": "Bathroom",
+      "description": "Restroom facilities",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_CarPark": {
+      "color": "#6B7280",
+      "value": 16,
+      "icon": "🅿️",
+      "tag": "Tile.Biome.CarPark",
+      "category": "Biomes",
+      "displayName": "Car Park",
+      "description": "Main parking area",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_CarParkEntrance": {
+      "color": "#9CA3AF",
+      "value": 17,
+      "icon": "🚗",
+      "tag": "Tile.Biome.CarParkEntrance",
+      "category": "Biomes",
+      "displayName": "Car Park Entrance",
+      "description": "Entry point to car park",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_CarParkExit": {
+      "color": "#4B5563",
+      "value": 18,
+      "icon": "🚕",
+      "tag": "Tile.Biome.CarParkExit",
+      "category": "Biomes",
+      "displayName": "Car Park Exit",
+      "description": "Exit point from car park",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_StaffRoom": {
+      "color": "#DEB887",
+      "value": 19,
+      "icon": "👔",
+      "tag": "Tile.Biome.StaffRoom",
+      "category": "Biomes",
+      "displayName": "Staff Room",
+      "description": "Employee break room",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_Blocked": {
+      "color": "#2F2F2F",
+      "value": 20,
+      "icon": "🚫",
+      "tag": "Tile.Biome.Blocked",
+      "category": "Biomes",
+      "displayName": "Blocked",
+      "description": "Permanently blocked tile",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_Pit": {
+      "color": "#2F1B0C",
+      "value": 21,
+      "icon": "🕳️",
+      "tag": "Tile.Biome.Pit",
+      "category": "Biomes",
+      "displayName": "Pit",
+      "description": "Dangerous pit/hole",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_LostAndFound": {
+      "color": "#9370DB",
+      "value": 22,
+      "icon": "📋",
+      "tag": "Tile.Biome.LostAndFound",
+      "category": "POI",
+      "displayName": "Lost & Found",
+      "description": "Lost and found area",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_Spawn": {
+      "color": "#00FF7F",
+      "value": 23,
+      "icon": "🎯",
+      "tag": "Tile.Biome.Spawn",
+      "category": "Biomes",
+      "displayName": "Spawn",
+      "description": "Player spawn point",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_BrokenEmpty": {
+      "color": "#5C4033",
+      "value": 24,
+      "icon": "💔",
+      "tag": "Tile.Biome.BrokenEmpty",
+      "category": "Biomes",
+      "displayName": "Broken Empty",
+      "description": "Broken/damaged empty area",
+      "mod": "com.chicogames.default"
     }
   },
-
   "layers": [
     {
       "name": "Height",
@@ -461,52 +481,95 @@
       "worldLayer": "Underground",
       "required": false,
       "description": "Basement/underground areas"
+    },
+    {
+      "name": "SkyHeightOffset",
+      "visible": true,
+      "opacity": 0.2,
+      "locked": false,
+      "editable": true,
+      "layerType": "SkyHeightOffset",
+      "worldLayer": "SkyHeightOffset",
+      "required": false,
+      "description": "Sky layer vertical offset (0-9, moves sky UP)"
+    },
+    {
+      "name": "UndergroundHeightOffset",
+      "visible": true,
+      "opacity": 0.2,
+      "locked": false,
+      "editable": true,
+      "layerType": "UndergroundHeightOffset",
+      "worldLayer": "UndergroundHeightOffset",
+      "required": false,
+      "description": "Underground layer vertical offset (0-9, moves underground DOWN)"
     }
   ],
-
   "dataTypes": [
     {
       "type": "biome",
       "name": "Biome",
       "description": "Biome/room type",
-      "valueRange": [0, 24],
+      "valueRange": [
+        0,
+        24
+      ],
       "defaultValue": 0
     },
     {
       "type": "height",
       "name": "Height",
       "description": "Elevation/height",
-      "valueRange": [0, 9],
+      "valueRange": [
+        0,
+        9
+      ],
       "defaultValue": 2
     },
     {
       "type": "difficulty",
       "name": "Difficulty",
       "description": "Enemy difficulty level",
-      "valueRange": [0, 4],
+      "valueRange": [
+        0,
+        4
+      ],
       "defaultValue": 0
     },
     {
       "type": "hazard",
       "name": "Hazard",
       "description": "Environmental hazard type",
-      "valueRange": [0, 2],
+      "valueRange": [
+        0,
+        2
+      ],
       "defaultValue": 0
     }
   ],
-
   "defaultGridSize": {
     "width": 256,
     "height": 256
   },
-
   "availableSizes": [
-    { "value": 256, "label": "256×256 (Small)", "default": true },
-    { "value": 512, "label": "512×512 (Standard)" },
-    { "value": 1024, "label": "1024×1024 (Large)" },
-    { "value": 2048, "label": "2048×2048 (Extra Large)" }
+    {
+      "value": 256,
+      "label": "256×256 (Small)",
+      "default": true
+    },
+    {
+      "value": 512,
+      "label": "512×512 (Standard)"
+    },
+    {
+      "value": 1024,
+      "label": "1024×1024 (Large)"
+    },
+    {
+      "value": 2048,
+      "label": "2048×2048 (Extra Large)"
+    }
   ],
-
   "enumMappings": {
     "ETileBiome": {
       "Empty": 0,
@@ -554,5 +617,12 @@
       "Underground": 3,
       "Hazard": 4
     }
+  },
+  "biomeSource": {
+    "syncedFrom": [
+      "com.chicogames.default"
+    ],
+    "biomeCount": 25,
+    "maxBiomeValue": 24
   }
 }

@@ -1,0 +1,59 @@
+# Deploy the level editor to GitHub Pages, EXCLUDING the vendored default-project mod.
+#
+# The full com.chicogames.default export (~88 MB) is vendored at vendor/default-project as a
+# git subtree so the sync tool and contributors have the source of truth, but the deployed
+# site only needs the small generated config/biomes.json. This workflow publishes everything
+# except vendor/ (and dev-only files), so the live site stays lean.
+#
+# To activate: repo Settings -> Pages -> Build and deployment -> Source = "GitHub Actions".
+# (Until then the repo's existing "deploy from branch" setting is unchanged.)
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage site (exclude vendored mod + dev files)
+        run: |
+          mkdir _site
+          rsync -a ./ _site/ \
+            --exclude '.git' \
+            --exclude '_site' \
+            --exclude 'vendor' \
+            --exclude 'node_modules' \
+            --exclude '.worktrees' \
+            --exclude 'tests' \
+            --exclude 'test-results' \
+            --exclude 'test-downloads' \
+            --exclude 'playwright-report' \
+            --exclude 'test-*.html' \
+            --exclude 'test-*.js' \
+            --exclude '*.spec.js'
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

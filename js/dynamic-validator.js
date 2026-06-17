@@ -145,6 +145,13 @@ class DynamicRLEValidator {
         if (this.config.enumMappings) {
             this.rules.enumMappings = this.config.enumMappings;
         }
+
+        // Build the biome catalog for the active mod set (default + add-on mods baked in at sync time)
+        const MC = (typeof require !== 'undefined')
+            ? require('./mod-catalog.js')
+            : (typeof window !== 'undefined' ? window.ModCatalog : (typeof self !== 'undefined' ? self.ModCatalog : null));
+        this.catalog = MC ? MC.buildBiomeCatalog(this.config) : null;
+        this._modCatalog = MC;
     }
 
     /**
@@ -228,6 +235,13 @@ class DynamicRLEValidator {
             const layerErrors = this.validateLayer(data.layers[i], i, worldSize);
             errors.push(...layerErrors.errors);
             warnings.push(...layerErrors.warnings);
+        }
+
+        // Validate biome usage against the active mod set (catalog from config.biomeSource)
+        if (this.catalog && this._modCatalog) {
+            const modSet = this._modCatalog.validateMapBiomes(data, this.catalog);
+            errors.push(...modSet.errors);
+            warnings.push(...modSet.warnings);
         }
 
         return {
