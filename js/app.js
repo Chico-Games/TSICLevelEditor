@@ -1826,6 +1826,38 @@ function initializeColorPalette() {
         poiTab.appendChild(poiContent);
     }
 
+    // Dynamically include any biomes from the active mod set that aren't in the
+    // curated lists above — e.g. modded biomes appended by tools/sync-biomes.mjs.
+    // Keeps the palette in sync with config/biomes.json instead of a hardcoded set.
+    const placedBiomeKeys = new Set([
+        ...Object.values(biomeSubcategories).flat(),
+        ...poiBiomes
+    ]);
+    const moddedBiomeItems = [];
+    const moddedPoiItems = [];
+    for (const [name, tileset] of Object.entries(tilesets)) {
+        if (!name.startsWith('Biome_') || placedBiomeKeys.has(name)) continue;
+        if (tileset.category === 'POI') {
+            moddedPoiItems.push(createColorItem(name, tileset));
+        } else {
+            moddedBiomeItems.push(createColorItem(name, tileset));
+        }
+    }
+    if (moddedBiomeItems.length > 0) {
+        biomesTab.appendChild(createSubcategory('Modded', moddedBiomeItems));
+    }
+    if (moddedPoiItems.length > 0) {
+        let poiContent = poiTab.querySelector('.color-category-content');
+        if (!poiContent) {
+            poiContent = document.createElement('div');
+            poiContent.className = 'color-category-content';
+            poiTab.appendChild(poiContent);
+        }
+        for (const item of moddedPoiItems) {
+            poiContent.appendChild(item);
+        }
+    }
+
     // Populate Other tab (Height, Difficulty, Hazards)
     const otherCategories = ['Height', 'Difficulty', 'Hazards'];
     for (const category of otherCategories) {
