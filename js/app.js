@@ -1641,6 +1641,12 @@ async function init() {
     // Initialize project system (only if no test JSON was loaded)
     if (!editor.currentFileName) {
         console.log('[INIT] No current file, initializing project system...');
+        // Migrate old-format saves (very-old single-file, and the all-in-one
+        // tsic_projects blob) into the per-project cache. This function existed
+        // but was never called, so saves made before the storage-format change
+        // were silently invisible in the dropdown. Runs once; no-op afterwards.
+        migrateOldStorageToCache();
+
         // Populate project dropdown
         t0 = performance.now();
         updateProjectDropdown();
