@@ -230,7 +230,7 @@
       "icon": "🗺️",
       "tag": "Tile.Biome.Map",
       "category": "Biomes",
-      "displayName": "Map Marker",
+      "displayName": "Store Map",
       "description": "Map kiosk location",
       "mod": "com.chicogames.default"
     },
