@@ -771,9 +771,12 @@ class LayerManager {
             }
         }
 
-        // Add #000000 fallback for all layer types (used as default empty color)
+        // Add #000000 fallback for all layer types (used as default empty color).
+        // Biomes resolve `name` as a gameplay tag (see above), so their fallback
+        // must be tag-form; the value-resolved layers keep the bare name.
+        if (!mappings.biomes['#000000'])
+            mappings.biomes['#000000'] = { value: 0, name: 'Tile.Biome.Empty', description: 'Empty/default tile' };
         const emptyEntry = { value: 0, name: 'Empty', description: 'Empty/default tile' };
-        if (!mappings.biomes['#000000']) mappings.biomes['#000000'] = emptyEntry;
         if (!mappings.heights['#000000']) mappings.heights['#000000'] = emptyEntry;
         if (!mappings.difficulty['#000000']) mappings.difficulty['#000000'] = emptyEntry;
         if (!mappings.hazards['#000000']) mappings.hazards['#000000'] = emptyEntry;
