@@ -6,3 +6,7 @@ playwright-report/
 .DS_Store
 *.log
 .worktrees/
+
+# Local test-run artifacts
+.test-screenshots/
+test-mods/
