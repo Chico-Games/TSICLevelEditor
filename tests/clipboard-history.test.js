@@ -1,308 +1,273 @@
 /**
- * Clipboard History Tests
- * Tests for the clipboard history manager and copy/paste functionality
+ * Clipboard history
+ *
+ * The old version drove everything through canvas clicks at guessed pixel offsets and
+ * then asserted only on counts and status text. Most importantly, "should paste
+ * different entries when switching active" — the test for the whole point of having a
+ * history — only checked that the status message contained "Pasted", which is true of
+ * every paste regardless of which entry it used.
+ *
+ * These drive the tools directly and assert on the tiles that actually move.
  */
 
-const { test, expect } = require('./test-base');
+const { test, expect, initializeEditor, clickLayer, selectColor } = require('./test-base');
 
-test.describe('Clipboard History Manager', () => {
+/** Paint a rectangle of tiles with the currently selected colour. */
+async function paintRect(page, x0, y0, x1, y1) {
+    await page.evaluate(({ ax, ay, bx, by }) => {
+        const tiles = [];
+        for (let x = ax; x <= bx; x++) for (let y = ay; y <= by; y++) tiles.push({ x, y });
+        window.editor.setTiles(tiles);
+    }, { ax: x0, ay: y0, bx: x1, by: y1 });
+}
+
+/** Select a rectangle with the selection tool and copy it. */
+async function selectAndCopy(page, x0, y0, x1, y1) {
+    await page.evaluate(({ ax, ay, bx, by }) => {
+        const editor = window.editor;
+        const tool = editor.currentTool;
+        tool.startX = ax; tool.startY = ay;
+        tool.endX = bx; tool.endY = by;
+        tool.isFloating = false;
+        tool.copySelection(editor);
+    }, { ax: x0, ay: y0, bx: x1, by: y1 });
+}
+
+async function historyState(page) {
+    return await page.evaluate(() => ({
+        modelCount: window.clipboardHistory.entries.length,
+        activeIndex: window.clipboardHistory.activeIndex,
+        labels: Array.from(document.querySelectorAll('.copy-history-label')).map(l => l.textContent),
+        uiCount: document.querySelectorAll('.copy-history-item').length,
+        colors: window.clipboardHistory.entries.map(
+            e => Array.from(new Set(e.data.tiles.map(t => t.tileset.color)))
+        )
+    }));
+}
+
+test.describe('Clipboard history', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
-        await page.waitForSelector('#grid-canvas');
-        await page.waitForTimeout(500); // Wait for initialization
-    });
-
-    test('should initialize with empty history', async ({ page }) => {
-        const emptyText = await page.locator('.copy-history-empty').textContent();
-        expect(emptyText).toBe('No copies yet');
-    });
-
-    test('should add entry to history when copying selection', async ({ page }) => {
-        // Select pencil tool and draw some tiles
-        await page.click('[data-tool="pencil"]');
-
-        // Select a color
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        // Draw a 5x5 square
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-        for (let i = 0; i < 5; i++) {
-            for (let j = 0; j < 5; j++) {
-                await canvas.click({
-                    position: { x: box.width / 2 + i * 10, y: box.height / 2 + j * 10 }
-                });
-            }
-        }
-
-        // Switch to selection tool
+        await initializeEditor(page);
+        await clickLayer(page, 'Floor');
         await page.click('[data-tool="selection"]');
-        await page.waitForTimeout(200);
-
-        // Draw selection box
-        await canvas.click({ position: { x: box.width / 2 - 10, y: box.height / 2 - 10 } });
-        await canvas.click({ position: { x: box.width / 2 + 60, y: box.height / 2 + 60 } });
-
-        // Copy
-        await page.keyboard.press('Control+C');
-
-        // Check history panel
-        const historyItems = await page.locator('.copy-history-item').count();
-        expect(historyItems).toBe(1);
-
-        const historyLabel = await page.locator('.copy-history-label').first().textContent();
-        expect(historyLabel).toBe('Copy 1');
     });
 
-    test('should maintain up to 10 history entries', async ({ page }) => {
-        // Select pencil tool
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-
-        // Create and copy 12 different selections
-        for (let i = 0; i < 12; i++) {
-            // Draw a tile
-            await canvas.click({
-                position: { x: box.width / 2 + i * 15, y: box.height / 2 + i * 15 }
-            });
-
-            // Switch to selection tool
-            await page.click('[data-tool="selection"]');
-
-            // Select the tile
-            await canvas.click({ position: { x: box.width / 2 + i * 15, y: box.height / 2 + i * 15 } });
-
-            // Copy
-            await page.keyboard.press('Control+C');
-
-            // Switch back to pencil
-            await page.click('[data-tool="pencil"]');
-
-            await page.waitForTimeout(100);
-        }
-
-        // Should only have 10 entries (oldest 2 removed)
-        const historyItems = await page.locator('.copy-history-item').count();
-        expect(historyItems).toBe(10);
+    test('starts empty', async ({ page }) => {
+        expect(await page.locator('.copy-history-empty').textContent()).toBe('No copies yet');
+        const state = await historyState(page);
+        expect(state.modelCount).toBe(0);
+        expect(state.activeIndex).toBe(-1);
     });
 
-    test('should set active entry when clicked', async ({ page }) => {
-        // Setup: Create 3 copies
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
+    test('copying adds an entry describing what was copied', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+        await paintRect(page, 10, 10, 12, 12);
+        await selectAndCopy(page, 10, 10, 12, 12);
 
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
+        const state = await historyState(page);
+        expect(state.modelCount).toBe(1);
+        expect(state.uiCount).toBe(1);
+        expect(state.labels[0]).toBe('Copy 1');
+        expect(state.activeIndex).toBe(0);
 
-        for (let i = 0; i < 3; i++) {
-            await canvas.click({
-                position: { x: box.width / 2 + i * 20, y: box.height / 2 }
-            });
-
-            await page.click('[data-tool="selection"]');
-            await canvas.click({ position: { x: box.width / 2 + i * 20, y: box.height / 2 } });
-            await page.keyboard.press('Control+C');
-            await page.click('[data-tool="pencil"]');
-            await page.waitForTimeout(100);
-        }
-
-        // Click on second entry
-        const secondEntry = await page.locator('.copy-history-item').nth(1);
-        await secondEntry.click();
-
-        // Verify it's active
-        const activeClass = await secondEntry.getAttribute('class');
-        expect(activeClass).toContain('active');
-    });
-
-    test('should delete entry when delete button clicked', async ({ page }) => {
-        // Setup: Create 3 copies
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-
-        for (let i = 0; i < 3; i++) {
-            await canvas.click({
-                position: { x: box.width / 2 + i * 20, y: box.height / 2 }
-            });
-
-            await page.click('[data-tool="selection"]');
-            await canvas.click({ position: { x: box.width / 2 + i * 20, y: box.height / 2 } });
-            await page.keyboard.press('Control+C');
-            await page.click('[data-tool="pencil"]');
-            await page.waitForTimeout(100);
-        }
-
-        // Delete middle entry
-        const deleteBtn = await page.locator('.copy-history-delete').nth(1);
-        await deleteBtn.click();
-
-        // Should have 2 entries now
-        const historyItems = await page.locator('.copy-history-item').count();
-        expect(historyItems).toBe(2);
-    });
-
-    test('should paste from active history entry', async ({ page }) => {
-        // Draw a colored tile
-        await page.click('[data-tool="pencil"]');
-        const colorItems = await page.locator('.color-item');
-        await colorItems.nth(1).click(); // Select second color
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-
-        await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
-
-        // Copy it
-        await page.click('[data-tool="selection"]');
-        await canvas.click({ position: { x: box.width / 2 - 5, y: box.height / 2 - 5 } });
-        await canvas.click({ position: { x: box.width / 2 + 5, y: box.height / 2 + 5 } });
-        await page.keyboard.press('Control+C');
-
-        // Verify history entry exists
-        const historyItems = await page.locator('.copy-history-item').count();
-        expect(historyItems).toBe(1);
-
-        // Paste
-        await page.keyboard.press('Control+V');
-
-        // Should create floating selection
-        const statusMsg = await page.locator('#status-message').textContent();
-        expect(statusMsg).toContain('Pasted');
-    });
-
-    test('should show tile count and dimensions in history entry', async ({ page }) => {
-        // Draw a 3x3 grid
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-
-        for (let i = 0; i < 3; i++) {
-            for (let j = 0; j < 3; j++) {
-                await canvas.click({
-                    position: { x: box.width / 2 + i * 10, y: box.height / 2 + j * 10 }
-                });
-            }
-        }
-
-        // Select and copy
-        await page.click('[data-tool="selection"]');
-        await canvas.click({ position: { x: box.width / 2 - 10, y: box.height / 2 - 10 } });
-        await canvas.click({ position: { x: box.width / 2 + 30, y: box.height / 2 + 30 } });
-        await page.keyboard.press('Control+C');
-
-        // Check details
         const details = await page.locator('.copy-history-details').first().textContent();
-        expect(details).toContain('tiles');
-        expect(details).toContain('×'); // Dimension separator
+        expect(details).toContain('9 tiles');
+        expect(details).toContain('×');
+        expect(details).toContain('3');
     });
 
-    test('should work with wand tool selections', async ({ page }) => {
-        // Draw a connected region
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
+    test('the newest copy becomes the active entry and sits first', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+        await paintRect(page, 20, 20, 21, 21);
+        await selectAndCopy(page, 20, 20, 21, 21);
 
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
+        await selectColor(page, 'Biome_Bathroom');
+        await paintRect(page, 30, 30, 31, 31);
+        await selectAndCopy(page, 30, 30, 31, 31);
 
-        // Draw a small connected area
-        for (let i = 0; i < 5; i++) {
-            await canvas.click({
-                position: { x: box.width / 2 + i * 10, y: box.height / 2 }
-            });
+        const state = await historyState(page);
+        expect(state.modelCount).toBe(2);
+        expect(state.activeIndex).toBe(0);
+        expect(state.colors[0]).toEqual(['#2563eb']); // Biome_Bathroom, most recent
+        expect(state.colors[1]).toEqual(['#4ecdc4']); // Biome_Warehouse
+    });
+
+    test('the history is capped at ten entries, dropping the oldest', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+
+        for (let i = 0; i < 12; i++) {
+            await paintRect(page, 40 + i * 2, 40, 40 + i * 2, 40);
+            await selectAndCopy(page, 40 + i * 2, 40, 40 + i * 2, 40);
         }
 
-        // Use wand to select
-        await page.click('[data-tool="wand"]');
-        await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
-
-        // Copy
-        await page.keyboard.press('Control+C');
-
-        // Check history
-        const historyItems = await page.locator('.copy-history-item').count();
-        expect(historyItems).toBe(1);
-
-        const statusMsg = await page.locator('#status-message').textContent();
-        expect(statusMsg).toContain('history');
-    });
-});
-
-test.describe('Multiple Clipboard Entries', () => {
-    test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
-        await page.waitForSelector('#grid-canvas');
-        await page.waitForTimeout(500);
+        const state = await historyState(page);
+        expect(state.modelCount).toBe(10);
+        expect(state.uiCount).toBe(10);
+        // Labels count down from the newest: `Copy ${entries.length - index}`.
+        expect(state.labels[0]).toBe('Copy 10');
+        expect(state.labels[9]).toBe('Copy 1');
     });
 
-    test('should paste different entries when switching active', async ({ page }) => {
-        // Create 2 different colored selections
-        await page.click('[data-tool="pencil"]');
+    test('clicking an entry makes it active', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+        for (let i = 0; i < 3; i++) {
+            await paintRect(page, 50 + i * 2, 50, 50 + i * 2, 50);
+            await selectAndCopy(page, 50 + i * 2, 50, 50 + i * 2, 50);
+        }
 
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-
-        // First copy - red tiles
-        const colorItems = await page.locator('.color-item');
-        await colorItems.nth(1).click(); // First color
-        await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
-
-        await page.click('[data-tool="selection"]');
-        await canvas.click({ position: { x: box.width / 2 - 5, y: box.height / 2 - 5 } });
-        await canvas.click({ position: { x: box.width / 2 + 5, y: box.height / 2 + 5 } });
-        await page.keyboard.press('Control+C');
-
-        // Second copy - different color
-        await page.click('[data-tool="pencil"]');
-        await colorItems.nth(3).click(); // Different color
-        await canvas.click({ position: { x: box.width / 2 + 50, y: box.height / 2 } });
-
-        await page.click('[data-tool="selection"]');
-        await canvas.click({ position: { x: box.width / 2 + 45, y: box.height / 2 - 5 } });
-        await canvas.click({ position: { x: box.width / 2 + 55, y: box.height / 2 + 5 } });
-        await page.keyboard.press('Control+C');
-
-        // Should have 2 entries
-        const historyItems = await page.locator('.copy-history-item').count();
-        expect(historyItems).toBe(2);
-
-        // Click on first entry (older)
         await page.locator('.copy-history-item').nth(1).click();
+        await page.waitForTimeout(100);
 
-        // Paste should use the first entry
-        await page.keyboard.press('Control+V');
-
-        // Wait for status message to update
-        await page.waitForFunction(
-            () => document.getElementById('status-message').textContent.includes('Pasted'),
-            { timeout: 3000 }
-        );
-
-        // Verify paste happened
-        const statusMsg = await page.locator('#status-message').textContent();
-        expect(statusMsg).toContain('Pasted');
+        expect(await page.locator('.copy-history-item').nth(1).getAttribute('class')).toContain('active');
+        expect((await historyState(page)).activeIndex).toBe(1);
     });
 
-    test('should handle empty history gracefully', async ({ page }) => {
-        // Try to paste without copying
-        await page.click('[data-tool="selection"]');
-        await page.keyboard.press('Control+V');
+    test('pasting uses the ACTIVE entry, not simply the most recent', async ({ page }) => {
+        // The behaviour the history exists for. The old test asserted only that the
+        // status line said "Pasted", which any paste produces.
+        await selectColor(page, 'Biome_Warehouse');
+        await paintRect(page, 60, 60, 60, 60);
+        await selectAndCopy(page, 60, 60, 60, 60);   // entry for #4ecdc4
 
-        // Should not crash or show error
-        const emptyText = await page.locator('.copy-history-empty').textContent();
-        expect(emptyText).toBe('No copies yet');
+        await selectColor(page, 'Biome_Bathroom');
+        await paintRect(page, 62, 60, 62, 60);
+        await selectAndCopy(page, 62, 60, 62, 60);   // entry for #2563eb (now active)
+
+        const pasted = await page.evaluate(() => {
+            const editor = window.editor;
+            const tool = editor.currentTool;
+
+            // Select the OLDER entry, then paste.
+            window.clipboardHistory.setActive(1);
+            tool.clearSelection(editor);
+            tool.pasteSelection(editor);
+
+            return {
+                activeIndex: window.clipboardHistory.activeIndex,
+                colors: Array.from(new Set(tool.selectionData.tiles.map(t => t.tileset.color))),
+                status: document.getElementById('status-message').textContent
+            };
+        });
+
+        expect(pasted.activeIndex).toBe(1);
+        expect(pasted.colors).toEqual(['#4ecdc4']); // the older copy, not the newest
+        expect(pasted.status).toContain('Pasted');
+    });
+
+    test('deleting an entry keeps the same entry active', async ({ page }) => {
+        // ClipboardHistory.deleteEntry only re-clamped activeIndex when it ran past the
+        // end. Removing an entry BEFORE the active one silently shifted the selection
+        // onto a different copy, so the next paste stamped the wrong tiles.
+        await selectColor(page, 'Biome_Warehouse');
+        await paintRect(page, 70, 70, 70, 70);
+        await selectAndCopy(page, 70, 70, 70, 70);          // becomes index 2
+
+        await selectColor(page, 'Biome_Bathroom');
+        await paintRect(page, 72, 70, 72, 70);
+        await selectAndCopy(page, 72, 70, 72, 70);          // becomes index 1
+
+        await selectColor(page, 'Biome_Kids');
+        await paintRect(page, 74, 70, 74, 70);
+        await selectAndCopy(page, 74, 70, 74, 70);          // index 0
+
+        const result = await page.evaluate(() => {
+            const history = window.clipboardHistory;
+            history.setActive(2); // the oldest entry (#4ecdc4)
+            const before = history.getActive().data.tiles[0].tileset.color;
+
+            history.deleteEntry(0); // remove an entry BEFORE the active one
+
+            return {
+                before,
+                count: history.entries.length,
+                activeIndex: history.activeIndex,
+                after: history.getActive()?.data.tiles[0].tileset.color ?? null
+            };
+        });
+
+        expect(result.count).toBe(2);
+        expect(result.after, 'active entry changed when an earlier entry was deleted')
+            .toBe(result.before);
+        expect(result.activeIndex).toBe(1);
+    });
+
+    test('deleting the active entry falls back to a valid one', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+        for (let i = 0; i < 3; i++) {
+            await paintRect(page, 80 + i * 2, 80, 80 + i * 2, 80);
+            await selectAndCopy(page, 80 + i * 2, 80, 80 + i * 2, 80);
+        }
+
+        const result = await page.evaluate(() => {
+            const history = window.clipboardHistory;
+            history.setActive(2);
+            history.deleteEntry(2);
+            return {
+                count: history.entries.length,
+                activeIndex: history.activeIndex,
+                hasActive: history.getActive() !== null
+            };
+        });
+
+        expect(result.count).toBe(2);
+        expect(result.activeIndex).toBe(1);
+        expect(result.hasActive).toBe(true);
+    });
+
+    test('the delete button removes the entry from the panel', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+        for (let i = 0; i < 3; i++) {
+            await paintRect(page, 90 + i * 2, 90, 90 + i * 2, 90);
+            await selectAndCopy(page, 90 + i * 2, 90, 90 + i * 2, 90);
+        }
+
+        await page.locator('.copy-history-delete').nth(1).click();
+        await page.waitForTimeout(100);
+
+        const state = await historyState(page);
+        expect(state.uiCount).toBe(2);
+        expect(state.modelCount).toBe(2);
+    });
+
+    test('a wand selection can be copied too', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+        await paintRect(page, 100, 100, 104, 100);
+
+        await page.click('[data-tool="wand"]');
+        const result = await page.evaluate(() => {
+            const editor = window.editor;
+            const tool = editor.currentTool;
+            document.getElementById('wand-diagonal').checked = false;
+            tool.floodFillSelect(editor, 100, 100, false);
+            tool.copySelection(editor);
+            return {
+                selected: tool.selectedTiles.length,
+                entries: window.clipboardHistory.entries.length,
+                tileCount: window.clipboardHistory.getActive().tileCount,
+                status: document.getElementById('status-message').textContent
+            };
+        });
+
+        expect(result.selected).toBe(5);
+        expect(result.entries).toBe(1);
+        expect(result.tileCount).toBe(5);
+        expect(result.status).toContain('history');
+    });
+
+    test('pasting with an empty history does nothing and does not crash', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const editor = window.editor;
+            const tool = editor.currentTool;
+            tool.pasteSelection(editor);
+            return {
+                floating: tool.isFloating,
+                selectionData: tool.selectionData,
+                emptyLabel: document.querySelector('.copy-history-empty')?.textContent ?? null
+            };
+        });
+
+        expect(result.floating).toBe(false);
+        expect(result.selectionData).toBeNull();
+        expect(result.emptyLabel).toBe('No copies yet');
     });
 });

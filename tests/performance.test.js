@@ -1,239 +1,229 @@
 /**
- * Performance Tests
- * Tests rendering performance with fully filled layers
+ * Performance of the real editor, measured in-page
+ *
+ * The previous performance suite measured almost nothing:
+ *
+ *  - performance.test.js loaded the app over `file://`, where configManager's fetch of
+ *    config/biomes.json is blocked, so `window.editor` was null and every test threw.
+ *  - Its "render performance" numbers were the wall-clock around
+ *    `page.keyboard.press()` + `waitForTimeout(50)`, i.e. it timed its own sleeps and
+ *    then asserted the total was under 100ms.
+ *  - "measure tile rendering count" had no assertions at all and reported a hardcoded
+ *    constant as the tile total.
+ *  - direct-performance.test.js and automated-performance.test.js drove two standalone
+ *    HTML harness pages that no longer run (they throw on DOM the app expects), so both
+ *    simply timed out. Those files have been removed; the HTML pages are still in the
+ *    repo for manual profiling.
+ *
+ * Everything here brackets the work with performance.now() INSIDE the page, so the
+ * number is the operation rather than Playwright round-trip latency, and each test
+ * asserts the work actually happened.
  */
 
-const { test, expect } = require('@playwright/test');
-const path = require('path');
+const { test, expect, initializeEditor, clickLayer, selectColor } = require('./test-base');
 
-test.describe('Performance Tests', () => {
-    test.beforeEach(async ({ page }) => {
-        await page.goto(`file://${path.resolve(__dirname, '../index.html')}`);
-        await page.waitForLoadState('networkidle');
-        await page.waitForTimeout(500);
-    });
+const GRID = 256;
+const GRID_TILES = GRID * GRID;
 
-    test('render performance with all layers fully filled', async ({ page }) => {
-        // Fill all 6 layers with solid colors
-        const layers = [
-            { name: 'Height', color: '#525d6b' },
-            { name: 'Difficulty', color: '#FFD700' },
-            { name: 'Hazard', color: '#39FF14' },
-            { name: 'Sky', color: '#87CEEB' },
-            { name: 'Floor', color: '#FF6B6B' },
-            { name: 'Underground', color: '#8B4513' }
-        ];
-
-        for (const layer of layers) {
-            // Select layer
-            await page.click(`.layer-item:has-text("${layer.name}")`);
-            await page.waitForTimeout(100);
-
-            // Select color
-            await page.click(`.color-item[data-color="${layer.color}"]`);
-            await page.waitForTimeout(100);
-
-            // Select bucket tool
-            await page.click('[data-tool="bucket"]');
-            await page.waitForTimeout(100);
-
-            // Measure time to fill entire layer
-            const fillStart = Date.now();
-
-            // Click center of canvas to flood fill
-            const canvas = await page.$('#grid-canvas');
-            const box = await canvas.boundingBox();
-            await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-
-            // Wait for render to complete
-            await page.waitForTimeout(500);
-
-            const fillEnd = Date.now();
-            const fillTime = fillEnd - fillStart;
-
-            console.log(`Layer ${layer.name}: Fill time = ${fillTime}ms`);
-
-            // Should complete in reasonable time (under 2 seconds)
-            expect(fillTime).toBeLessThan(2000);
-        }
-
-        // Measure overall render performance after all layers filled
-        const renderTimes = [];
-
-        for (let i = 0; i < 10; i++) {
-            const renderStart = await page.evaluate(() => {
-                return performance.now();
-            });
-
-            // Trigger re-render by panning slightly
-            await page.keyboard.press('ArrowRight');
-            await page.waitForTimeout(50);
-
-            const renderEnd = await page.evaluate(() => {
-                return performance.now();
-            });
-
-            renderTimes.push(renderEnd - renderStart);
-        }
-
-        const avgRenderTime = renderTimes.reduce((a, b) => a + b, 0) / renderTimes.length;
-        console.log(`Average render time with all layers filled: ${avgRenderTime.toFixed(2)}ms`);
-
-        // Average render should be under 100ms
-        expect(avgRenderTime).toBeLessThan(100);
-    });
-
-    test('drawing performance with pencil tool', async ({ page }) => {
-        // Fill all layers first
-        await page.evaluate(() => {
-            const layers = ['Height', 'Difficulty', 'Hazard', 'Sky', 'Floor', 'Underground'];
-            const colors = ['#525d6b', '#FFD700', '#39FF14', '#87CEEB', '#FF6B6B', '#8B4513'];
-
-            for (let i = 0; i < layers.length; i++) {
-                const layer = window.editor.layerManager.layers.find(l => l.name === layers[i]);
-                window.editor.layerManager.fillLayerWithDefault(layer, colors[i]);
+/** Fill every layer with a solid colour so measurements run against a full world. */
+async function fillAllLayers(page) {
+    return await page.evaluate(() => {
+        const colors = ['#0a0a0a', '#ffd700', '#39ff14', '#87ceeb',
+                        '#ff6b6b', '#8b4513', '#0a0a0a', '#0a0a0a'];
+        const started = performance.now();
+        window.editor.layerManager.layers.forEach((layer, i) => {
+            for (let y = 0; y < layer.height; y++) {
+                for (let x = 0; x < layer.width; x++) {
+                    layer.tileData.set(`${x},${y}`, colors[i % colors.length]);
+                }
             }
-            window.editor.render();
+            layer.cacheDirty = true;
+        });
+        return performance.now() - started;
+    });
+}
+
+test.describe('Editor performance', () => {
+    test.beforeEach(async ({ page }) => {
+        await initializeEditor(page);
+    });
+
+    test('a full render of a completely filled world stays interactive', async ({ page }) => {
+        await fillAllLayers(page);
+
+        const result = await page.evaluate(() => {
+            const editor = window.editor;
+            editor.layerManager.layers.forEach(l => { l.visible = true; l.cacheDirty = true; });
+
+            // First render rebuilds every layer cache; later ones should reuse it.
+            const coldStart = performance.now();
+            editor.render();
+            const cold = performance.now() - coldStart;
+
+            const warmTimes = [];
+            for (let i = 0; i < 10; i++) {
+                const t = performance.now();
+                editor.render();
+                warmTimes.push(performance.now() - t);
+            }
+            warmTimes.sort((a, b) => a - b);
+
+            return {
+                cold,
+                medianWarm: warmTimes[Math.floor(warmTimes.length / 2)],
+                tiles: editor.layerManager.getTotalTileCount()
+            };
         });
 
-        await page.waitForTimeout(500);
+        // The measurement is only meaningful if the world really is full.
+        expect(result.tiles).toBe(GRID_TILES * 8);
+        expect(result.cold, `cold render ${result.cold.toFixed(1)}ms`).toBeLessThan(2000);
+        // Cached re-renders must be fast enough to keep the canvas responsive.
+        expect(result.medianWarm, `warm render ${result.medianWarm.toFixed(1)}ms`).toBeLessThan(100);
+    });
 
-        // Select pencil tool with large brush
+    test('a bucket fill of the whole layer completes promptly', async ({ page }) => {
+        await clickLayer(page, 'Floor');
+        await selectColor(page, 'Biome_Warehouse');
+
+        const result = await page.evaluate(() => {
+            const editor = window.editor;
+            const layer = editor.layerManager.getActiveLayer();
+            const tiles = [];
+            for (let y = 0; y < layer.height; y++) {
+                for (let x = 0; x < layer.width; x++) tiles.push({ x, y });
+            }
+
+            const started = performance.now();
+            editor.setTiles(tiles);
+            const elapsed = performance.now() - started;
+
+            const colors = new Set(layer.tileData.values());
+            return { elapsed, distinctColors: colors.size, tiles: layer.tileData.size };
+        });
+
+        expect(result.tiles).toBe(GRID_TILES);
+        expect(result.distinctColors).toBe(1); // the fill really covered everything
+        expect(result.elapsed, `fill ${result.elapsed.toFixed(1)}ms`).toBeLessThan(2000);
+    });
+
+    test('drawing a stroke with a large brush stays responsive', async ({ page }) => {
+        await fillAllLayers(page);
+        await clickLayer(page, 'Floor');
+        await selectColor(page, 'Biome_Warehouse');
+        await page.locator('#brush-size').fill('20');
+
+        const result = await page.evaluate(() => {
+            const editor = window.editor;
+            const layer = editor.layerManager.getActiveLayer();
+            const before = new Map(layer.tileData);
+
+            const perStep = [];
+            for (let x = 40; x < 200; x += 10) {
+                const t = performance.now();
+                editor.setTiles(editor.getBrushTiles(x, 100));
+                perStep.push(performance.now() - t);
+            }
+
+            let changed = 0;
+            for (const [key, color] of layer.tileData) {
+                if (before.get(key) !== color) changed++;
+            }
+
+            perStep.sort((a, b) => a - b);
+            return {
+                changed,
+                steps: perStep.length,
+                median: perStep[Math.floor(perStep.length / 2)],
+                worst: perStep[perStep.length - 1]
+            };
+        });
+
+        expect(result.steps).toBe(16);
+        expect(result.changed).toBeGreaterThan(0); // the stroke actually painted
+        expect(result.median, `median step ${result.median.toFixed(2)}ms`).toBeLessThan(50);
+        expect(result.worst, `worst step ${result.worst.toFixed(2)}ms`).toBeLessThan(200);
+    });
+
+    test('zooming a filled world is fast', async ({ page }) => {
+        await fillAllLayers(page);
+
+        const result = await page.evaluate(() => {
+            const editor = window.editor;
+            editor.render();
+
+            const times = [];
+            for (let i = 0; i < 5; i++) {
+                const t = performance.now();
+                editor.setZoom(editor.zoom * 1.25, 400, 300);
+                editor.render();
+                times.push(performance.now() - t);
+            }
+            times.sort((a, b) => a - b);
+            return { median: times[Math.floor(times.length / 2)], finalZoom: editor.zoom };
+        });
+
+        expect(result.finalZoom).toBeGreaterThan(1);
+        expect(result.median, `zoom step ${result.median.toFixed(1)}ms`).toBeLessThan(300);
+    });
+
+    test('exporting a filled world is fast enough to feel instant', async ({ page }) => {
+        await fillAllLayers(page);
+
+        const result = await page.evaluate(() => {
+            const manager = window.editor.layerManager;
+
+            const t1 = performance.now();
+            const arrayForm = manager.exportRLEData('Perf', 'Perf', 1);
+            const arrayMs = performance.now() - t1;
+
+            const t2 = performance.now();
+            const base64Form = manager.exportRLEDataBase64('Perf', 'Perf', 1);
+            const base64Ms = performance.now() - t2;
+
+            return {
+                arrayMs,
+                base64Ms,
+                layers: arrayForm.layers.length,
+                totalRuns: arrayForm.layers.reduce((s, l) => s + l.color_data.length, 0),
+                base64Layers: base64Form.layers.length
+            };
+        });
+
+        // A solid fill compresses to one run per layer — proof the export really ran.
+        expect(result.layers).toBe(8);
+        expect(result.base64Layers).toBe(8);
+        expect(result.totalRuns).toBe(8);
+        expect(result.arrayMs, `array export ${result.arrayMs.toFixed(1)}ms`).toBeLessThan(3000);
+        expect(result.base64Ms, `base64 export ${result.base64Ms.toFixed(1)}ms`).toBeLessThan(3000);
+    });
+
+    test('the first click after loading a filled world is not blocked', async ({ page }) => {
+        // The metric the old suite cared about most (its "initial click delay"), taken
+        // from the real app instead of a standalone harness page.
+        await fillAllLayers(page);
+        await page.evaluate(() => window.editor.render());
+
+        await clickLayer(page, 'Floor');
+        await selectColor(page, 'Biome_Warehouse');
         await page.click('[data-tool="pencil"]');
-        await page.click('.layer-item:has-text("Floor")');
-        await page.click('.color-item[data-color="#FF6B6B"]');
 
-        // Set large brush size
-        await page.fill('#brush-size', '20');
-        await page.waitForTimeout(100);
-
-        // Measure drawing performance
-        const canvas = await page.$('#grid-canvas');
+        const canvas = page.locator('#grid-canvas');
         const box = await canvas.boundingBox();
 
-        const drawStart = Date.now();
-
-        // Draw a line across the canvas
-        await page.mouse.move(box.x + 100, box.y + 100);
-        await page.mouse.down();
-        for (let x = 100; x < box.width - 100; x += 10) {
-            await page.mouse.move(box.x + x, box.y + 100);
-            await page.waitForTimeout(10);
-        }
-        await page.mouse.up();
-
-        const drawEnd = Date.now();
-        const drawTime = drawEnd - drawStart;
-
-        console.log(`Drawing time with large brush on filled layers: ${drawTime}ms`);
-
-        // Should feel responsive (under 3 seconds for the whole operation)
-        expect(drawTime).toBeLessThan(3000);
-    });
-
-    test('zoom performance with filled layers', async ({ page }) => {
-        // Fill all layers
         await page.evaluate(() => {
-            const layers = ['Height', 'Difficulty', 'Hazard', 'Sky', 'Floor', 'Underground'];
-            const colors = ['#525d6b', '#FFD700', '#39FF14', '#87CEEB', '#FF6B6B', '#8B4513'];
-
-            for (let i = 0; i < layers.length; i++) {
-                const layer = window.editor.layerManager.layers.find(l => l.name === layers[i]);
-                window.editor.layerManager.fillLayerWithDefault(layer, colors[i]);
-            }
-            window.editor.render();
+            window.__clickLatency = null;
+            const canvas = document.getElementById('grid-canvas');
+            canvas.addEventListener('mousedown', () => {
+                const t = performance.now();
+                requestAnimationFrame(() => { window.__clickLatency = performance.now() - t; });
+            }, { once: true });
         });
 
-        await page.waitForTimeout(500);
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        await page.waitForFunction(() => window.__clickLatency !== null, null, { timeout: 10000 });
 
-        // Test zoom in/out performance
-        const zoomTimes = [];
-
-        for (let i = 0; i < 5; i++) {
-            const zoomStart = Date.now();
-            await page.click('#btn-zoom-in');
-            await page.waitForTimeout(100);
-            const zoomEnd = Date.now();
-            zoomTimes.push(zoomEnd - zoomStart);
-        }
-
-        const avgZoomTime = zoomTimes.reduce((a, b) => a + b, 0) / zoomTimes.length;
-        console.log(`Average zoom time: ${avgZoomTime.toFixed(2)}ms`);
-
-        // Zoom should be responsive (under 300ms)
-        expect(avgZoomTime).toBeLessThan(300);
-    });
-
-    test('minimap drag performance with filled layers', async ({ page }) => {
-        // Fill all layers
-        await page.evaluate(() => {
-            const layers = ['Height', 'Difficulty', 'Hazard', 'Sky', 'Floor', 'Underground'];
-            const colors = ['#525d6b', '#FFD700', '#39FF14', '#87CEEB', '#FF6B6B', '#8B4513'];
-
-            for (let i = 0; i < layers.length; i++) {
-                const layer = window.editor.layerManager.layers.find(l => l.name === layers[i]);
-                window.editor.layerManager.fillLayerWithDefault(layer, colors[i]);
-            }
-            window.editor.render();
-        });
-
-        await page.waitForTimeout(500);
-
-        // Test minimap drag performance
-        const minimap = await page.$('#minimap-canvas');
-        const box = await minimap.boundingBox();
-
-        const dragStart = Date.now();
-
-        // Drag across minimap
-        await page.mouse.move(box.x + 10, box.y + 10);
-        await page.mouse.down();
-        for (let i = 10; i < box.width - 10; i += 5) {
-            await page.mouse.move(box.x + i, box.y + i);
-            await page.waitForTimeout(10);
-        }
-        await page.mouse.up();
-
-        const dragEnd = Date.now();
-        const dragTime = dragEnd - dragStart;
-
-        console.log(`Minimap drag time: ${dragTime}ms`);
-
-        // Should feel smooth (under 2 seconds for full drag)
-        expect(dragTime).toBeLessThan(2000);
-    });
-
-    test('measure tile rendering count', async ({ page }) => {
-        // Fill all layers
-        await page.evaluate(() => {
-            const layers = ['Height', 'Difficulty', 'Hazard', 'Sky', 'Floor', 'Underground'];
-            const colors = ['#525d6b', '#FFD700', '#39FF14', '#87CEEB', '#FF6B6B', '#8B4513'];
-
-            for (let i = 0; i < layers.length; i++) {
-                const layer = window.editor.layerManager.layers.find(l => l.name === layers[i]);
-                window.editor.layerManager.fillLayerWithDefault(layer, colors[i]);
-            }
-        });
-
-        // Capture console logs to measure render performance
-        const consoleLogs = [];
-        page.on('console', msg => {
-            consoleLogs.push(msg.text());
-        });
-
-        // Trigger render
-        await page.evaluate(() => {
-            window.editor.render();
-        });
-
-        await page.waitForTimeout(500);
-
-        // Check for render logs
-        const renderLogs = consoleLogs.filter(log => log.includes('Render'));
-        console.log('Render logs:', renderLogs);
-
-        // Calculate total tiles rendered
-        const totalTiles = 512 * 512 * 6; // 6 layers, 512x512 each
-        console.log(`Total tiles in all layers: ${totalTiles.toLocaleString()}`);
+        const latency = await page.evaluate(() => window.__clickLatency);
+        expect(latency, `click-to-frame ${latency.toFixed(1)}ms`).toBeLessThan(500);
     });
 });

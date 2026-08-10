@@ -1,143 +1,121 @@
 /**
- * Maze Algorithms Tests
- * Tests for FloodFillEngine and MazeGenerator
+ * Maze Algorithms Tests — FloodFillEngine and MazeGenerator
+ *
+ * Direction convention (js/maze-algorithms.js, js/maze-visualizer.js, and the
+ * runtime's `index = North * width + East` layout all agree):
+ *
+ *   bit 0 = North = index + worldWidth   (LARGER grid Y — bottom-left origin)
+ *   bit 1 = South = index - worldWidth
+ *   bit 2 = East  = index + 1
+ *   bit 3 = West  = index - 1
+ *
+ * Every MazeGenerator test in the old version of this file walked North as
+ * `y - 1`, i.e. the opposite of what the generator emits. That made the
+ * connectivity and bidirectionality tests fail for the wrong reason, and made
+ * "handles irregular regions" assert something the code never claimed. The three
+ * helpers below existed at the top of the old file but were never called once —
+ * each test inlined its own copy of the walk, which is how the convention drifted.
  */
 
 const { test, expect } = require('./test-base');
 const path = require('path');
 
 // ============================================================================
-// HELPER FUNCTIONS
+// HELPERS — one implementation, used by every test in this file.
 // ============================================================================
 
-/**
- * Verify that all maze connections are bidirectional.
- * If tile A connects to B in direction D, then B must connect to A in opposite direction.
- *
- * @param {Uint8Array} mazeData - Maze connection data (4-bit encoding per tile)
- * @param {number} worldWidth - Width of the world grid
- * @returns {boolean} True if all connections are bidirectional
- */
-function verifyBidirectionalConnections(mazeData, worldWidth) {
-    const worldHeight = Math.floor(mazeData.length / worldWidth);
+const OPPOSITE = { 0: 1, 1: 0, 2: 3, 3: 2 };
 
-    // Direction bit values: North=1, South=2, East=4, West=8
-    // Opposite directions: North↔South (0↔1), East↔West (2↔3)
-    const opposites = {
-        0: 1, // North → South
-        1: 0, // South → North
-        2: 3, // East → West
-        3: 2  // West → East
-    };
+/** Neighbour world index in `dir`, or null if it leaves the grid. */
+function neighbourIndex(index, dir, worldWidth, worldHeight) {
+    const x = index % worldWidth;
+    const y = Math.floor(index / worldWidth);
+    let nx = x, ny = y;
+    switch (dir) {
+        case 0: ny += 1; break; // North
+        case 1: ny -= 1; break; // South
+        case 2: nx += 1; break; // East
+        case 3: nx -= 1; break; // West
+    }
+    if (nx < 0 || nx >= worldWidth || ny < 0 || ny >= worldHeight) return null;
+    return ny * worldWidth + nx;
+}
 
+/** Every set bit must have a matching reverse bit on the neighbour, in bounds. */
+function findNonBidirectional(mazeData, worldWidth, worldHeight) {
+    const problems = [];
     for (let index = 0; index < mazeData.length; index++) {
         const connections = mazeData[index];
-        if (connections === 0) continue; // No connections, skip
-
-        const x = index % worldWidth;
-        const y = Math.floor(index / worldWidth);
-
-        // Check each direction bit
+        if (connections === 0) continue;
         for (let dir = 0; dir < 4; dir++) {
-            if (connections & (1 << dir)) {
-                // This tile has a connection in direction 'dir'
-                // Find the neighbor in that direction
-                let neighborX = x;
-                let neighborY = y;
-
-                switch (dir) {
-                    case 0: neighborY--; break; // North
-                    case 1: neighborY++; break; // South
-                    case 2: neighborX++; break; // East
-                    case 3: neighborX--; break; // West
-                }
-
-                // Check bounds
-                if (neighborX < 0 || neighborX >= worldWidth ||
-                    neighborY < 0 || neighborY >= worldHeight) {
-                    return false; // Connection out of bounds
-                }
-
-                const neighborIndex = neighborY * worldWidth + neighborX;
-                const neighborConnections = mazeData[neighborIndex];
-                const oppositeDir = opposites[dir];
-
-                // Neighbor must have reverse connection
-                if (!(neighborConnections & (1 << oppositeDir))) {
-                    return false; // Not bidirectional
-                }
+            if (!(connections & (1 << dir))) continue;
+            const neighbour = neighbourIndex(index, dir, worldWidth, worldHeight);
+            if (neighbour === null) {
+                problems.push({ index, dir, kind: 'connection leaves the grid' });
+                continue;
+            }
+            if (!(mazeData[neighbour] & (1 << OPPOSITE[dir]))) {
+                problems.push({ index, dir, neighbour, kind: 'neighbour has no reverse connection' });
             }
         }
     }
-
-    return true;
+    return problems;
 }
 
-/**
- * Use BFS to verify all tiles in a region are reachable (connected).
- *
- * @param {Array<number>} regionIndices - Tile indices that should be connected
- * @param {Uint8Array} mazeData - Maze connection data
- * @param {number} worldWidth - Width of the world grid
- * @returns {boolean} True if all tiles are reachable from the first tile
- */
-function isMazeConnected(regionIndices, mazeData, worldWidth) {
-    if (regionIndices.length === 0) return true;
-    if (regionIndices.length === 1) return true;
-
-    const visited = new Set();
+/** BFS from the first region tile; returns how many region tiles were reached. */
+function countReachable(regionIndices, mazeData, worldWidth, worldHeight) {
+    if (regionIndices.length === 0) return 0;
+    const inRegion = new Set(regionIndices);
+    const visited = new Set([regionIndices[0]]);
     const queue = [regionIndices[0]];
-    visited.add(regionIndices[0]);
 
     while (queue.length > 0) {
         const index = queue.shift();
         const connections = mazeData[index];
-        const x = index % worldWidth;
-        const y = Math.floor(index / worldWidth);
-
-        // Check each direction
         for (let dir = 0; dir < 4; dir++) {
-            if (connections & (1 << dir)) {
-                // Find neighbor
-                let neighborX = x;
-                let neighborY = y;
+            if (!(connections & (1 << dir))) continue;
+            const neighbour = neighbourIndex(index, dir, worldWidth, worldHeight);
+            if (neighbour === null || !inRegion.has(neighbour) || visited.has(neighbour)) continue;
+            visited.add(neighbour);
+            queue.push(neighbour);
+        }
+    }
+    return visited.size;
+}
 
-                switch (dir) {
-                    case 0: neighborY--; break; // North
-                    case 1: neighborY++; break; // South
-                    case 2: neighborX++; break; // East
-                    case 3: neighborX--; break; // West
-                }
-
-                const neighborIndex = neighborY * worldWidth + neighborX;
-
-                if (!visited.has(neighborIndex)) {
-                    visited.add(neighborIndex);
-                    queue.push(neighborIndex);
-                }
+/** Any connection pointing at a tile outside the region. */
+function findEscapingConnections(regionIndices, mazeData, worldWidth, worldHeight) {
+    const inRegion = new Set(regionIndices);
+    const escaping = [];
+    for (const index of regionIndices) {
+        const connections = mazeData[index];
+        for (let dir = 0; dir < 4; dir++) {
+            if (!(connections & (1 << dir))) continue;
+            const neighbour = neighbourIndex(index, dir, worldWidth, worldHeight);
+            if (neighbour === null || !inRegion.has(neighbour)) {
+                escaping.push({ index, dir, neighbour });
             }
         }
     }
-
-    // All tiles in region should be visited
-    return visited.size === regionIndices.length;
+    return escaping;
 }
 
-/**
- * Compare two maze data arrays for equality.
- *
- * @param {Uint8Array} maze1 - First maze data
- * @param {Uint8Array} maze2 - Second maze data
- * @returns {boolean} True if mazes are identical
- */
-function compareMazeData(maze1, maze2) {
-    if (maze1.length !== maze2.length) return false;
-
-    for (let i = 0; i < maze1.length; i++) {
-        if (maze1[i] !== maze2[i]) return false;
+/** Count undirected edges by counting only North and East bits. */
+function countEdges(regionIndices, mazeData) {
+    let edges = 0;
+    for (const index of regionIndices) {
+        if (mazeData[index] & 1) edges++; // North
+        if (mazeData[index] & 4) edges++; // East
     }
+    return edges;
+}
 
-    return true;
+/** Run generateMaze in the page and bring the bytes back as a plain array. */
+async function generateMaze(page, regionIndices, worldWidth, worldHeight, seed) {
+    return await page.evaluate(({ region, w, h, s }) => {
+        const { MazeGenerator } = window.MazeAlgorithms;
+        return Array.from(new MazeGenerator().generateMaze(region, w, h, s));
+    }, { region: regionIndices, w: worldWidth, h: worldHeight, s: seed });
 }
 
 // ============================================================================
@@ -146,53 +124,33 @@ function compareMazeData(maze1, maze2) {
 
 test.describe('Maze Algorithms', () => {
     test.beforeEach(async ({ page }) => {
-        // Create a minimal HTML page (no external dependencies to avoid connection errors)
-        await page.setContent(`
-            <!DOCTYPE html>
-            <html>
-            <head><title>Maze Algorithms Test</title></head>
-            <body></body>
-            </html>
-        `);
-
-        // Load maze algorithms script
-        const scriptPath = path.resolve(__dirname, '..', 'js', 'maze-algorithms.js');
-        await page.addScriptTag({ path: scriptPath });
-
-        // Wait for the module to load
+        await page.setContent('<!DOCTYPE html><html><head><title>Maze</title></head><body></body></html>');
+        await page.addScriptTag({ path: path.resolve(__dirname, '..', 'js', 'maze-algorithms.js') });
         await page.waitForFunction(() => window.MazeAlgorithms !== undefined);
     });
 
     // ========================================================================
-    // FLOOD FILL ENGINE TESTS
+    // FLOOD FILL ENGINE
     // ========================================================================
 
     test.describe('FloodFillEngine', () => {
-        test('single open region (no borders)', async ({ page }) => {
-            const result = await page.evaluate(() => {
+        async function floodFill(page, heightMap, biomeMap, settings, worldWidth) {
+            return await page.evaluate(({ hm, bm, st, w }) => {
                 const { FloodFillEngine } = window.MazeAlgorithms;
-                const engine = new FloodFillEngine();
+                return new FloodFillEngine().performFloodFill(
+                    new Uint8Array(hm), bm,
+                    { borderBiomes: new Set(st.borderBiomes), maxHeightDiff: st.maxHeightDiff,
+                      treatEdgesAsBorders: st.treatEdgesAsBorders },
+                    w
+                );
+            }, { hm: heightMap, bm: biomeMap, st: settings, w: worldWidth });
+        }
 
-                // 3x3 grid, all grass, all same height
-                const heightMap = new Uint8Array([
-                    100, 100, 100,
-                    100, 100, 100,
-                    100, 100, 100
-                ]);
-
-                const biomeMap = [
-                    'Grass', 'Grass', 'Grass',
-                    'Grass', 'Grass', 'Grass',
-                    'Grass', 'Grass', 'Grass'
-                ];
-
-                const settings = {
-                    borderBiomes: new Set(['DeepWater', 'ShallowWater']),
-                    maxHeightDiff: 10
-                };
-
-                return engine.performFloodFill(heightMap, biomeMap, settings, 3);
-            });
+        test('single open region (no borders)', async ({ page }) => {
+            const result = await floodFill(page,
+                [100, 100, 100, 100, 100, 100, 100, 100, 100],
+                Array(9).fill('Grass'),
+                { borderBiomes: ['DeepWater', 'ShallowWater'], maxHeightDiff: 10 }, 3);
 
             expect(result.regions.length).toBe(1);
             expect(result.tilesInRegions).toBe(9);
@@ -203,30 +161,14 @@ test.describe('Maze Algorithms', () => {
         });
 
         test('vertical wall creates 2 regions', async ({ page }) => {
-            const result = await page.evaluate(() => {
-                const { FloodFillEngine } = window.MazeAlgorithms;
-                const engine = new FloodFillEngine();
-
-                // 5x3 grid with vertical water wall in middle
-                const heightMap = new Uint8Array([
-                    100, 100, 0,   100, 100,
-                    100, 100, 0,   100, 100,
-                    100, 100, 0,   100, 100
-                ]);
-
-                const biomeMap = [
-                    'Grass', 'Grass', 'DeepWater', 'Grass', 'Grass',
-                    'Grass', 'Grass', 'DeepWater', 'Grass', 'Grass',
-                    'Grass', 'Grass', 'DeepWater', 'Grass', 'Grass'
-                ];
-
-                const settings = {
-                    borderBiomes: new Set(['DeepWater', 'ShallowWater']),
-                    maxHeightDiff: 10
-                };
-
-                return engine.performFloodFill(heightMap, biomeMap, settings, 5);
-            });
+            const result = await floodFill(page,
+                [100, 100, 0, 100, 100,
+                 100, 100, 0, 100, 100,
+                 100, 100, 0, 100, 100],
+                ['Grass', 'Grass', 'DeepWater', 'Grass', 'Grass',
+                 'Grass', 'Grass', 'DeepWater', 'Grass', 'Grass',
+                 'Grass', 'Grass', 'DeepWater', 'Grass', 'Grass'],
+                { borderBiomes: ['DeepWater', 'ShallowWater'], maxHeightDiff: 10 }, 5);
 
             expect(result.regions.length).toBe(2);
             expect(result.tilesInRegions).toBe(12);
@@ -236,28 +178,11 @@ test.describe('Maze Algorithms', () => {
         });
 
         test('height constraints separate regions', async ({ page }) => {
-            const result = await page.evaluate(() => {
-                const { FloodFillEngine } = window.MazeAlgorithms;
-                const engine = new FloodFillEngine();
-
-                // 4x2 grid with height cliff in middle
-                const heightMap = new Uint8Array([
-                    100, 100, 150, 150,
-                    100, 100, 150, 150
-                ]);
-
-                const biomeMap = [
-                    'Grass', 'Grass', 'Grass', 'Grass',
-                    'Grass', 'Grass', 'Grass', 'Grass'
-                ];
-
-                const settings = {
-                    borderBiomes: new Set(['DeepWater']),
-                    maxHeightDiff: 10 // Height diff of 50 exceeds limit
-                };
-
-                return engine.performFloodFill(heightMap, biomeMap, settings, 4);
-            });
+            const result = await floodFill(page,
+                [100, 100, 150, 150,
+                 100, 100, 150, 150],
+                Array(8).fill('Grass'),
+                { borderBiomes: ['DeepWater'], maxHeightDiff: 10 }, 4);
 
             expect(result.regions.length).toBe(2);
             expect(result.tilesInRegions).toBe(8);
@@ -267,30 +192,12 @@ test.describe('Maze Algorithms', () => {
         });
 
         test('border biomes are correctly excluded', async ({ page }) => {
-            const result = await page.evaluate(() => {
-                const { FloodFillEngine } = window.MazeAlgorithms;
-                const engine = new FloodFillEngine();
-
-                // 3x3 grid with water border
-                const heightMap = new Uint8Array([
-                    0,   0,   0,
-                    0,   100, 0,
-                    0,   0,   0
-                ]);
-
-                const biomeMap = [
-                    'DeepWater', 'DeepWater',    'DeepWater',
-                    'DeepWater', 'Grass',        'DeepWater',
-                    'DeepWater', 'ShallowWater', 'DeepWater'
-                ];
-
-                const settings = {
-                    borderBiomes: new Set(['DeepWater', 'ShallowWater']),
-                    maxHeightDiff: 10
-                };
-
-                return engine.performFloodFill(heightMap, biomeMap, settings, 3);
-            });
+            const result = await floodFill(page,
+                [0, 0, 0, 0, 100, 0, 0, 0, 0],
+                ['DeepWater', 'DeepWater', 'DeepWater',
+                 'DeepWater', 'Grass', 'DeepWater',
+                 'DeepWater', 'ShallowWater', 'DeepWater'],
+                { borderBiomes: ['DeepWater', 'ShallowWater'], maxHeightDiff: 10 }, 3);
 
             expect(result.regions.length).toBe(1);
             expect(result.tilesInRegions).toBe(1);
@@ -299,58 +206,32 @@ test.describe('Maze Algorithms', () => {
             expect(result.smallestRegionSize).toBe(1);
         });
 
-        test('statistics are accurate', async ({ page }) => {
-            const result = await page.evaluate(() => {
-                const { FloodFillEngine } = window.MazeAlgorithms;
-                const engine = new FloodFillEngine();
+        test('statistics are accurate and account for every tile', async ({ page }) => {
+            const result = await floodFill(page,
+                [100, 100, 0, 150, 150, 150,
+                 100, 100, 0, 150, 150, 150,
+                 100, 100, 0, 0, 0, 0],
+                ['Grass', 'Grass', 'DeepWater', 'Grass', 'Grass', 'Grass',
+                 'Grass', 'Grass', 'DeepWater', 'Grass', 'Grass', 'Grass',
+                 'Grass', 'Grass', 'DeepWater', 'DeepWater', 'DeepWater', 'DeepWater'],
+                { borderBiomes: ['DeepWater'], maxHeightDiff: 10 }, 6);
 
-                // Create multiple regions of different sizes
-                const heightMap = new Uint8Array([
-                    100, 100, 0,   150, 150, 150,
-                    100, 100, 0,   150, 150, 150,
-                    100, 100, 0,   0,   0,   0
-                ]);
-
-                const biomeMap = [
-                    'Grass', 'Grass', 'DeepWater', 'Grass', 'Grass', 'Grass',
-                    'Grass', 'Grass', 'DeepWater', 'Grass', 'Grass', 'Grass',
-                    'Grass', 'Grass', 'DeepWater', 'DeepWater', 'DeepWater', 'DeepWater'
-                ];
-
-                const settings = {
-                    borderBiomes: new Set(['DeepWater']),
-                    maxHeightDiff: 10
-                };
-
-                return engine.performFloodFill(heightMap, biomeMap, settings, 6);
-            });
-
-            // Should have 2 regions: left (6 tiles) and top-right (6 tiles)
             expect(result.regions.length).toBe(2);
             expect(result.tilesInRegions).toBe(12);
             expect(result.borderTiles).toBe(6);
             expect(result.largestRegionSize).toBe(6);
             expect(result.smallestRegionSize).toBe(6);
-
-            // Verify total tiles adds up
             expect(result.tilesInRegions + result.borderTiles).toBe(18);
+
+            // Region tile lists must partition the non-border tiles exactly.
+            const all = result.regions.flatMap(r => r.tileIndices);
+            expect(new Set(all).size).toBe(all.length);
+            expect(all.length).toBe(result.tilesInRegions);
         });
 
         test('handles empty grid', async ({ page }) => {
-            const result = await page.evaluate(() => {
-                const { FloodFillEngine } = window.MazeAlgorithms;
-                const engine = new FloodFillEngine();
-
-                const heightMap = new Uint8Array([]);
-                const biomeMap = [];
-
-                const settings = {
-                    borderBiomes: new Set(['DeepWater']),
-                    maxHeightDiff: 10
-                };
-
-                return engine.performFloodFill(heightMap, biomeMap, settings, 0);
-            });
+            const result = await floodFill(page, [], [],
+                { borderBiomes: ['DeepWater'], maxHeightDiff: 10 }, 0);
 
             expect(result.regions.length).toBe(0);
             expect(result.tilesInRegions).toBe(0);
@@ -361,600 +242,189 @@ test.describe('Maze Algorithms', () => {
     });
 
     // ========================================================================
-    // MAZE GENERATOR TESTS
+    // MAZE GENERATOR
     // ========================================================================
 
     test.describe('MazeGenerator', () => {
-        test('all tiles in region are connected (reachable via BFS)', async ({ page }) => {
-            const isConnected = await page.evaluate(() => {
-                const { MazeGenerator } = window.MazeAlgorithms;
-                const generator = new MazeGenerator();
+        test('every tile in a rectangular region is reachable', async ({ page }) => {
+            const region = Array.from({ length: 16 }, (_, i) => i);
+            const maze = await generateMaze(page, region, 4, 4, 12345);
 
-                // Create 4x4 region
-                const regionIndices = [
-                    0, 1, 2, 3,
-                    4, 5, 6, 7,
-                    8, 9, 10, 11,
-                    12, 13, 14, 15
-                ];
-
-                const mazeData = generator.generateMaze(regionIndices, 4, 4, 12345);
-
-                // BFS to check connectivity
-                const visited = new Set();
-                const queue = [0];
-                visited.add(0);
-
-                while (queue.length > 0) {
-                    const index = queue.shift();
-                    const connections = mazeData[index];
-                    const x = index % 4;
-                    const y = Math.floor(index / 4);
-
-                    for (let dir = 0; dir < 4; dir++) {
-                        if (connections & (1 << dir)) {
-                            let neighborX = x, neighborY = y;
-                            switch (dir) {
-                                case 0: neighborY--; break;
-                                case 1: neighborY++; break;
-                                case 2: neighborX++; break;
-                                case 3: neighborX--; break;
-                            }
-
-                            const neighborIndex = neighborY * 4 + neighborX;
-                            if (!visited.has(neighborIndex)) {
-                                visited.add(neighborIndex);
-                                queue.push(neighborIndex);
-                            }
-                        }
-                    }
-                }
-
-                return visited.size === 16;
-            });
-
-            expect(isConnected).toBe(true);
+            expect(countReachable(region, maze, 4, 4)).toBe(16);
         });
 
-        test('connections are bidirectional (A→B implies B→A)', async ({ page }) => {
-            const isBidirectional = await page.evaluate(() => {
-                const { MazeGenerator } = window.MazeAlgorithms;
-                const generator = new MazeGenerator();
+        test('connections are bidirectional and stay inside the grid', async ({ page }) => {
+            const region = Array.from({ length: 25 }, (_, i) => i);
+            const maze = await generateMaze(page, region, 5, 5, 54321);
 
-                // Create 5x5 region
-                const regionIndices = Array.from({ length: 25 }, (_, i) => i);
-                const mazeData = generator.generateMaze(regionIndices, 5, 5, 54321);
-
-                const opposites = { 0: 1, 1: 0, 2: 3, 3: 2 };
-
-                for (let index = 0; index < 25; index++) {
-                    const connections = mazeData[index];
-                    const x = index % 5;
-                    const y = Math.floor(index / 5);
-
-                    for (let dir = 0; dir < 4; dir++) {
-                        if (connections & (1 << dir)) {
-                            let neighborX = x, neighborY = y;
-                            switch (dir) {
-                                case 0: neighborY--; break;
-                                case 1: neighborY++; break;
-                                case 2: neighborX++; break;
-                                case 3: neighborX--; break;
-                            }
-
-                            if (neighborX < 0 || neighborX >= 5 || neighborY < 0 || neighborY >= 5) {
-                                return false; // Connection out of bounds
-                            }
-
-                            const neighborIndex = neighborY * 5 + neighborX;
-                            const neighborConnections = mazeData[neighborIndex];
-                            const oppositeDir = opposites[dir];
-
-                            if (!(neighborConnections & (1 << oppositeDir))) {
-                                return false; // Not bidirectional
-                            }
-                        }
-                    }
-                }
-
-                return true;
-            });
-
-            expect(isBidirectional).toBe(true);
+            const problems = findNonBidirectional(maze, 5, 5);
+            expect(problems, JSON.stringify(problems)).toEqual([]);
         });
 
-        test('same seed produces identical mazes (determinism)', async ({ page }) => {
-            const { areEqual, seed } = await page.evaluate(() => {
-                const { MazeGenerator } = window.MazeAlgorithms;
-                const generator = new MazeGenerator();
+        test('bit 0 is the +worldWidth neighbour and bit 2 is the +1 neighbour', async ({ page }) => {
+            // Pins the actual encoding rather than, as the old test did, checking that
+            // indices the test itself computed happened to land inside the grid.
+            const region = [0, 1, 2, 3]; // full 2x2
+            const maze = await generateMaze(page, region, 2, 2, 11111);
 
-                const regionIndices = Array.from({ length: 16 }, (_, i) => i);
-                const seed = 99999;
-
-                const maze1 = generator.generateMaze(regionIndices, 4, 4, seed);
-                const maze2 = generator.generateMaze(regionIndices, 4, 4, seed);
-
-                // Compare
-                let areEqual = maze1.length === maze2.length;
-                if (areEqual) {
-                    for (let i = 0; i < maze1.length; i++) {
-                        if (maze1[i] !== maze2[i]) {
-                            areEqual = false;
-                            break;
-                        }
-                    }
+            for (const index of region) {
+                const x = index % 2;
+                const y = Math.floor(index / 2);
+                if (maze[index] & 1) {
+                    expect(y + 1, `tile ${index} claims North`).toBeLessThan(2);
+                    expect(maze[index + 2] & 2, `North partner of ${index}`).toBeTruthy();
                 }
-
-                return { areEqual, seed };
-            });
-
-            expect(areEqual).toBe(true);
-        });
-
-        test('different seeds produce different mazes', async ({ page }) => {
-            const { areDifferent } = await page.evaluate(() => {
-                const { MazeGenerator } = window.MazeAlgorithms;
-                const generator = new MazeGenerator();
-
-                const regionIndices = Array.from({ length: 25 }, (_, i) => i);
-
-                const maze1 = generator.generateMaze(regionIndices, 5, 5, 11111);
-                const maze2 = generator.generateMaze(regionIndices, 5, 5, 22222);
-
-                // Check if they differ
-                let areDifferent = false;
-                for (let i = 0; i < maze1.length; i++) {
-                    if (maze1[i] !== maze2[i]) {
-                        areDifferent = true;
-                        break;
-                    }
+                if (maze[index] & 2) {
+                    expect(y - 1, `tile ${index} claims South`).toBeGreaterThanOrEqual(0);
+                    expect(maze[index - 2] & 1, `South partner of ${index}`).toBeTruthy();
                 }
-
-                return { areDifferent };
-            });
-
-            expect(areDifferent).toBe(true);
-        });
-
-        test('handles irregular regions (L-shaped)', async ({ page }) => {
-            const { isConnected, isValid } = await page.evaluate(() => {
-                const { MazeGenerator } = window.MazeAlgorithms;
-                const generator = new MazeGenerator();
-
-                // L-shaped region in 5x5 grid:
-                // X X X . .
-                // X . . . .
-                // X . . . .
-                // X X X . .
-                // . . . . .
-                const regionIndices = [0, 1, 2, 5, 10, 15, 16, 17];
-                const mazeData = generator.generateMaze(regionIndices, 5, 5, 77777);
-
-                // BFS to check connectivity
-                const visited = new Set();
-                const queue = [0];
-                visited.add(0);
-
-                while (queue.length > 0) {
-                    const index = queue.shift();
-                    const connections = mazeData[index];
-                    const x = index % 5;
-                    const y = Math.floor(index / 5);
-
-                    for (let dir = 0; dir < 4; dir++) {
-                        if (connections & (1 << dir)) {
-                            let neighborX = x, neighborY = y;
-                            switch (dir) {
-                                case 0: neighborY--; break;
-                                case 1: neighborY++; break;
-                                case 2: neighborX++; break;
-                                case 3: neighborX--; break;
-                            }
-
-                            const neighborIndex = neighborY * 5 + neighborX;
-                            if (!visited.has(neighborIndex) && regionIndices.includes(neighborIndex)) {
-                                visited.add(neighborIndex);
-                                queue.push(neighborIndex);
-                            }
-                        }
-                    }
+                if (maze[index] & 4) {
+                    expect(x + 1, `tile ${index} claims East`).toBeLessThan(2);
+                    expect(maze[index + 1] & 8, `East partner of ${index}`).toBeTruthy();
                 }
-
-                const isConnected = visited.size === regionIndices.length;
-
-                // Verify no connections to tiles outside region
-                let isValid = true;
-                const regionSet = new Set(regionIndices);
-
-                for (const index of regionIndices) {
-                    const connections = mazeData[index];
-                    const x = index % 5;
-                    const y = Math.floor(index / 5);
-
-                    for (let dir = 0; dir < 4; dir++) {
-                        if (connections & (1 << dir)) {
-                            let neighborX = x, neighborY = y;
-                            switch (dir) {
-                                case 0: neighborY--; break;
-                                case 1: neighborY++; break;
-                                case 2: neighborX++; break;
-                                case 3: neighborX--; break;
-                            }
-
-                            const neighborIndex = neighborY * 5 + neighborX;
-                            if (!regionSet.has(neighborIndex)) {
-                                isValid = false;
-                                break;
-                            }
-                        }
-                    }
+                if (maze[index] & 8) {
+                    expect(x - 1, `tile ${index} claims West`).toBeGreaterThanOrEqual(0);
+                    expect(maze[index - 1] & 4, `West partner of ${index}`).toBeTruthy();
                 }
-
-                return { isConnected, isValid };
-            });
-
-            expect(isConnected).toBe(true);
-            expect(isValid).toBe(true);
-        });
-
-        test('handles irregular regions (T-shaped)', async ({ page }) => {
-            const { isConnected, isValid } = await page.evaluate(() => {
-                const { MazeGenerator } = window.MazeAlgorithms;
-                const generator = new MazeGenerator();
-
-                // T-shaped region in 5x5 grid:
-                // X X X X X
-                // . . X . .
-                // . . X . .
-                // . . X . .
-                // . . . . .
-                const regionIndices = [0, 1, 2, 3, 4, 7, 12, 17];
-                const mazeData = generator.generateMaze(regionIndices, 5, 5, 88888);
-
-                // BFS to check connectivity
-                const visited = new Set();
-                const queue = [regionIndices[0]];
-                visited.add(regionIndices[0]);
-
-                while (queue.length > 0) {
-                    const index = queue.shift();
-                    const connections = mazeData[index];
-                    const x = index % 5;
-                    const y = Math.floor(index / 5);
-
-                    for (let dir = 0; dir < 4; dir++) {
-                        if (connections & (1 << dir)) {
-                            let neighborX = x, neighborY = y;
-                            switch (dir) {
-                                case 0: neighborY--; break;
-                                case 1: neighborY++; break;
-                                case 2: neighborX++; break;
-                                case 3: neighborX--; break;
-                            }
-
-                            const neighborIndex = neighborY * 5 + neighborX;
-                            if (!visited.has(neighborIndex) && regionIndices.includes(neighborIndex)) {
-                                visited.add(neighborIndex);
-                                queue.push(neighborIndex);
-                            }
-                        }
-                    }
-                }
-
-                const isConnected = visited.size === regionIndices.length;
-
-                // Verify no connections outside region
-                let isValid = true;
-                const regionSet = new Set(regionIndices);
-
-                for (const index of regionIndices) {
-                    const connections = mazeData[index];
-                    const x = index % 5;
-                    const y = Math.floor(index / 5);
-
-                    for (let dir = 0; dir < 4; dir++) {
-                        if (connections & (1 << dir)) {
-                            let neighborX = x, neighborY = y;
-                            switch (dir) {
-                                case 0: neighborY--; break;
-                                case 1: neighborY++; break;
-                                case 2: neighborX++; break;
-                                case 3: neighborX--; break;
-                            }
-
-                            const neighborIndex = neighborY * 5 + neighborX;
-                            if (!regionSet.has(neighborIndex)) {
-                                isValid = false;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                return { isConnected, isValid };
-            });
-
-            expect(isConnected).toBe(true);
-            expect(isValid).toBe(true);
-        });
-
-        test('direction encoding is correct (North=1, South=2, East=4, West=8)', async ({ page }) => {
-            const result = await page.evaluate(() => {
-                const { MazeGenerator } = window.MazeAlgorithms;
-                const generator = new MazeGenerator();
-
-                // Simple 2x2 region
-                const regionIndices = [0, 1, 2, 3];
-                const mazeData = generator.generateMaze(regionIndices, 2, 2, 11111);
-
-                const encodings = [];
-
-                // Check each connection
-                for (let index = 0; index < 4; index++) {
-                    const connections = mazeData[index];
-                    if (connections === 0) continue;
-
-                    const x = index % 2;
-                    const y = Math.floor(index / 2);
-
-                    // North = bit 0 = value 1
-                    if (connections & 1) {
-                        encodings.push({ from: index, dir: 'North', bit: 0, expectedNeighbor: (y-1)*2 + x });
-                    }
-                    // South = bit 1 = value 2
-                    if (connections & 2) {
-                        encodings.push({ from: index, dir: 'South', bit: 1, expectedNeighbor: (y+1)*2 + x });
-                    }
-                    // East = bit 2 = value 4
-                    if (connections & 4) {
-                        encodings.push({ from: index, dir: 'East', bit: 2, expectedNeighbor: y*2 + (x+1) });
-                    }
-                    // West = bit 3 = value 8
-                    if (connections & 8) {
-                        encodings.push({ from: index, dir: 'West', bit: 3, expectedNeighbor: y*2 + (x-1) });
-                    }
-                }
-
-                return { hasConnections: encodings.length > 0, encodings };
-            });
-
-            expect(result.hasConnections).toBe(true);
-
-            // Verify each encoding points to correct neighbor
-            for (const enc of result.encodings) {
-                expect(enc.expectedNeighbor).toBeGreaterThanOrEqual(0);
-                expect(enc.expectedNeighbor).toBeLessThan(4);
+                // A 4-bit encoding must never set bits above 15.
+                expect(maze[index]).toBeLessThanOrEqual(15);
             }
         });
 
-        test('generates perfect maze (N-1 edges for N tiles)', async ({ page }) => {
-            const { edgeCount, tileCount, isPerfect } = await page.evaluate(() => {
-                const { MazeGenerator } = window.MazeAlgorithms;
-                const generator = new MazeGenerator();
+        test('same seed produces identical mazes', async ({ page }) => {
+            const region = Array.from({ length: 16 }, (_, i) => i);
+            const first = await generateMaze(page, region, 4, 4, 99999);
+            const second = await generateMaze(page, region, 4, 4, 99999);
 
-                const regionIndices = Array.from({ length: 20 }, (_, i) => i);
-                const mazeData = generator.generateMaze(regionIndices, 5, 5, 33333);
+            expect(second).toEqual(first);
+        });
 
-                // Count edges (each bidirectional edge counted once)
-                let edgeCount = 0;
-                for (let index = 0; index < 20; index++) {
-                    const connections = mazeData[index];
-                    // Count South and East to avoid double-counting bidirectional edges
-                    if (connections & 2) edgeCount++; // South
-                    if (connections & 4) edgeCount++; // East
-                }
+        test('different seeds produce different mazes', async ({ page }) => {
+            const region = Array.from({ length: 25 }, (_, i) => i);
+            const first = await generateMaze(page, region, 5, 5, 11111);
+            const second = await generateMaze(page, region, 5, 5, 22222);
 
-                const tileCount = 20;
-                const isPerfect = edgeCount === tileCount - 1;
+            expect(second).not.toEqual(first);
+        });
 
-                return { edgeCount, tileCount, isPerfect };
-            });
+        test('handles irregular regions (L-shaped)', async ({ page }) => {
+            // 5x5 grid, bottom-left origin:
+            //   row 3: X X X . .
+            //   row 2: X . . . .
+            //   row 1: X . . . .
+            //   row 0: X X X . .
+            const region = [0, 1, 2, 5, 10, 15, 16, 17];
+            const maze = await generateMaze(page, region, 5, 5, 77777);
 
-            expect(isPerfect).toBe(true);
-            expect(edgeCount).toBe(tileCount - 1);
+            expect(countReachable(region, maze, 5, 5)).toBe(region.length);
+            expect(findEscapingConnections(region, maze, 5, 5)).toEqual([]);
+            expect(findNonBidirectional(maze, 5, 5)).toEqual([]);
+        });
+
+        test('handles irregular regions (T-shaped)', async ({ page }) => {
+            const region = [0, 1, 2, 3, 4, 7, 12, 17];
+            const maze = await generateMaze(page, region, 5, 5, 88888);
+
+            expect(countReachable(region, maze, 5, 5)).toBe(region.length);
+            expect(findEscapingConnections(region, maze, 5, 5)).toEqual([]);
+            expect(findNonBidirectional(maze, 5, 5)).toEqual([]);
+        });
+
+        test('generates a perfect maze (N-1 edges, no cycles)', async ({ page }) => {
+            const region = Array.from({ length: 20 }, (_, i) => i);
+            const maze = await generateMaze(page, region, 5, 4, 33333);
+
+            // Spanning tree: connected AND exactly N-1 edges means acyclic.
+            expect(countReachable(region, maze, 5, 4)).toBe(20);
+            expect(countEdges(region, maze)).toBe(19);
         });
 
         test('handles single tile region', async ({ page }) => {
-            const result = await page.evaluate(() => {
-                const { MazeGenerator } = window.MazeAlgorithms;
-                const generator = new MazeGenerator();
+            const maze = await generateMaze(page, [5], 10, 10, 12345);
 
-                const regionIndices = [5]; // Single tile
-                const mazeData = generator.generateMaze(regionIndices, 10, 10, 12345);
+            expect(maze[5]).toBe(0);
+            expect(maze.filter(v => v !== 0)).toEqual([]);
+        });
 
-                return {
-                    connections: mazeData[5],
-                    hasNoConnections: mazeData[5] === 0
-                };
+        test('rejects an empty region rather than returning an empty maze', async ({ page }) => {
+            const outcome = await page.evaluate(() => {
+                try {
+                    new window.MazeAlgorithms.MazeGenerator().generateMaze([], 4, 4, 1);
+                    return { threw: false };
+                } catch (err) {
+                    return { threw: true, message: err.message };
+                }
             });
 
-            expect(result.hasNoConnections).toBe(true);
-            expect(result.connections).toBe(0);
+            expect(outcome.threw).toBe(true);
+            expect(outcome.message).toMatch(/non-empty/i);
         });
     });
 
     // ========================================================================
-    // INTEGRATION TESTS
+    // INTEGRATION
     // ========================================================================
 
     test.describe('Integration: Flood Fill + Maze Generation', () => {
         test('complete workflow: flood fill then maze generation', async ({ page }) => {
             const result = await page.evaluate(() => {
-                const { FloodFillEngine, MazeGenerator } = window.MazeAlgorithms;
-                const floodFill = new FloodFillEngine();
-                const mazeGen = new MazeGenerator();
-
-                // Create a world with 2 regions separated by water
+                const { FloodFillEngine } = window.MazeAlgorithms;
                 const heightMap = new Uint8Array([
-                    100, 100, 100, 0,   150, 150,
-                    100, 100, 100, 0,   150, 150,
-                    100, 100, 100, 0,   150, 150
+                    100, 100, 100, 0, 150, 150,
+                    100, 100, 100, 0, 150, 150,
+                    100, 100, 100, 0, 150, 150
                 ]);
-
                 const biomeMap = [
                     'Grass', 'Grass', 'Grass', 'DeepWater', 'Mountain', 'Mountain',
                     'Grass', 'Grass', 'Grass', 'DeepWater', 'Mountain', 'Mountain',
                     'Grass', 'Grass', 'Grass', 'DeepWater', 'Mountain', 'Mountain'
                 ];
-
-                const settings = {
-                    borderBiomes: new Set(['DeepWater']),
-                    maxHeightDiff: 10
-                };
-
-                // Step 1: Flood fill
-                const floodResult = floodFill.performFloodFill(heightMap, biomeMap, settings, 6);
-
-                // Step 2: Generate maze for each region
-                const mazes = [];
-                for (const region of floodResult.regions) {
-                    const mazeData = mazeGen.generateMaze(region.tileIndices, 6, 6, 42);
-
-                    // Verify connectivity for this region
-                    const visited = new Set();
-                    const queue = [region.tileIndices[0]];
-                    visited.add(region.tileIndices[0]);
-
-                    while (queue.length > 0) {
-                        const index = queue.shift();
-                        const connections = mazeData[index];
-                        const x = index % 6;
-                        const y = Math.floor(index / 6);
-
-                        for (let dir = 0; dir < 4; dir++) {
-                            if (connections & (1 << dir)) {
-                                let neighborX = x, neighborY = y;
-                                switch (dir) {
-                                    case 0: neighborY--; break;
-                                    case 1: neighborY++; break;
-                                    case 2: neighborX++; break;
-                                    case 3: neighborX--; break;
-                                }
-
-                                const neighborIndex = neighborY * 6 + neighborX;
-                                if (!visited.has(neighborIndex)) {
-                                    visited.add(neighborIndex);
-                                    queue.push(neighborIndex);
-                                }
-                            }
-                        }
-                    }
-
-                    mazes.push({
-                        regionSize: region.regionSize,
-                        isConnected: visited.size === region.regionSize
-                    });
-                }
-
-                return {
-                    regionCount: floodResult.regions.length,
-                    mazes,
-                    allConnected: mazes.every(m => m.isConnected)
-                };
+                return new FloodFillEngine().performFloodFill(heightMap, biomeMap, {
+                    borderBiomes: new Set(['DeepWater']), maxHeightDiff: 10
+                }, 6);
             });
 
-            expect(result.regionCount).toBe(2);
-            expect(result.mazes.length).toBe(2);
-            expect(result.allConnected).toBe(true);
-            expect(result.mazes[0].regionSize).toBe(9);
-            expect(result.mazes[1].regionSize).toBe(6);
+            expect(result.regions.length).toBe(2);
+            expect(result.regions.map(r => r.regionSize).sort((a, b) => b - a)).toEqual([9, 6]);
+
+            // Each region must produce a maze that spans exactly that region.
+            for (const region of result.regions) {
+                const maze = await generateMaze(page, region.tileIndices, 6, 3, 42);
+                expect(countReachable(region.tileIndices, maze, 6, 3)).toBe(region.regionSize);
+                expect(findEscapingConnections(region.tileIndices, maze, 6, 3)).toEqual([]);
+                expect(countEdges(region.tileIndices, maze)).toBe(region.regionSize - 1);
+            }
         });
 
-        test('multiple layers simulation (Floor, Underground, Sky)', async ({ page }) => {
-            const result = await page.evaluate(() => {
-                const { FloodFillEngine, MazeGenerator } = window.MazeAlgorithms;
-                const floodFill = new FloodFillEngine();
-                const mazeGen = new MazeGenerator();
+        test('multiple layers each get their own spanning maze', async ({ page }) => {
+            // The old version of this test called generateMaze(indices, 3, 12345) —
+            // one argument short, so worldHeight became 12345 and the seed became
+            // undefined. It still "passed" because it only checked connectivity within
+            // a 3x3 block of a degenerate grid.
+            const layers = [
+                { name: 'Floor', height: 100, biome: 'Grass' },
+                { name: 'Underground', height: 50, biome: 'Cave' },
+                { name: 'Sky', height: 200, biome: 'Cloud' }
+            ];
 
-                const layers = [];
-
-                // Simulate 3 different layers
-                const layerConfigs = [
-                    {
-                        name: 'Floor',
-                        heightMap: new Uint8Array([100, 100, 100, 100, 100, 100, 100, 100, 100]),
-                        biomeMap: Array(9).fill('Grass')
-                    },
-                    {
-                        name: 'Underground',
-                        heightMap: new Uint8Array([50, 50, 50, 50, 50, 50, 50, 50, 50]),
-                        biomeMap: Array(9).fill('Cave')
-                    },
-                    {
-                        name: 'Sky',
-                        heightMap: new Uint8Array([200, 200, 200, 200, 200, 200, 200, 200, 200]),
-                        biomeMap: Array(9).fill('Cloud')
-                    }
-                ];
-
-                const settings = {
-                    borderBiomes: new Set(['DeepWater']),
-                    maxHeightDiff: 10
-                };
-
-                for (const config of layerConfigs) {
-                    const floodResult = floodFill.performFloodFill(
-                        config.heightMap,
-                        config.biomeMap,
-                        settings,
-                        3
+            for (const layer of layers) {
+                const flood = await page.evaluate(({ h, b }) => {
+                    const { FloodFillEngine } = window.MazeAlgorithms;
+                    return new FloodFillEngine().performFloodFill(
+                        new Uint8Array(Array(9).fill(h)), Array(9).fill(b),
+                        { borderBiomes: new Set(['DeepWater']), maxHeightDiff: 10 }, 3
                     );
+                }, { h: layer.height, b: layer.biome });
 
-                    const mazeData = mazeGen.generateMaze(
-                        floodResult.regions[0].tileIndices,
-                        3,
-                        12345
-                    );
+                expect(flood.regions.length, `${layer.name} regions`).toBe(1);
 
-                    // Verify connectivity
-                    const visited = new Set();
-                    const queue = [0];
-                    visited.add(0);
+                const region = flood.regions[0].tileIndices;
+                const maze = await generateMaze(page, region, 3, 3, 12345);
 
-                    while (queue.length > 0) {
-                        const index = queue.shift();
-                        const connections = mazeData[index];
-                        const x = index % 3;
-                        const y = Math.floor(index / 3);
-
-                        for (let dir = 0; dir < 4; dir++) {
-                            if (connections & (1 << dir)) {
-                                let neighborX = x, neighborY = y;
-                                switch (dir) {
-                                    case 0: neighborY--; break;
-                                    case 1: neighborY++; break;
-                                    case 2: neighborX++; break;
-                                    case 3: neighborX--; break;
-                                }
-
-                                const neighborIndex = neighborY * 3 + neighborX;
-                                if (!visited.has(neighborIndex)) {
-                                    visited.add(neighborIndex);
-                                    queue.push(neighborIndex);
-                                }
-                            }
-                        }
-                    }
-
-                    layers.push({
-                        name: config.name,
-                        regionCount: floodResult.regions.length,
-                        isConnected: visited.size === 9
-                    });
-                }
-
-                return {
-                    layerCount: layers.length,
-                    layers,
-                    allLayersConnected: layers.every(l => l.isConnected)
-                };
-            });
-
-            expect(result.layerCount).toBe(3);
-            expect(result.allLayersConnected).toBe(true);
-            expect(result.layers[0].name).toBe('Floor');
-            expect(result.layers[1].name).toBe('Underground');
-            expect(result.layers[2].name).toBe('Sky');
+                expect(countReachable(region, maze, 3, 3), `${layer.name} connectivity`).toBe(9);
+                expect(findNonBidirectional(maze, 3, 3), `${layer.name} bidirectionality`).toEqual([]);
+                expect(countEdges(region, maze), `${layer.name} edge count`).toBe(8);
+            }
         });
     });
 });

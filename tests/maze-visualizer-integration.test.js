@@ -1,402 +1,297 @@
 /**
- * Maze Visualizer Integration Tests
- * Tests the complete maze visualizer functionality in the editor
+ * Maze visualizer panel
+ *
+ * The panel is driven by a segmented control (`#maze-layer-control .segment[data-layer]`)
+ * that picks ONE layer to analyse; the old `#btn-toggle-maze-visualizer` toggle and
+ * `#maze-layer-checkboxes` multi-select no longer exist, so those tests timed out.
+ *
+ * Three of the surviving tests could not fail even when they ran:
+ *  - "tile inspector shows maze data on right-click" wrapped everything in
+ *    `if (isVisible)` and its only assertion was `expect(typeof x).toBe('boolean')`;
+ *  - "can regenerate with different settings" asserted `regionCount >= 0` on an array
+ *    length;
+ *  - "visualizer persists region data" asserted `regionCount >= 0`, `tilesInRegions >= 0`,
+ *    and that a maze byte was between 0 and 15 — where the value it sampled defaults to
+ *    0 when the maze is entirely empty.
  */
 
-const { test, expect } = require('./test-base');
+const { test, expect, initializeEditor, generateTestMap } = require('./test-base');
 
-test.describe('Maze Visualizer Integration', () => {
+const FLOOR_LAYER_INDEX = 4;
+
+async function selectMazeLayer(page, layer = 'floor') {
+    await page.click(`#maze-layer-control .segment[data-layer="${layer}"]`);
+    await page.waitForFunction((idx) =>
+        window.editor.mazeVisualizer.floodFillResults.has(idx), FLOOR_LAYER_INDEX, { timeout: 15000 });
+}
+
+test.describe('Maze visualizer', () => {
     test.beforeEach(async ({ page }) => {
-        // Navigate to editor
-        await page.goto('http://localhost:8000/index.html');
-
-        // Wait for editor to initialize
-        await page.waitForFunction(() => window.editor && window.editor.mazeVisualizer);
-        await page.waitForTimeout(500);
+        await initializeEditor(page);
+        await page.waitForFunction(() => window.editor.mazeVisualizer);
+        // A uniform default-filled Floor gives one giant region; a generated map gives
+        // several, which is what makes the region assertions meaningful.
+        await generateTestMap(page);
     });
 
-    test('UI elements are present', async ({ page }) => {
-        // Check maze visualizer panel exists
-        const panelSection = await page.locator('h3:has-text("Maze Visualizer")');
-        await expect(panelSection).toBeVisible();
+    test('the panel starts collapsed with no layer selected', async ({ page }) => {
+        const state = await page.evaluate(() => ({
+            enabled: window.editor.mazeVisualizer.enabled,
+            contentVisible: !!document.getElementById('maze-visualizer-content')?.offsetParent,
+            activeSegments: Array.from(document.querySelectorAll('#maze-layer-control .segment.active')).length,
+            segments: Array.from(document.querySelectorAll('#maze-layer-control .segment')).map(s => s.dataset.layer)
+        }));
 
-        // Check enable button exists
-        const enableBtn = await page.locator('#btn-toggle-maze-visualizer');
-        await expect(enableBtn).toBeVisible();
-        await expect(enableBtn).toHaveText('Enable Visualizer');
-
-        // Check mode selector exists (but is hidden)
-        const modeSelect = await page.locator('#maze-viz-mode');
-        await expect(modeSelect).toBeAttached();
-
-        // Check settings section exists (but is hidden)
-        const settingsHeader = await page.locator('#maze-settings-header');
-        await expect(settingsHeader).toBeAttached();
-
-        // Check regenerate button exists (but is hidden)
-        const regenerateBtn = await page.locator('#btn-regenerate-maze');
-        await expect(regenerateBtn).toBeAttached();
-
-        // Check export button exists (but is hidden)
-        const exportBtn = await page.locator('#btn-export-maze-data');
-        await expect(exportBtn).toBeAttached();
+        expect(state.enabled).toBe(false);
+        expect(state.contentVisible).toBe(false);
+        expect(state.activeSegments).toBe(0);
+        expect(state.segments).toEqual(['floor', 'underground', 'sky']);
     });
 
-    test('can enable and disable visualizer', async ({ page }) => {
-        // Initially disabled
-        let enabled = await page.evaluate(() => window.editor.mazeVisualizer.enabled);
-        expect(enabled).toBe(false);
+    test('selecting a layer enables the visualizer and produces regions', async ({ page }) => {
+        await selectMazeLayer(page, 'floor');
 
-        // Check content is hidden
-        const content = await page.locator('#maze-visualizer-content');
-        await expect(content).toBeHidden();
-
-        // Click enable button
-        const enableBtn = await page.locator('#btn-toggle-maze-visualizer');
-        await enableBtn.click();
-        await page.waitForTimeout(500);
-
-        // Verify visualizer is enabled
-        enabled = await page.evaluate(() => window.editor.mazeVisualizer.enabled);
-        expect(enabled).toBe(true);
-
-        // Verify button text changed
-        await expect(enableBtn).toHaveText('Disable Visualizer');
-
-        // Verify content becomes visible
-        await expect(content).toBeVisible();
-
-        // Verify statistics appear after generation
-        await page.waitForSelector('#maze-stats', { state: 'visible', timeout: 2000 });
-        const statsVisible = await page.locator('#maze-stats').isVisible();
-        expect(statsVisible).toBe(true);
-
-        // Verify flood fill results were generated
-        const hasResults = await page.evaluate(() => {
-            return window.editor.mazeVisualizer.floodFillResults.size > 0;
-        });
-        expect(hasResults).toBe(true);
-
-        // Click disable button
-        await enableBtn.click();
-        await page.waitForTimeout(200);
-
-        // Verify visualizer is disabled
-        enabled = await page.evaluate(() => window.editor.mazeVisualizer.enabled);
-        expect(enabled).toBe(false);
-
-        // Verify button text changed back
-        await expect(enableBtn).toHaveText('Enable Visualizer');
-
-        // Verify content is hidden
-        await expect(content).toBeHidden();
-    });
-
-    test('can switch visualization modes', async ({ page }) => {
-        // Enable visualizer first
-        await page.click('#btn-toggle-maze-visualizer');
-        await page.waitForTimeout(500);
-
-        // Check initial mode
-        let mode = await page.evaluate(() => window.editor.mazeVisualizer.visualizationMode);
-        expect(mode).toBe('regions');
-
-        // Test switching to arrows mode
-        await page.selectOption('#maze-viz-mode', 'arrows');
-        await page.waitForTimeout(200);
-        mode = await page.evaluate(() => window.editor.mazeVisualizer.visualizationMode);
-        expect(mode).toBe('arrows');
-
-        // Test switching to walls mode
-        await page.selectOption('#maze-viz-mode', 'walls');
-        await page.waitForTimeout(200);
-        mode = await page.evaluate(() => window.editor.mazeVisualizer.visualizationMode);
-        expect(mode).toBe('walls');
-
-        // Test switching to connections mode
-        await page.selectOption('#maze-viz-mode', 'connections');
-        await page.waitForTimeout(200);
-        mode = await page.evaluate(() => window.editor.mazeVisualizer.visualizationMode);
-        expect(mode).toBe('connections');
-
-        // Test switching to off mode
-        await page.selectOption('#maze-viz-mode', 'off');
-        await page.waitForTimeout(200);
-        mode = await page.evaluate(() => window.editor.mazeVisualizer.visualizationMode);
-        expect(mode).toBe('off');
-
-        // Verify no errors occurred during mode switching
-        // (console error monitoring is handled by test-base.js)
-    });
-
-    test('tile inspector shows maze data on right-click', async ({ page }) => {
-        // Enable visualizer
-        await page.click('#btn-toggle-maze-visualizer');
-        await page.waitForTimeout(500);
-
-        // Draw some tiles to ensure we have data
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-        const centerX = box.width / 2;
-        const centerY = box.height / 2;
-
-        // Select a biome color using evaluation (more reliable than UI interaction)
-        await page.evaluate(() => {
-            // Select a known biome (Grass is usually available)
-            window.editor.selectTileset('Biome_Grass');
-        });
-
-        // Select pencil tool and draw
-        await page.click('[data-tool="pencil"]');
-        await canvas.click({ position: { x: centerX, y: centerY } });
-        await page.waitForTimeout(200);
-
-        // Regenerate maze to ensure we have fresh data
-        await page.click('#btn-regenerate-maze');
-        await page.waitForTimeout(500);
-
-        // Right-click on the canvas to open tile inspector
-        await canvas.click({
-            position: { x: centerX, y: centerY },
-            button: 'right'
-        });
-        await page.waitForTimeout(300);
-
-        // Check if tile inspector appeared
-        const inspector = await page.locator('#tile-inspector');
-        const isVisible = await inspector.isVisible();
-
-        // The inspector should appear (if there's tile data at that location)
-        if (isVisible) {
-            // Verify inspector content
-            const content = await inspector.locator('#tile-inspector-content');
-            await expect(content).toBeVisible();
-
-            // Check if maze data section exists in the inspector
-            const hasMazeSection = await page.evaluate(() => {
-                const inspectorContent = document.getElementById('tile-inspector-content');
-                if (!inspectorContent) return false;
-                const html = inspectorContent.innerHTML;
-                return html.includes('Flood Fill Region') || html.includes('Maze Directions');
-            });
-
-            // If maze data exists, it should be displayed
-            expect(typeof hasMazeSection).toBe('boolean');
-        }
-
-        // Close inspector if it's open
-        const closeBtn = await page.locator('#tile-inspector-close');
-        if (await closeBtn.isVisible()) {
-            await closeBtn.click();
-            await page.waitForTimeout(200);
-        }
-    });
-
-    test('can export maze data', async ({ page }) => {
-        // Enable visualizer
-        await page.click('#btn-toggle-maze-visualizer');
-        await page.waitForTimeout(500);
-
-        // Wait for generation to complete
-        await page.waitForSelector('#maze-stats', { state: 'visible' });
-
-        // Setup download listener
-        const downloadPromise = page.waitForEvent('download', { timeout: 5000 });
-
-        // Click export button
-        await page.click('#btn-export-maze-data');
-
-        // Wait for download to trigger
-        const download = await downloadPromise;
-
-        // Verify download was triggered
-        expect(download).toBeTruthy();
-        expect(download.suggestedFilename()).toMatch(/maze-data.*\.json/);
-
-        // Verify the download has content
-        const path = await download.path();
-        expect(path).toBeTruthy();
-    });
-
-    test('settings panel can be expanded and collapsed', async ({ page }) => {
-        // Enable visualizer
-        await page.click('#btn-toggle-maze-visualizer');
-        await page.waitForTimeout(500);
-
-        const settingsHeader = await page.locator('#maze-settings-header');
-        const settingsContent = await page.locator('#maze-settings-content');
-
-        // Settings should be expanded by default
-        let isExpanded = await page.evaluate(() => {
-            const header = document.getElementById('maze-settings-header');
-            return !header.parentElement.classList.contains('collapsed');
-        });
-        expect(isExpanded).toBe(true);
-
-        // Click to collapse
-        await settingsHeader.click();
-        await page.waitForTimeout(200);
-
-        isExpanded = await page.evaluate(() => {
-            const header = document.getElementById('maze-settings-header');
-            return !header.parentElement.classList.contains('collapsed');
-        });
-        expect(isExpanded).toBe(false);
-
-        // Click to expand again
-        await settingsHeader.click();
-        await page.waitForTimeout(200);
-
-        isExpanded = await page.evaluate(() => {
-            const header = document.getElementById('maze-settings-header');
-            return !header.parentElement.classList.contains('collapsed');
-        });
-        expect(isExpanded).toBe(true);
-    });
-
-    test('can regenerate with different settings', async ({ page }) => {
-        // Enable visualizer
-        await page.click('#btn-toggle-maze-visualizer');
-        await page.waitForTimeout(500);
-
-        // Get initial region count
-        const initialRegionCount = await page.evaluate(() => {
-            const results = window.editor.mazeVisualizer.floodFillResults.get(0);
-            return results ? results.regions.length : 0;
-        });
-
-        // Change seed
-        await page.fill('#maze-seed', '99999');
-        await page.waitForTimeout(200);
-
-        // Regenerate
-        await page.click('#btn-regenerate-maze');
-        await page.waitForTimeout(500);
-
-        // Verify settings were updated
-        const newSeed = await page.evaluate(() => window.editor.mazeVisualizer.settings.seed);
-        expect(newSeed).toBe(99999);
-
-        // Verify new data was generated
-        const newRegionCount = await page.evaluate(() => {
-            const results = window.editor.mazeVisualizer.floodFillResults.get(0);
-            return results ? results.regions.length : 0;
-        });
-
-        // Region count should exist (might be same or different depending on map)
-        expect(newRegionCount).toBeGreaterThanOrEqual(0);
-    });
-
-    test('layer checkboxes toggle visualization', async ({ page }) => {
-        // Enable visualizer
-        await page.click('#btn-toggle-maze-visualizer');
-        await page.waitForTimeout(500);
-
-        // Floor should be checked by default
-        const floorCheckbox = await page.locator('#maze-layer-checkboxes input[value="0"]');
-        const isChecked = await floorCheckbox.isChecked();
-        expect(isChecked).toBe(true);
-
-        // Verify Floor is in selected layers
-        let selectedLayers = await page.evaluate(() =>
-            Array.from(window.editor.mazeVisualizer.selectedLayers)
-        );
-        expect(selectedLayers).toContain(0);
-
-        // Uncheck Floor
-        await floorCheckbox.uncheck();
-        await page.waitForTimeout(200);
-
-        // Verify Floor is no longer in selected layers
-        selectedLayers = await page.evaluate(() =>
-            Array.from(window.editor.mazeVisualizer.selectedLayers)
-        );
-        expect(selectedLayers).not.toContain(0);
-
-        // Check Underground (layer 1)
-        const undergroundCheckbox = await page.locator('#maze-layer-checkboxes input[value="1"]');
-        await undergroundCheckbox.check();
-        await page.waitForTimeout(200);
-
-        // Verify Underground is in selected layers
-        selectedLayers = await page.evaluate(() =>
-            Array.from(window.editor.mazeVisualizer.selectedLayers)
-        );
-        expect(selectedLayers).toContain(1);
-    });
-
-    test('visualizer persists region data after generation', async ({ page }) => {
-        // Enable visualizer
-        await page.click('#btn-toggle-maze-visualizer');
-        await page.waitForTimeout(500);
-
-        // Get region data
-        const regionData = await page.evaluate(() => {
-            const results = window.editor.mazeVisualizer.floodFillResults.get(0);
-            if (!results) return null;
-
+        const state = await page.evaluate((idx) => {
+            const viz = window.editor.mazeVisualizer;
+            const results = viz.floodFillResults.get(idx);
             return {
+                enabled: viz.enabled,
+                selectedLayer: viz.selectedLayer,
+                contentVisible: !!document.getElementById('maze-visualizer-content')?.offsetParent,
+                statsVisible: !!document.getElementById('maze-stats')?.offsetParent,
+                activeSegment: document.querySelector('#maze-layer-control .segment.active')?.dataset.layer,
                 regionCount: results.regions.length,
                 tilesInRegions: results.tilesInRegions,
                 borderTiles: results.borderTiles,
-                largestRegionSize: results.largestRegionSize,
-                smallestRegionSize: results.smallestRegionSize
+                gridTiles: window.editor.layerManager.width * window.editor.layerManager.height
+            };
+        }, FLOOR_LAYER_INDEX);
+
+        expect(state.enabled).toBe(true);
+        expect(state.selectedLayer).toBe(FLOOR_LAYER_INDEX);
+        expect(state.contentVisible).toBe(true);
+        expect(state.statsVisible).toBe(true);
+        expect(state.activeSegment).toBe('floor');
+
+        // Real invariants, not `>= 0`: at least one region, and every tile accounted for.
+        expect(state.regionCount).toBeGreaterThan(0);
+        expect(state.tilesInRegions + state.borderTiles).toBe(state.gridTiles);
+    });
+
+    test('the generated maze is a spanning tree of each region', async ({ page }) => {
+        await selectMazeLayer(page, 'floor');
+
+        const analysis = await page.evaluate((idx) => {
+            const viz = window.editor.mazeVisualizer;
+            const results = viz.floodFillResults.get(idx);
+            const mazeData = viz.mazeData.get(idx);
+            const width = window.editor.layerManager.width;
+            const height = window.editor.layerManager.height;
+
+            const neighbour = (index, dir) => {
+                const x = index % width, y = Math.floor(index / width);
+                let nx = x, ny = y;
+                if (dir === 0) ny += 1; else if (dir === 1) ny -= 1;
+                else if (dir === 2) nx += 1; else nx -= 1;
+                if (nx < 0 || nx >= width || ny < 0 || ny >= height) return null;
+                return ny * width + nx;
+            };
+
+            let checked = 0, badEdges = 0, nonTree = 0, connectedRegions = 0;
+
+            // Sample the larger regions; the whole 65k grid is too slow to walk here.
+            const sample = results.regions
+                .filter(r => r.regionSize > 1)
+                .sort((a, b) => b.regionSize - a.regionSize)
+                .slice(0, 5);
+
+            for (const region of sample) {
+                checked++;
+                const inRegion = new Set(region.tileIndices);
+                let edges = 0;
+
+                for (const index of region.tileIndices) {
+                    const bits = mazeData[index];
+                    for (let dir = 0; dir < 4; dir++) {
+                        if (!(bits & (1 << dir))) continue;
+                        const n = neighbour(index, dir);
+                        if (n === null || !inRegion.has(n)) badEdges++;
+                        if (dir === 0 || dir === 2) edges++; // count each edge once
+                    }
+                }
+                if (edges !== region.regionSize - 1) nonTree++;
+
+                // BFS for connectivity.
+                const visited = new Set([region.tileIndices[0]]);
+                const queue = [region.tileIndices[0]];
+                while (queue.length) {
+                    const index = queue.shift();
+                    const bits = mazeData[index];
+                    for (let dir = 0; dir < 4; dir++) {
+                        if (!(bits & (1 << dir))) continue;
+                        const n = neighbour(index, dir);
+                        if (n === null || !inRegion.has(n) || visited.has(n)) continue;
+                        visited.add(n);
+                        queue.push(n);
+                    }
+                }
+                if (visited.size === region.regionSize) connectedRegions++;
+            }
+
+            return { checked, badEdges, nonTree, connectedRegions };
+        }, FLOOR_LAYER_INDEX);
+
+        expect(analysis.checked).toBeGreaterThan(0);
+        expect(analysis.badEdges, 'maze connections leaving their region').toBe(0);
+        expect(analysis.nonTree, 'regions whose maze is not a spanning tree').toBe(0);
+        expect(analysis.connectedRegions).toBe(analysis.checked);
+    });
+
+    test('every visualization mode can be selected and rendered', async ({ page }) => {
+        await selectMazeLayer(page, 'floor');
+
+        // The dropdown offers four modes; there is no longer an "off" option — the
+        // visualizer is switched off by deselecting the layer instead.
+        const options = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('#maze-viz-mode option')).map(o => o.value));
+        expect(options).toEqual(['regions', 'arrows', 'walls', 'connections']);
+
+        for (const mode of options) {
+            await page.selectOption('#maze-viz-mode', mode);
+            await page.waitForTimeout(150);
+            await page.evaluate(() => window.editor.render());
+            await page.waitForTimeout(100);
+
+            expect(await page.evaluate(() => window.editor.mazeVisualizer.visualizationMode),
+                `mode ${mode}`).toBe(mode);
+        }
+        // Rendering errors surface as console errors, which test-base turns into failures.
+    });
+
+    test('changing the seed produces a different maze for the same regions', async ({ page }) => {
+        await selectMazeLayer(page, 'floor');
+
+        const first = await page.evaluate((idx) => ({
+            seed: window.editor.mazeVisualizer.settings.seed,
+            maze: Array.from(window.editor.mazeVisualizer.mazeData.get(idx)).slice(0, 4000),
+            regions: window.editor.mazeVisualizer.floodFillResults.get(idx).regions.length
+        }), FLOOR_LAYER_INDEX);
+
+        await page.fill('#maze-seed', '99999');
+        await page.click('#btn-regenerate-maze');
+        await page.waitForTimeout(1500);
+
+        const second = await page.evaluate((idx) => ({
+            seed: window.editor.mazeVisualizer.settings.seed,
+            maze: Array.from(window.editor.mazeVisualizer.mazeData.get(idx)).slice(0, 4000),
+            regions: window.editor.mazeVisualizer.floodFillResults.get(idx).regions.length
+        }), FLOOR_LAYER_INDEX);
+
+        expect(second.seed).toBe(99999);
+        // Same tiles, so the regions are unchanged...
+        expect(second.regions).toBe(first.regions);
+        // ...but the corridors through them must differ.
+        expect(second.maze).not.toEqual(first.maze);
+    });
+
+    test('regenerating with the same seed is deterministic', async ({ page }) => {
+        await selectMazeLayer(page, 'floor');
+        await page.fill('#maze-seed', '4242');
+        await page.click('#btn-regenerate-maze');
+        await page.waitForTimeout(1500);
+
+        const first = await page.evaluate((idx) =>
+            Array.from(window.editor.mazeVisualizer.mazeData.get(idx)).slice(0, 4000), FLOOR_LAYER_INDEX);
+
+        await page.click('#btn-regenerate-maze');
+        await page.waitForTimeout(1500);
+
+        const second = await page.evaluate((idx) =>
+            Array.from(window.editor.mazeVisualizer.mazeData.get(idx)).slice(0, 4000), FLOOR_LAYER_INDEX);
+
+        expect(second).toEqual(first);
+    });
+
+    test('switching the analysed layer re-runs the analysis for that layer', async ({ page }) => {
+        await selectMazeLayer(page, 'floor');
+        const floorRegions = await page.evaluate((idx) =>
+            window.editor.mazeVisualizer.floodFillResults.get(idx).regions.length, FLOOR_LAYER_INDEX);
+
+        await page.click('#maze-layer-control .segment[data-layer="sky"]');
+        await page.waitForFunction(() => window.editor.mazeVisualizer.selectedLayer !== 4, null, { timeout: 15000 });
+        await page.waitForTimeout(500);
+
+        const state = await page.evaluate(() => {
+            const viz = window.editor.mazeVisualizer;
+            const idx = viz.selectedLayer;
+            return {
+                selectedLayer: idx,
+                layerName: window.editor.layerManager.layers[idx].layerType,
+                hasResults: viz.floodFillResults.has(idx),
+                hasMaze: viz.mazeData.has(idx),
+                activeSegment: document.querySelector('#maze-layer-control .segment.active')?.dataset.layer
             };
         });
 
-        // Verify we got valid data
-        expect(regionData).toBeTruthy();
-        expect(regionData.regionCount).toBeGreaterThanOrEqual(0);
-        expect(regionData.tilesInRegions).toBeGreaterThanOrEqual(0);
-
-        // Verify maze data exists
-        const hasMazeData = await page.evaluate(() => {
-            return window.editor.mazeVisualizer.mazeData.has(0);
-        });
-        expect(hasMazeData).toBe(true);
-
-        // Get a sample of maze data to verify it's populated
-        const sampleMazeValue = await page.evaluate(() => {
-            const mazeData = window.editor.mazeVisualizer.mazeData.get(0);
-            if (!mazeData || mazeData.length === 0) return null;
-
-            // Find first non-zero value
-            for (let i = 0; i < mazeData.length; i++) {
-                if (mazeData[i] !== 0) return mazeData[i];
-            }
-            return 0;
-        });
-
-        // Sample value should be a valid direction bitmask (0-15)
-        expect(sampleMazeValue).toBeGreaterThanOrEqual(0);
-        expect(sampleMazeValue).toBeLessThanOrEqual(15);
+        expect(state.layerName).toBe('Sky');
+        expect(state.hasResults).toBe(true);
+        expect(state.hasMaze).toBe(true);
+        expect(state.activeSegment).toBe('sky');
+        expect(floorRegions).toBeGreaterThan(0);
     });
 
-    test('visualizer renders without errors in all modes', async ({ page }) => {
-        // Enable visualizer
-        await page.click('#btn-toggle-maze-visualizer');
-        await page.waitForTimeout(500);
+    test('the statistics panel reports the region counts it computed', async ({ page }) => {
+        await selectMazeLayer(page, 'floor');
 
-        const modes = ['regions', 'arrows', 'walls', 'connections'];
+        const state = await page.evaluate((idx) => {
+            const results = window.editor.mazeVisualizer.floodFillResults.get(idx);
+            return {
+                text: document.getElementById('maze-stats-content').textContent,
+                regionCount: results.regions.length,
+                largest: results.largestRegionSize
+            };
+        }, FLOOR_LAYER_INDEX);
 
-        for (const mode of modes) {
-            // Switch to mode
-            await page.selectOption('#maze-viz-mode', mode);
-            await page.waitForTimeout(300);
+        expect(state.text.length).toBeGreaterThan(0);
+        // The numbers on screen must be the numbers in the model.
+        expect(state.text).toContain(String(state.regionCount));
+        expect(state.text).toContain(String(state.largest));
+    });
 
-            // Trigger a render by panning slightly
-            await page.evaluate(() => {
-                window.editor.render();
-            });
-            await page.waitForTimeout(200);
+    test('the settings section collapses and expands', async ({ page }) => {
+        await selectMazeLayer(page, 'floor');
 
-            // Verify mode is active
-            const currentMode = await page.evaluate(() =>
-                window.editor.mazeVisualizer.visualizationMode
-            );
-            expect(currentMode).toBe(mode);
+        const isExpanded = () => page.evaluate(() =>
+            !document.getElementById('maze-settings-header').parentElement.classList.contains('collapsed'));
 
-            // Console error monitoring will catch any rendering errors
-        }
+        expect(await isExpanded()).toBe(true);
+
+        await page.click('#maze-settings-header');
+        await page.waitForTimeout(150);
+        expect(await isExpanded()).toBe(false);
+
+        await page.click('#maze-settings-header');
+        await page.waitForTimeout(150);
+        expect(await isExpanded()).toBe(true);
+    });
+
+    test('exporting maze data downloads a file describing the current maze', async ({ page }) => {
+        await selectMazeLayer(page, 'floor');
+
+        const downloadPromise = page.waitForEvent('download', { timeout: 10000 });
+        await page.click('#btn-export-maze-data');
+        const download = await downloadPromise;
+
+        expect(download.suggestedFilename()).toMatch(/maze-data.*\.json/);
+
+        const path = await download.path();
+        expect(path).toBeTruthy();
+
+        const fs = require('fs');
+        const parsed = JSON.parse(fs.readFileSync(path, 'utf8'));
+
+        // The old test only checked that a file arrived. Check it has content.
+        expect(parsed).toBeTruthy();
+        expect(JSON.stringify(parsed).length).toBeGreaterThan(100);
     });
 });

@@ -1,182 +1,175 @@
 /**
- * Save and Open Functionality Tests
- * Tests that Save and Open buttons work correctly after removing Export
+ * Import / Export toolbar
+ *
+ * This file used to assert the opposite of the current design: that `#btn-save` and
+ * `#btn-load` exist with the label "Open", and that `#btn-export` does NOT exist. The
+ * save/load system was replaced by a multi-project cache with Import/Export in efeb547,
+ * so every one of those assertions was pinned to a UI that had been deleted — and the
+ * suite could not tell anyone, because the tests only timed out.
+ *
+ * Ctrl+S exports, Ctrl+O imports, Ctrl+N opens the New Project prompt (it does NOT
+ * clear the canvas, which several other test files also assumed).
  */
 
-const { test, expect } = require('./test-base');
+const { test, expect, initializeEditor } = require('./test-base');
 
-test.describe('Save and Open Functionality', () => {
+test.describe('Import / Export toolbar', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
-        await page.waitForSelector('#grid-canvas');
-        await page.waitForTimeout(1000); // Wait for initialization
+        await initializeEditor(page);
     });
 
-    test('should have Open button (no Export button)', async ({ page }) => {
-        // Verify Open button exists
-        const openBtn = await page.locator('#btn-load');
-        await expect(openBtn).toBeVisible();
-        const openText = await openBtn.textContent();
-        expect(openText).toBe('Open');
-
-        // Verify Save button exists
-        const saveBtn = await page.locator('#btn-save');
-        await expect(saveBtn).toBeVisible();
-
-        // Verify Export button does NOT exist
-        const exportBtn = await page.locator('#btn-export');
-        await expect(exportBtn).toHaveCount(0);
-
-        // Verify export dialog does NOT exist
-        const exportDialog = await page.locator('#export-dialog');
-        await expect(exportDialog).toHaveCount(0);
-    });
-
-    test('should not throw error when Ctrl+E is pressed', async ({ page }) => {
-        // Setup console error listener
-        const consoleErrors = [];
-        page.on('console', msg => {
-            if (msg.type() === 'error') {
-                consoleErrors.push(msg.text());
-            }
-        });
-
-        // Setup page error listener
-        const pageErrors = [];
-        page.on('pageerror', error => {
-            pageErrors.push(error.message);
-        });
-
-        // Press Ctrl+E (old export shortcut)
-        await page.keyboard.press('Control+E');
-        await page.waitForTimeout(500);
-
-        // Should have no errors (Ctrl+E should do nothing now)
-        expect(consoleErrors.length).toBe(0);
-        expect(pageErrors.length).toBe(0);
-
-        // Status message should not show export-related messages
-        const statusMsg = await page.locator('#status-message').textContent();
-        expect(statusMsg).not.toContain('Export');
-    });
-
-    test('Save button should trigger download', async ({ page }) => {
-        // Draw something so we have data to save
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-        await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
-
-        // Setup download listener
-        const downloadPromise = page.waitForEvent('download', { timeout: 5000 });
-
-        // Click Save button
-        await page.click('#btn-save');
-
-        // Wait for download to start
-        const download = await downloadPromise;
-
-        // Verify download filename matches pattern
-        const filename = download.suggestedFilename();
-        expect(filename).toMatch(/level_\d+\.json/);
-
-        // Verify status message
-        await page.waitForTimeout(500);
-        const statusMsg = await page.locator('#status-message').textContent();
-        expect(statusMsg).toBe('Level saved');
-    });
-
-    test('Ctrl+S should trigger Save', async ({ page }) => {
-        // Draw something
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-        await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
-
-        // Setup download listener
-        const downloadPromise = page.waitForEvent('download', { timeout: 5000 });
-
-        // Press Ctrl+S
-        await page.keyboard.press('Control+S');
-
-        // Wait for download
-        const download = await downloadPromise;
-        const filename = download.suggestedFilename();
-        expect(filename).toMatch(/level_\d+\.json/);
-    });
-
-    test('Open button should open file picker', async ({ page }) => {
-        // Get the hidden file input
-        const fileInput = await page.locator('#file-input');
-
-        // Verify it exists and is hidden
-        await expect(fileInput).toHaveCount(1);
-        const isVisible = await fileInput.isVisible();
-        expect(isVisible).toBe(false);
-
-        // Click Open button should trigger file input
-        await page.click('#btn-load');
-
-        // File input should receive the click (we can't verify the picker opens, but we can check no errors)
-        await page.waitForTimeout(500);
-
-        // No JavaScript errors should occur
-        const statusMsg = await page.locator('#status-message').textContent();
-        expect(statusMsg).not.toContain('error');
-        expect(statusMsg).not.toContain('Error');
-    });
-
-    test('Ctrl+O should trigger Open', async ({ page }) => {
-        // Press Ctrl+O
-        await page.keyboard.press('Control+O');
-
-        // Should trigger file input (no errors)
-        await page.waitForTimeout(500);
-
-        const statusMsg = await page.locator('#status-message').textContent();
-        expect(statusMsg).not.toContain('error');
-        expect(statusMsg).not.toContain('Error');
-    });
-
-    test('should not have any broken references to removed elements', async ({ page }) => {
-        // Setup error listeners
-        const consoleErrors = [];
-        page.on('console', msg => {
-            if (msg.type() === 'error') {
-                consoleErrors.push(msg.text());
-            }
-        });
-
-        const pageErrors = [];
-        page.on('pageerror', error => {
-            pageErrors.push(error.message);
-        });
-
-        // Try various actions that might trigger errors
-        await page.click('#btn-new');
-        await page.waitForTimeout(200);
-
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(2000);
-
-        await page.keyboard.press('Control+S');
-        await page.waitForTimeout(500);
-
-        // Check for errors related to removed elements
-        const relevantErrors = [...consoleErrors, ...pageErrors].filter(err =>
-            err.includes('export-dialog') ||
-            err.includes('export-confirm') ||
-            err.includes('export-cancel') ||
-            err.includes('btn-export') ||
-            err.includes('exportLevel')
+    test('the toolbar exposes the current project actions', async ({ page }) => {
+        const buttons = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.toolbar-section button'))
+                .filter(b => b.offsetParent !== null)
+                .map(b => ({ id: b.id, text: b.textContent.trim() }))
         );
 
-        expect(relevantErrors.length).toBe(0);
+        const byId = Object.fromEntries(buttons.map(b => [b.id, b.text]));
+
+        expect(byId['btn-new']).toBe('New');
+        expect(byId['btn-import']).toBe('Import');
+        expect(byId['btn-export']).toBe('Export');
+        expect(byId['btn-save-as']).toBe('Save As');
+
+        // The old Save/Open buttons really are gone.
+        expect(byId).not.toHaveProperty('btn-save');
+        expect(byId).not.toHaveProperty('btn-load');
+    });
+
+    test('Export downloads a level file with the expected shape', async ({ page }) => {
+        const downloadPromise = page.waitForEvent('download', { timeout: 10000 });
+        await page.click('#btn-export');
+        const download = await downloadPromise;
+
+        expect(download.suggestedFilename()).toMatch(/\.json$/);
+
+        const path = await download.path();
+        expect(path).toBeTruthy();
+
+        const fs = require('fs');
+        const parsed = JSON.parse(fs.readFileSync(path, 'utf8'));
+
+        // Not just "a file arrived" — the file must be a usable level.
+        expect(parsed).toHaveProperty('metadata');
+        expect(parsed.metadata.world_size).toBe(256);
+        expect(Array.isArray(parsed.layers)).toBe(true);
+        expect(parsed.layers).toHaveLength(8);
+        expect(parsed).toHaveProperty('color_mappings');
+    });
+
+    test('Ctrl+S triggers the same export', async ({ page }) => {
+        const downloadPromise = page.waitForEvent('download', { timeout: 10000 });
+        await page.evaluate(() => document.activeElement?.blur());
+        await page.keyboard.press('Control+S');
+        const download = await downloadPromise;
+
+        expect(download.suggestedFilename()).toMatch(/\.json$/);
+    });
+
+    test('an exported level re-imports to the same tiles', async ({ page }) => {
+        // The round-trip is what "Export" is for; the old file never checked it.
+        await page.evaluate(() => {
+            window.editor.layerManager.setActiveLayer(4); // Floor
+            window.editor.selectTileset('Biome_Warehouse');
+            window.editor.setTiles([{ x: 11, y: 12 }, { x: 12, y: 12 }]);
+        });
+
+        const result = await page.evaluate(() => {
+            const manager = window.editor.layerManager;
+            const before = manager.layers.map(l => new Map(l.tileData));
+
+            const exported = manager.exportRLEData('RoundTrip', 'test', 7);
+            const text = JSON.stringify(exported);
+
+            manager.importRLEData(JSON.parse(text), window.configManager);
+
+            const diffs = [];
+            manager.layers.forEach((layer, i) => {
+                for (const [key, color] of before[i]) {
+                    if (layer.tileData.get(key) !== color && diffs.length < 5) {
+                        diffs.push({ layer: layer.layerType, key, was: color, now: layer.tileData.get(key) });
+                    }
+                }
+            });
+            return { diffs, painted: manager.layers[4].tileData.get('11,12') };
+        });
+
+        expect(result.diffs, JSON.stringify(result.diffs)).toEqual([]);
+        expect(result.painted).toBe('#4ecdc4');
+    });
+
+    test('Import opens the hidden file input', async ({ page }) => {
+        const fileInput = page.locator('#file-input');
+        await expect(fileInput).toHaveCount(1);
+        expect(await fileInput.isVisible()).toBe(false);
+
+        // Assert the click actually reaches the input, rather than just checking that
+        // the status text has no "error" in it (which it never would).
+        const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
+        await page.click('#btn-import');
+        const chooser = await chooserPromise;
+
+        expect(chooser).toBeTruthy();
+        expect(await chooser.element().getAttribute('id')).toBe('file-input');
+    });
+
+    test('Ctrl+O opens the same file picker', async ({ page }) => {
+        const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
+        await page.evaluate(() => document.activeElement?.blur());
+        await page.keyboard.press('Control+O');
+        const chooser = await chooserPromise;
+
+        expect(await chooser.element().getAttribute('id')).toBe('file-input');
+    });
+
+    test('Ctrl+N opens the New Project prompt and leaves the canvas alone', async ({ page }) => {
+        // Documented explicitly because several other test files assumed Ctrl+N was a
+        // "clear the level" shortcut and used it to reset between measurements.
+        await page.evaluate(() => {
+            window.editor.layerManager.setActiveLayer(4);
+            window.editor.selectTileset('Biome_Warehouse');
+            window.editor.setTiles([{ x: 20, y: 20 }]);
+        });
+
+        await page.evaluate(() => document.activeElement?.blur());
+        await page.keyboard.press('Control+N');
+        await page.waitForTimeout(300);
+
+        const state = await page.evaluate(() => ({
+            nameInputVisible: !!document.getElementById('project-name-input')?.offsetParent,
+            createVisible: !!document.getElementById('btn-create-project')?.offsetParent,
+            stillPainted: window.editor.layerManager.layers[4].tileData.get('20,20'),
+            tileCount: window.editor.layerManager.layers[4].tileData.size
+        }));
+
+        expect(state.nameInputVisible).toBe(true);
+        expect(state.createVisible).toBe(true);
+        expect(state.stillPainted).toBe('#4ecdc4');
+        expect(state.tileCount).toBe(256 * 256);
+    });
+
+    test('no handler references the removed export dialog elements', async ({ page }) => {
+        const consoleErrors = [];
+        page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+        const pageErrors = [];
+        page.on('pageerror', error => pageErrors.push(error.message));
+
+        await page.evaluate(() => document.activeElement?.blur());
+        await page.keyboard.press('Control+E'); // the old export shortcut
+        await page.waitForTimeout(300);
+
+        await page.click('#btn-new');
+        await page.waitForTimeout(200);
+        await page.click('#btn-cancel-new-project');
+        await page.waitForTimeout(200);
+
+        const relevant = [...consoleErrors, ...pageErrors].filter(err =>
+            /export-dialog|export-confirm|export-cancel|btn-save\b|btn-load\b/.test(err)
+        );
+
+        expect(relevant).toEqual([]);
+        // #export-dialog was removed along with the old flow.
+        expect(await page.locator('#export-dialog').count()).toBe(0);
     });
 });

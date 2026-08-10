@@ -1,240 +1,172 @@
 /**
- * Tool State Persistence Tests
- * Tests for tool state preservation and keyboard shortcuts
+ * Tool state persistence and tool-option UI
+ *
+ * Corrections to the previous version:
+ *  - `selectOption('#brush-size', '3')` — #brush-size is an <input type=range>, not a
+ *    <select>, so the call threw before any state was checked.
+ *  - `selectOption('#fill-mode', 'outline')` — #fill-mode is a checkbox now, and its
+ *    option group is #shape-fill-options.
+ *  - `[data-type="height"]` / `[data-type="biome"]` — those data-type buttons were
+ *    removed; the palette is driven by the active layer instead.
+ *  - `editor.layerManager.activeDataType` no longer exists.
  */
 
-const { test, expect } = require('./test-base');
+const { test, expect, initializeEditor, clickLayer, selectColor, getSelectedColor } = require('./test-base');
 
-test.describe('Tool State Persistence', () => {
+async function currentTool(page) {
+    return await page.evaluate(() => window.editor.currentTool.name);
+}
+
+test.describe('Tool state persistence', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
-        await page.waitForSelector('#grid-canvas');
-        await page.waitForTimeout(500);
+        await initializeEditor(page);
     });
 
-    test('should persist brush size when switching tools', async ({ page }) => {
-        // Change brush size to 3
-        await page.selectOption('#brush-size', '3');
-        await page.waitForTimeout(200);
+    test('brush size survives a tool switch', async ({ page }) => {
+        await page.locator('#brush-size').fill('7');
+        await page.waitForTimeout(50);
+        expect(await page.evaluate(() => window.editor.brushSize)).toBe(7);
 
-        // Verify brush size is 3
-        let brushSize = await page.evaluate(() => window.editor.brushSize);
-        expect(brushSize).toBe(3);
-
-        // Switch to eraser
         await page.click('[data-tool="eraser"]');
-        await page.waitForTimeout(200);
-
-        // Switch back to pencil
         await page.click('[data-tool="pencil"]');
-        await page.waitForTimeout(200);
 
-        // Verify brush size is still 3
-        brushSize = await page.evaluate(() => window.editor.brushSize);
-        expect(brushSize).toBe(3);
+        expect(await page.evaluate(() => window.editor.brushSize)).toBe(7);
+        expect(await page.locator('#brush-size').inputValue()).toBe('7');
     });
 
-    test('should persist fill mode when switching between shape tools', async ({ page }) => {
-        // Switch to rectangle tool (which has fill mode)
+    test('fill mode survives a switch away from the shape tools', async ({ page }) => {
         await page.click('[data-tool="rectangle"]');
-        await page.waitForTimeout(200);
+        await page.waitForTimeout(100);
 
-        // Set fill mode to outline
-        await page.selectOption('#fill-mode', 'outline');
-        await page.waitForTimeout(200);
+        // #fill-mode is a checkbox: checked = filled, unchecked = outline.
+        await page.uncheck('#fill-mode');
+        await page.waitForTimeout(50);
+        expect(await page.isChecked('#fill-mode')).toBe(false);
 
-        // Verify fill mode is outline
-        let fillMode = await page.evaluate(() => window.editor.fillMode);
-        expect(fillMode).toBe('outline');
-
-        // Switch to pencil tool
         await page.click('[data-tool="pencil"]');
-        await page.waitForTimeout(200);
-
-        // Switch back to rectangle
         await page.click('[data-tool="rectangle"]');
-        await page.waitForTimeout(200);
+        await page.waitForTimeout(100);
 
-        // Verify fill mode is still outline
-        fillMode = await page.evaluate(() => window.editor.fillMode);
-        expect(fillMode).toBe('outline');
+        expect(await page.isChecked('#fill-mode')).toBe(false);
     });
 
-    test('should preserve diagonal option for wand tool', async ({ page }) => {
-        // Switch to wand tool
+    test('the wand diagonal option survives a tool switch', async ({ page }) => {
         await page.click('[data-tool="wand"]');
-        await page.waitForTimeout(200);
-
-        // Enable diagonal
         await page.check('#wand-diagonal');
-        await page.waitForTimeout(200);
+        expect(await page.isChecked('#wand-diagonal')).toBe(true);
 
-        // Verify diagonal is enabled
-        let diagonal = await page.locator('#wand-diagonal').isChecked();
-        expect(diagonal).toBe(true);
-
-        // Switch to pencil
         await page.click('[data-tool="pencil"]');
-        await page.waitForTimeout(200);
-
-        // Switch back to wand
         await page.click('[data-tool="wand"]');
-        await page.waitForTimeout(200);
 
-        // Verify diagonal is still enabled
-        diagonal = await page.locator('#wand-diagonal').isChecked();
-        expect(diagonal).toBe(true);
+        expect(await page.isChecked('#wand-diagonal')).toBe(true);
     });
 
-    test('should use keyboard shortcuts for tool switching', async ({ page }) => {
-        // Test pencil (B)
-        await page.keyboard.press('b');
-        await page.waitForTimeout(200);
-        let activeTool = await page.evaluate(() => window.editor.currentTool.name);
-        expect(activeTool).toBe('pencil');
+    test('keyboard shortcuts select the right tool', async ({ page }) => {
+        const shortcuts = { b: 'pencil', e: 'eraser', g: 'bucket', m: 'selection', w: 'wand' };
 
-        // Test eraser (E)
-        await page.keyboard.press('e');
-        await page.waitForTimeout(200);
-        activeTool = await page.evaluate(() => window.editor.currentTool.name);
-        expect(activeTool).toBe('eraser');
+        for (const [key, tool] of Object.entries(shortcuts)) {
+            await page.evaluate(() => document.activeElement?.blur());
+            await page.keyboard.press(key);
+            await page.waitForTimeout(80);
+            expect(await currentTool(page), `key "${key}"`).toBe(tool);
 
-        // Test bucket (G)
-        await page.keyboard.press('g');
-        await page.waitForTimeout(200);
-        activeTool = await page.evaluate(() => window.editor.currentTool.name);
-        expect(activeTool).toBe('bucket');
-
-        // Test selection (M)
-        await page.keyboard.press('m');
-        await page.waitForTimeout(200);
-        activeTool = await page.evaluate(() => window.editor.currentTool.name);
-        expect(activeTool).toBe('selection');
-
-        // Test wand (W)
-        await page.keyboard.press('w');
-        await page.waitForTimeout(200);
-        activeTool = await page.evaluate(() => window.editor.currentTool.name);
-        expect(activeTool).toBe('wand');
+            // The toolbar highlight must follow the shortcut, not just the model.
+            const activeButtons = await page.evaluate(() =>
+                Array.from(document.querySelectorAll('[data-tool].active')).map(b => b.dataset.tool)
+            );
+            expect(activeButtons, `key "${key}" toolbar highlight`).toEqual([tool]);
+        }
     });
 
-    test('should persist selected color when switching tools', async ({ page }) => {
-        // Select a biome color
-        await page.click('[data-type="biome"]');
-        const biomeColor = await page.locator('.color-category:has-text("Biomes") .color-item:visible').first();
-        await biomeColor.click();
-        await page.waitForTimeout(200);
+    test('the selected colour survives a tool switch', async ({ page }) => {
+        await clickLayer(page, 'Floor');
+        await selectColor(page, 'Biome_Restaurant');
 
-        // Get selected color ID
-        const colorId = await page.evaluate(() => window.editor.selectedColor);
-        expect(colorId).not.toBeNull();
+        const before = await getSelectedColor(page);
+        expect(before.name).toBe('Biome_Restaurant');
 
-        // Switch tools
         await page.click('[data-tool="eraser"]');
-        await page.waitForTimeout(200);
+        await page.click('[data-tool="bucket"]');
         await page.click('[data-tool="pencil"]');
-        await page.waitForTimeout(200);
 
-        // Verify color is still selected
-        const newColorId = await page.evaluate(() => window.editor.selectedColor);
-        expect(newColorId).toBe(colorId);
+        expect(await getSelectedColor(page)).toEqual(before);
     });
 
-    test('should maintain active data type when switching tools', async ({ page }) => {
-        // Switch to height data type
-        await page.click('[data-type="height"]');
-        await page.waitForTimeout(200);
+    test('the active layer survives a tool switch', async ({ page }) => {
+        // Replaces the old activeDataType test — data types were folded into layers.
+        await clickLayer(page, 'Hazard');
+        expect(await page.evaluate(() => window.editor.layerManager.getActiveLayer().name)).toBe('Hazard');
 
-        // Verify height is active
-        let dataType = await page.evaluate(() => window.editor.layerManager.activeDataType);
-        expect(dataType).toBe('height');
-
-        // Switch tools
         await page.click('[data-tool="bucket"]');
-        await page.waitForTimeout(200);
         await page.click('[data-tool="pencil"]');
-        await page.waitForTimeout(200);
 
-        // Verify height is still active
-        dataType = await page.evaluate(() => window.editor.layerManager.activeDataType);
-        expect(dataType).toBe('height');
+        expect(await page.evaluate(() => window.editor.layerManager.getActiveLayer().name)).toBe('Hazard');
+        expect((await getSelectedColor(page)).category).toBe('Hazards');
     });
 });
 
-test.describe('Tool Options UI', () => {
+test.describe('Tool options UI', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
-        await page.waitForSelector('#grid-canvas');
-        await page.waitForTimeout(500);
+        await initializeEditor(page);
     });
 
-    test('should show correct options for each tool', async ({ page }) => {
-        // Pencil: brush size
-        await page.click('[data-tool="pencil"]');
-        await page.waitForTimeout(200);
-        let brushSizeVisible = await page.locator('#brush-size').isVisible();
-        expect(brushSizeVisible).toBe(true);
+    test('each tool shows exactly the options it uses', async ({ page }) => {
+        const optionGroups = {
+            brushSize: 'brush-size-options',
+            brushShape: 'brush-shape-options',
+            shapeFill: 'shape-fill-options',
+            wand: 'wand-options'
+        };
 
-        // Rectangle: fill mode
+        const observed = {};
+        for (const tool of ['pencil', 'eraser', 'rectangle', 'wand', 'bucket', 'pan']) {
+            await page.click(`[data-tool="${tool}"]`);
+            await page.waitForTimeout(80);
+            observed[tool] = await page.evaluate((groups) => {
+                const out = {};
+                for (const [key, id] of Object.entries(groups)) {
+                    out[key] = !!document.getElementById(id)?.offsetParent;
+                }
+                return out;
+            }, optionGroups);
+        }
+
+        expect(observed.pencil).toEqual({ brushSize: true, brushShape: true, shapeFill: false, wand: false });
+        expect(observed.eraser).toEqual({ brushSize: true, brushShape: true, shapeFill: false, wand: false });
+        expect(observed.rectangle).toEqual({ brushSize: true, brushShape: true, shapeFill: true, wand: false });
+        expect(observed.wand).toEqual({ brushSize: false, brushShape: false, shapeFill: false, wand: true });
+        expect(observed.bucket).toEqual({ brushSize: false, brushShape: false, shapeFill: false, wand: false });
+        expect(observed.pan).toEqual({ brushSize: false, brushShape: false, shapeFill: false, wand: false });
+    });
+
+    test('the brush size slider drives the editor', async ({ page }) => {
+        for (const size of [1, 5, 50]) {
+            await page.locator('#brush-size').fill(String(size));
+            await page.waitForTimeout(50);
+            expect(await page.evaluate(() => window.editor.brushSize)).toBe(size);
+        }
+    });
+
+    test('the fill-mode checkbox drives the editor', async ({ page }) => {
         await page.click('[data-tool="rectangle"]');
-        await page.waitForTimeout(200);
-        let fillModeVisible = await page.locator('#fill-mode').isVisible();
-        expect(fillModeVisible).toBe(true);
+        await page.waitForTimeout(100);
 
-        // Wand: diagonal option
+        await page.check('#fill-mode');
+        await page.waitForTimeout(50);
+        expect(await page.evaluate(() => window.editor.fillMode)).toBe('filled');
+
+        await page.uncheck('#fill-mode');
+        await page.waitForTimeout(50);
+        expect(await page.evaluate(() => window.editor.fillMode)).toBe('outline');
+    });
+
+    test('the wand diagonal checkbox toggles both ways', async ({ page }) => {
         await page.click('[data-tool="wand"]');
-        await page.waitForTimeout(200);
-        const diagonalVisible = await page.locator('#wand-diagonal').isVisible();
-        expect(diagonalVisible).toBe(true);
-    });
 
-    test('should update brush size dynamically', async ({ page }) => {
-        // Set to size 1
-        await page.selectOption('#brush-size', '1');
-        await page.waitForTimeout(200);
-        let brushSize = await page.evaluate(() => window.editor.brushSize);
-        expect(brushSize).toBe(1);
-
-        // Set to size 5
-        await page.selectOption('#brush-size', '5');
-        await page.waitForTimeout(200);
-        brushSize = await page.evaluate(() => window.editor.brushSize);
-        expect(brushSize).toBe(5);
-    });
-
-    test('should toggle fill mode with select', async ({ page }) => {
-        // Switch to rectangle tool
-        await page.click('[data-tool="rectangle"]');
-        await page.waitForTimeout(200);
-
-        // Set to filled
-        await page.selectOption('#fill-mode', 'filled');
-        await page.waitForTimeout(200);
-        let fillMode = await page.evaluate(() => window.editor.fillMode);
-        expect(fillMode).toBe('filled');
-
-        // Set to outline
-        await page.selectOption('#fill-mode', 'outline');
-        await page.waitForTimeout(200);
-        fillMode = await page.evaluate(() => window.editor.fillMode);
-        expect(fillMode).toBe('outline');
-    });
-
-    test('should toggle diagonal option for wand tool', async ({ page }) => {
-        // Switch to wand tool
-        await page.click('[data-tool="wand"]');
-        await page.waitForTimeout(200);
-
-        // Enable diagonal
         await page.check('#wand-diagonal');
-        await page.waitForTimeout(200);
-        let diagonal = await page.locator('#wand-diagonal').isChecked();
-        expect(diagonal).toBe(true);
+        expect(await page.isChecked('#wand-diagonal')).toBe(true);
 
-        // Disable diagonal
         await page.uncheck('#wand-diagonal');
-        await page.waitForTimeout(200);
-        diagonal = await page.locator('#wand-diagonal').isChecked();
-        expect(diagonal).toBe(false);
+        expect(await page.isChecked('#wand-diagonal')).toBe(false);
     });
 });

@@ -1,247 +1,248 @@
 /**
- * Undo/Redo Tests
- * Tests for undo and redo functionality with color-only system
+ * Undo / redo
+ *
+ * Two things made the old version of this file untrustworthy:
+ *
+ *  - It selected colours via `.color-category:has(.color-category-header:has-text(...))`,
+ *    markup that the tabbed-palette rewrite removed, so every test timed out in
+ *    beforeEach-adjacent setup rather than exercising undo at all.
+ *  - Its assertions were written for a model where undo empties the layer
+ *    (`expect(getTotalTileCount()).toBe(0)`) and the eraser deletes tiles
+ *    (`expect(getTile(...) !== null).toBe(false)`). Neither holds: layers start out
+ *    completely filled with their default colour, and the eraser repaints that default.
+ *
+ * The right question for undo is "did the tile go back to the colour it had before",
+ * so that is what these tests check.
  */
 
-const { test, expect } = require('./test-base');
+const { test, expect, initializeEditor, clickLayer, selectColor } = require('./test-base');
 
-test.describe('Undo/Redo Functionality', () => {
+/** Paint tiles through the editor, with an undo checkpoint, exactly as a tool does. */
+async function paint(page, tiles) {
+    await page.evaluate((coords) => {
+        window.editor.saveState();
+        window.editor.setTiles(coords);
+    }, tiles);
+}
+
+test.describe('Undo / redo', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
-        await page.waitForSelector('#grid-canvas');
-
-        // Wait for editor to be fully initialized
-        await page.waitForFunction(() => window.editor !== undefined && window.editor !== null, { timeout: 5000 });
-        await page.waitForTimeout(500);
+        await initializeEditor(page);
+        await clickLayer(page, 'Floor');
     });
 
-    test('should undo and redo drawing with pencil tool', async ({ page }) => {
-        // Select pencil tool
-        await page.click('[data-tool="pencil"]');
-        await page.waitForTimeout(200);
+    test('undo restores the previous colour and redo re-applies it', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
 
-        // Select first biome color
-        const biomeColors = await page.locator('.color-category:has(.color-category-header:has-text("Biomes")) .color-item');
-        await biomeColors.first().click();
-        await page.waitForTimeout(200);
+        const original = await page.evaluate(() =>
+            window.editor.layerManager.getActiveLayer().tileData.get('30,30')
+        );
+        expect(original).toBe('#ff6b6b'); // Floor default
 
-        // Get the grid position where we'll draw
-        const gridPos = await page.evaluate(() => {
-            const x = 100;
-            const y = 100;
-            const gridX = Math.floor((x - window.editor.offsetX) / (window.editor.tileSize * window.editor.zoom));
-            const gridY = Math.floor((y - window.editor.offsetY) / (window.editor.tileSize * window.editor.zoom));
-            return { gridX, gridY };
-        });
+        await paint(page, [{ x: 30, y: 30 }]);
+        const painted = await page.evaluate(() =>
+            window.editor.layerManager.getActiveLayer().tileData.get('30,30')
+        );
+        expect(painted).toBe('#4ecdc4');
 
-        // Draw on canvas
-        const canvas = await page.locator('#grid-canvas');
-        await canvas.click({ position: { x: 100, y: 100 } });
-        await page.waitForTimeout(300);
-
-        // Check that data was drawn
-        const drawnData = await page.evaluate(({ gridX, gridY }) => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            return layer.getTile(gridX, gridY) !== null;
-        }, gridPos);
-        expect(drawnData).toBe(true);
-
-        // Click undo button
         await page.click('#btn-undo');
-        await page.waitForTimeout(300);
+        const afterUndo = await page.evaluate(() =>
+            window.editor.layerManager.getActiveLayer().tileData.get('30,30')
+        );
+        expect(afterUndo).toBe(original);
 
-        // Check that data was removed
-        const afterUndo = await page.evaluate(({ gridX, gridY }) => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            return layer.getTile(gridX, gridY) !== null;
-        }, gridPos);
-        expect(afterUndo).toBe(false);
-
-        // Click redo button
         await page.click('#btn-redo');
-        await page.waitForTimeout(300);
-
-        // Check that data was restored
-        const afterRedo = await page.evaluate(({ gridX, gridY }) => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            return layer.getTile(gridX, gridY) !== null;
-        }, gridPos);
-        expect(afterRedo).toBe(true);
+        const afterRedo = await page.evaluate(() =>
+            window.editor.layerManager.getActiveLayer().tileData.get('30,30')
+        );
+        expect(afterRedo).toBe(painted);
     });
 
-    test('should undo and redo drawing on different layers', async ({ page }) => {
-        // Select pencil tool
-        await page.click('[data-tool="pencil"]');
-        await page.waitForTimeout(200);
+    test('undo restores the whole layer, not just the last tile', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
 
-        // Select first height color
-        const heightColors = await page.locator('.color-category:has(.color-category-header:has-text("Height")) .color-item');
-        await heightColors.first().click();
-        await page.waitForTimeout(200);
+        const before = await page.evaluate(() =>
+            Object.fromEntries(window.editor.layerManager.getActiveLayer().tileData)
+        );
 
-        // Draw on canvas
-        const canvas = await page.locator('#grid-canvas');
-        await canvas.click({ position: { x: 100, y: 100 } });
-        await page.waitForTimeout(300);
+        const tiles = [];
+        for (let x = 0; x < 20; x++) for (let y = 0; y < 20; y++) tiles.push({ x, y });
+        await paint(page, tiles);
 
-        // Get initial tile count
-        const beforeUndo = await page.evaluate(() => {
-            return window.editor.layerManager.getTotalTileCount();
-        });
-        expect(beforeUndo).toBeGreaterThan(0);
+        const changed = await page.evaluate((snapshot) => {
+            const layer = window.editor.layerManager.getActiveLayer();
+            let n = 0;
+            for (const [key, color] of layer.tileData) if (snapshot[key] !== color) n++;
+            return n;
+        }, before);
+        expect(changed).toBe(400);
 
-        // Click undo button
         await page.click('#btn-undo');
-        await page.waitForTimeout(300);
 
-        // Check that tiles were removed
+        const stillChanged = await page.evaluate((snapshot) => {
+            const layer = window.editor.layerManager.getActiveLayer();
+            const diffs = [];
+            for (const [key, color] of layer.tileData) {
+                if (snapshot[key] !== color && diffs.length < 5) diffs.push({ key, was: snapshot[key], now: color });
+            }
+            return { diffs, size: layer.tileData.size, expected: layer.width * layer.height };
+        }, before);
+
+        expect(stillChanged.diffs, JSON.stringify(stillChanged.diffs)).toEqual([]);
+        // Undo must not leave holes in the layer either.
+        expect(stillChanged.size).toBe(stillChanged.expected);
+    });
+
+    test('undo restores tiles a bucket fill replaced', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+
+        const before = await page.evaluate(() =>
+            Object.fromEntries(window.editor.layerManager.getActiveLayer().tileData)
+        );
+
+        await page.evaluate(() => {
+            const editor = window.editor;
+            editor.saveState();
+            const layer = editor.layerManager.getActiveLayer();
+            const tiles = [];
+            for (let y = 0; y < layer.height; y++) {
+                for (let x = 0; x < layer.width; x++) tiles.push({ x, y });
+            }
+            editor.setTiles(tiles);
+        });
+
+        const filledColors = await page.evaluate(() =>
+            Array.from(new Set(window.editor.layerManager.getActiveLayer().tileData.values()))
+        );
+        expect(filledColors).toEqual(['#4ecdc4']);
+
+        await page.click('#btn-undo');
+
+        const restored = await page.evaluate((snapshot) => {
+            const layer = window.editor.layerManager.getActiveLayer();
+            for (const [key, color] of layer.tileData) {
+                if (snapshot[key] !== color) return { key, was: snapshot[key], now: color };
+            }
+            return null;
+        }, before);
+
+        expect(restored, `tile not restored: ${JSON.stringify(restored)}`).toBeNull();
+    });
+
+    test('undo restores a colour the eraser overwrote with the layer default', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+        await paint(page, [{ x: 60, y: 60 }]);
+
+        await page.evaluate(() => {
+            window.editor.saveState();
+            window.editor.clearTiles([{ x: 60, y: 60 }]);
+        });
+
+        const afterErase = await page.evaluate(() =>
+            window.editor.layerManager.getActiveLayer().tileData.get('60,60')
+        );
+        // Erasing repaints the default rather than removing the tile.
+        expect(afterErase).toBe('#ff6b6b');
+
+        await page.click('#btn-undo');
+        const afterUndo = await page.evaluate(() =>
+            window.editor.layerManager.getActiveLayer().tileData.get('60,60')
+        );
+        expect(afterUndo).toBe('#4ecdc4');
+
+        await page.click('#btn-redo');
+        const afterRedo = await page.evaluate(() =>
+            window.editor.layerManager.getActiveLayer().tileData.get('60,60')
+        );
+        expect(afterRedo).toBe('#ff6b6b');
+    });
+
+    test('undo/redo buttons enable and disable with the stacks', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+
+        const initial = await page.evaluate(() => ({
+            undo: document.getElementById('btn-undo').disabled,
+            redo: document.getElementById('btn-redo').disabled
+        }));
+        expect(initial).toEqual({ undo: true, redo: true });
+
+        await paint(page, [{ x: 70, y: 70 }]);
+        await page.evaluate(() => window.editor.updateUndoRedoButtons());
+        expect(await page.evaluate(() => document.getElementById('btn-undo').disabled)).toBe(false);
+
+        await page.click('#btn-undo');
+        expect(await page.evaluate(() => document.getElementById('btn-redo').disabled)).toBe(false);
+
+        await page.click('#btn-redo');
+        expect(await page.evaluate(() => document.getElementById('btn-redo').disabled)).toBe(true);
+    });
+
+    test('a whole-document operation undoes and redoes every layer together', async ({ page }) => {
+        // clearAll() rewrites all 8 layers. It used to checkpoint only the active one,
+        // so Ctrl+Z reverted 1 layer and silently left the other 7 changed.
+        await selectColor(page, 'Biome_Warehouse');
+        await page.evaluate(() => {
+            window.editor.saveState();
+            window.editor.setTiles([{ x: 90, y: 90 }]);
+        });
+
+        const painted = await page.evaluate(() => {
+            const layers = window.editor.layerManager.layers;
+            return {
+                floor: layers.find(l => l.layerType === 'Floor').tileData.get('90,90'),
+                sky: layers.find(l => l.layerType === 'Sky').tileData.get('90,90')
+            };
+        });
+        expect(painted.floor).toBe('#4ecdc4');
+
+        // Wipe everything back to defaults.
+        await page.evaluate(() => window.editor.clearAll());
+        const cleared = await page.evaluate(() => {
+            const layers = window.editor.layerManager.layers;
+            return {
+                floor: layers.find(l => l.layerType === 'Floor').tileData.get('90,90'),
+                sky: layers.find(l => l.layerType === 'Sky').tileData.get('90,90')
+            };
+        });
+        expect(cleared.floor).toBe('#ff6b6b');
+
+        await page.click('#btn-undo');
         const afterUndo = await page.evaluate(() => {
-            return window.editor.layerManager.getTotalTileCount();
+            const layers = window.editor.layerManager.layers;
+            return layers.map(l => ({ type: l.layerType, at90: l.tileData.get('90,90') }));
         });
-        expect(afterUndo).toBe(0);
+        // Every layer comes back, not just the active one.
+        expect(afterUndo.find(l => l.type === 'Floor').at90).toBe('#4ecdc4');
+        expect(afterUndo.find(l => l.type === 'Sky').at90).toBe(painted.sky);
 
-        // Click redo button
         await page.click('#btn-redo');
-        await page.waitForTimeout(300);
-
-        // Check that tiles were restored
         const afterRedo = await page.evaluate(() => {
-            return window.editor.layerManager.getTotalTileCount();
+            const layers = window.editor.layerManager.layers;
+            return layers.map(l => ({ type: l.layerType, at90: l.tileData.get('90,90') }));
         });
-        expect(afterRedo).toBe(beforeUndo);
+        expect(afterRedo.find(l => l.type === 'Floor').at90).toBe('#ff6b6b');
+        expect(afterRedo.find(l => l.type === 'Sky').at90).toBe('#b8b8b8');
     });
 
-    test('should work with bucket fill tool', async ({ page }) => {
-        // Select bucket tool
-        await page.click('[data-tool="bucket"]');
-        await page.waitForTimeout(200);
+    test('undo on one layer does not disturb another', async ({ page }) => {
+        await selectColor(page, 'Biome_Warehouse');
+        await paint(page, [{ x: 80, y: 80 }]);
 
-        // Select a biome color
-        const biomeColors = await page.locator('.color-category:has(.color-category-header:has-text("Biomes")) .color-item');
-        await biomeColors.first().click();
-        await page.waitForTimeout(200);
+        await clickLayer(page, 'Sky');
+        await selectColor(page, 'Biome_SkyCeiling');
+        await paint(page, [{ x: 80, y: 80 }]);
 
-        // Use bucket fill
-        const canvas = await page.locator('#grid-canvas');
-        await canvas.click({ position: { x: 150, y: 150 } });
-        await page.waitForTimeout(500);
+        await page.click('#btn-undo'); // undoes the Sky edit only
 
-        // Check that tiles were filled
-        const tileCount = await page.evaluate(() => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            return layer.tileData.size;
-        });
-        expect(tileCount).toBeGreaterThan(0);
-
-        // Undo
-        await page.click('#btn-undo');
-        await page.waitForTimeout(300);
-
-        // Check that tiles were cleared
-        const afterUndo = await page.evaluate(() => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            return layer.tileData.size;
-        });
-        expect(afterUndo).toBe(0);
-
-        // Redo
-        await page.click('#btn-redo');
-        await page.waitForTimeout(300);
-
-        // Check that tiles were restored
-        const afterRedo = await page.evaluate(() => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            return layer.tileData.size;
-        });
-        expect(afterRedo).toBe(tileCount);
-    });
-
-    test('should work with eraser tool', async ({ page }) => {
-        // First draw something
-        await page.click('[data-tool="pencil"]');
-        const biomeColors = await page.locator('.color-category:has(.color-category-header:has-text("Biomes")) .color-item');
-        await biomeColors.first().click();
-
-        const canvas = await page.locator('#grid-canvas');
-        await canvas.click({ position: { x: 100, y: 100 } });
-        await page.waitForTimeout(300);
-
-        // Get grid position
-        const gridPos = await page.evaluate(() => {
-            const x = 100;
-            const y = 100;
-            const gridX = Math.floor((x - window.editor.offsetX) / (window.editor.tileSize * window.editor.zoom));
-            const gridY = Math.floor((y - window.editor.offsetY) / (window.editor.tileSize * window.editor.zoom));
-            return { gridX, gridY };
+        const state = await page.evaluate(() => {
+            const layers = window.editor.layerManager.layers;
+            return {
+                floor: layers.find(l => l.layerType === 'Floor').tileData.get('80,80'),
+                sky: layers.find(l => l.layerType === 'Sky').tileData.get('80,80')
+            };
         });
 
-        // Now erase it
-        await page.click('[data-tool="eraser"]');
-        await canvas.click({ position: { x: 100, y: 100 } });
-        await page.waitForTimeout(300);
-
-        // Check that data was erased
-        const afterErase = await page.evaluate(({ gridX, gridY }) => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            return layer.getTile(gridX, gridY) !== null;
-        }, gridPos);
-        expect(afterErase).toBe(false);
-
-        // Undo the erase
-        await page.click('#btn-undo');
-        await page.waitForTimeout(300);
-
-        // Check that data was restored
-        const afterUndo = await page.evaluate(({ gridX, gridY }) => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            return layer.getTile(gridX, gridY) !== null;
-        }, gridPos);
-        expect(afterUndo).toBe(true);
-
-        // Redo the erase
-        await page.click('#btn-redo');
-        await page.waitForTimeout(300);
-
-        // Check that data was erased again
-        const afterRedo = await page.evaluate(({ gridX, gridY }) => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            return layer.getTile(gridX, gridY) !== null;
-        }, gridPos);
-        expect(afterRedo).toBe(false);
-    });
-
-    test('should preserve color when undoing and redoing', async ({ page }) => {
-        const canvas = await page.locator('#grid-canvas');
-
-        // Draw with first color
-        await page.click('[data-tool="pencil"]');
-        const biomeColors = await page.locator('.color-category:has(.color-category-header:has-text("Biomes")) .color-item');
-        await biomeColors.first().click();
-        await canvas.click({ position: { x: 100, y: 100 } });
-        await page.waitForTimeout(300);
-
-        // Get the color
-        const drawnColor = await page.evaluate(() => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            const key = `${Math.floor((100 - window.editor.offsetX) / (window.editor.tileSize * window.editor.zoom))},${Math.floor((100 - window.editor.offsetY) / (window.editor.tileSize * window.editor.zoom))}`;
-            return layer.tileData.get(key);
-        });
-
-        // Undo
-        await page.click('#btn-undo');
-        await page.waitForTimeout(300);
-
-        // Redo
-        await page.click('#btn-redo');
-        await page.waitForTimeout(300);
-
-        // Check color is the same
-        const restoredColor = await page.evaluate(() => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            const key = `${Math.floor((100 - window.editor.offsetX) / (window.editor.tileSize * window.editor.zoom))},${Math.floor((100 - window.editor.offsetY) / (window.editor.tileSize * window.editor.zoom))}`;
-            return layer.tileData.get(key);
-        });
-
-        expect(restoredColor).toBe(drawnColor);
+        expect(state.sky).toBe('#b8b8b8');   // Sky default, edit undone
+        expect(state.floor).toBe('#4ecdc4'); // Floor edit untouched
     });
 });

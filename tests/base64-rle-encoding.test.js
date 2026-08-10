@@ -155,15 +155,23 @@ test.describe('Base64-RLE Encoding', () => {
         });
 
         // Clear and import
-        const importSuccess = await page.evaluate((layerData) => {
+        const result = await page.evaluate((layerData) => {
             const layer = window.editor.layerManager.getActiveLayer();
             layer.clear();
             layer.importRLEData(layerData, window.configManager);
-            return layer.tileData.size;
+
+            // The 100 tiles drawn above were blue; everything else is the layer default.
+            const painted = [];
+            for (let i = 0; i < 100; i++) {
+                painted.push(layer.tileData.get(`${i % 10},${Math.floor(i / 10)}`));
+            }
+            return { tileCount: layer.tileData.size, expected: layer.width * layer.height, painted };
         }, exported);
 
-        expect(importSuccess).toBeGreaterThan(0);
-        console.log(`✓ Imported ${importSuccess} tiles from base64 format`);
+        // Import fills the whole grid, so a bare "> 0" would pass even on total failure.
+        expect(result.tileCount).toBe(result.expected);
+        expect(result.painted.every(c => c === '#0000ff'),
+            `painted region came back as ${JSON.stringify([...new Set(result.painted)])}`).toBe(true);
     });
 
     test('should preserve data in round-trip (export then import)', async () => {
@@ -252,16 +260,28 @@ test.describe('Base64-RLE Encoding', () => {
         console.log(`\n=== Full Map Export ===`);
         console.log(`Layers: ${exported.layers.length}`);
 
-        let totalBase64Size = 0;
+        // rle-base64-v1 gives the palette index only 3 bits, so a layer with more than
+        // 8 colours cannot be represented. Those layers must fall back to the array
+        // form; encoding them anyway used to truncate the tag byte and swap colours.
+        let base64Layers = 0;
+        let fallbackLayers = 0;
+
         for (const layer of exported.layers) {
-            expect(layer.encoding).toBe('rle-base64-v1');
-            expect(layer).toHaveProperty('data_b64');
-            totalBase64Size += layer.data_b64.length;
-            console.log(`  ${layer.layer_type}: ${layer.data_b64.length} chars, ${layer.palette.length} colors`);
+            const label = `${layer.layer_type} (${layer.palette.length} colours)`;
+            if (layer.palette.length <= 8) {
+                expect(layer.encoding, label).toBe('rle-base64-v1');
+                expect(layer, label).toHaveProperty('data_b64');
+                base64Layers++;
+            } else {
+                expect(layer.encoding, label).toBeUndefined();
+                expect(Array.isArray(layer.color_data), label).toBe(true);
+                fallbackLayers++;
+            }
         }
 
-        console.log(`Total base64 data: ${totalBase64Size} characters`);
-        console.log('✓ Full map exports in base64 format');
+        // A generated map has both kinds, so this test really covers both branches.
+        expect(base64Layers).toBeGreaterThan(0);
+        expect(fallbackLayers).toBeGreaterThan(0);
     });
 
     test('should import full map from base64 format', async () => {
@@ -276,29 +296,39 @@ test.describe('Base64-RLE Encoding', () => {
             return window.editor.layerManager.exportRLEDataBase64('TestMap', 'Test', 12345);
         });
 
-        // Clear and import
-        const importSuccess = await page.evaluate((data) => {
-            window.editor.layerManager.layers.forEach(layer => layer.clear());
-            return window.editor.layerManager.importRLEData(data, window.configManager);
+        // Snapshot every tile BEFORE importing, so we can check the colours survived.
+        // `tileCount > 0` proves nothing here: layers start out completely filled.
+        const result = await page.evaluate((data) => {
+            const manager = window.editor.layerManager;
+            const before = manager.layers.map(layer => new Map(layer.tileData));
+
+            manager.layers.forEach(layer => layer.clear());
+            const ok = manager.importRLEData(data, window.configManager);
+
+            const mismatches = [];
+            manager.layers.forEach((layer, i) => {
+                const original = before[i];
+                if (!original) return;
+                for (const [key, color] of original) {
+                    const actual = layer.tileData.get(key);
+                    if (actual !== color && mismatches.length < 10) {
+                        mismatches.push({ layer: layer.layerType, key, expected: color, actual });
+                    }
+                }
+            });
+
+            return {
+                ok,
+                mismatches,
+                stats: manager.layers.map(l => ({ name: l.name, tileCount: l.tileData.size, expected: l.width * l.height }))
+            };
         }, exported);
 
-        expect(importSuccess).toBe(true);
-
-        const stats = await page.evaluate(() => {
-            const layers = window.editor.layerManager.layers;
-            return layers.map(layer => ({
-                name: layer.name,
-                tileCount: layer.tileData.size
-            }));
-        });
-
-        console.log(`\n=== Import Statistics ===`);
-        for (const stat of stats) {
-            console.log(`${stat.name}: ${stat.tileCount.toLocaleString()} tiles`);
-            expect(stat.tileCount).toBeGreaterThan(0);
+        expect(result.ok).toBe(true);
+        expect(result.mismatches, JSON.stringify(result.mismatches, null, 2)).toEqual([]);
+        for (const stat of result.stats) {
+            expect(stat.tileCount, `${stat.name} tile count`).toBe(stat.expected);
         }
-
-        console.log('✓ Full map imports from base64 format');
     });
 
     test('should compare file sizes: old array vs new base64', async () => {

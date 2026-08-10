@@ -7,8 +7,8 @@
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "test:report": "playwright test --reporter=html && playwright show-report",
-    "test:python": "python tests/selenium_test.py",
-    "install-browsers": "playwright install"
+    "install-browsers": "playwright install",
+    "test:debug": "playwright test --headed --workers=1"
   },
   "keywords": [
     "level-editor",

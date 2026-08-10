@@ -1,245 +1,127 @@
-const { test, expect, initializeEditor } = require('./test-base');
+/**
+ * Difficulty layer export must resolve to valid ECurrentStoreDifficulty values (0-4)
+ *
+ * Difficulty drives both enemy tiers and loot tiers at runtime (FindTierForDifficulty
+ * walks down from the tile's difficulty), so a colour that fails to resolve is not a
+ * cosmetic problem — it silently changes what spawns.
+ *
+ * Problems with the previous version of this file:
+ *  - "validate difficulty layer has only valid values" skipped any colour whose
+ *    tileset lookup returned null (`if (value !== null && ...)`), so an unresolvable
+ *    colour — the actual failure mode — passed;
+ *  - "verify difficulty layer colors map to valid values" never generated a map, so it
+ *    iterated a uniformly-default layer and proved nothing;
+ *  - the base64 test asserted `colorIndex < palette.length` after decoding only the
+ *    first 10 tag bytes, and re-implemented the ULEB128 walk by hand.
+ */
 
-test.describe('Difficulty Layer Validation', () => {
-    let page;
+const { test, expect, initializeEditor, generateTestMap } = require('./test-base');
 
-    test.beforeEach(async ({ page: testPage }) => {
-        page = testPage;
+const MAX_DIFFICULTY = 4;
+
+test.describe('Difficulty layer validation', () => {
+    test.beforeEach(async ({ page }) => {
         await initializeEditor(page);
-        await page.waitForTimeout(500);
+        await generateTestMap(page);
     });
 
-    test('should validate difficulty layer has only valid values (0-4)', async () => {
-        // Generate test map
-        await page.evaluate(() => {
-            window.generateTestMap();
-        });
+    test('every colour on the Difficulty layer resolves to a value in 0-4', async ({ page }) => {
+        const analysis = await page.evaluate((max) => {
+            const layer = window.editor.layerManager.layers.find(l => l.layerType === 'Difficulty');
+            const distinct = new Set(layer.tileData.values());
 
-        await page.waitForTimeout(3000);
-
-        // Export and analyze difficulty layer
-        const analysis = await page.evaluate(() => {
-            const exported = window.editor.layerManager.exportRLEDataBase64(
-                'TestMap',
-                'Difficulty validation test',
-                12345
-            );
-
-            // Find difficulty layer
-            const difficultyLayer = exported.layers.find(layer => layer.layer_type === 'Difficulty');
-
-            if (!difficultyLayer) {
-                return { error: 'Difficulty layer not found' };
-            }
-
-            // Decode RLE data
-            const rleData = window.base64RLEEncoder.decodeFromBase64(difficultyLayer.data_b64);
-
-            // Check palette values
-            const palette = difficultyLayer.palette;
-            const paletteIndices = [];
-            const invalidValues = [];
-            const colorToValueMap = new Map();
-
-            // Check what values are in the RLE data
-            for (const [paletteIndex, count] of rleData) {
-                if (!paletteIndices.includes(paletteIndex)) {
-                    paletteIndices.push(paletteIndex);
-                }
-
-                const color = palette[paletteIndex];
-
-                // Try to determine the difficulty value from the color
-                // The configManager should have a mapping
+            const mappings = [];
+            for (const color of distinct) {
                 const tileset = window.configManager.getTilesetByColor(color);
-                const value = tileset ? tileset.value : null;
-
-                if (!colorToValueMap.has(color)) {
-                    colorToValueMap.set(color, value);
-                }
-
-                // Check if value is valid (0-4 for difficulty)
-                if (value !== null && (value < 0 || value > 4)) {
-                    invalidValues.push({
-                        paletteIndex,
-                        color,
-                        value,
-                        count
-                    });
-                }
-            }
-
-            return {
-                palette: palette,
-                paletteSize: palette.length,
-                paletteIndices: paletteIndices,
-                rleRunCount: rleData.length,
-                colorToValueMap: Array.from(colorToValueMap.entries()),
-                invalidValues: invalidValues,
-                firstRun: rleData[0],
-                allRuns: rleData.slice(0, 20)
-            };
-        });
-
-        console.log(`\n=== Difficulty Layer Analysis ===`);
-        console.log(`Palette size: ${analysis.paletteSize}`);
-        console.log(`Palette: ${analysis.palette.join(', ')}`);
-        console.log(`RLE runs: ${analysis.rleRunCount}`);
-        console.log(`\nColor to Value mapping:`);
-        for (const [color, value] of analysis.colorToValueMap) {
-            console.log(`  ${color} → ${value}`);
-        }
-
-        console.log(`\nFirst 20 RLE runs:`);
-        for (let i = 0; i < analysis.allRuns.length; i++) {
-            const [paletteIndex, count] = analysis.allRuns[i];
-            const color = analysis.palette[paletteIndex];
-            console.log(`  ${i}: palette[${paletteIndex}] = ${color} × ${count}`);
-        }
-
-        if (analysis.invalidValues.length > 0) {
-            console.log(`\n❌ Found ${analysis.invalidValues.length} invalid difficulty values:`);
-            for (const invalid of analysis.invalidValues) {
-                console.log(`  palette[${invalid.paletteIndex}] = ${invalid.color} → value ${invalid.value} (invalid, max is 4)`);
-            }
-        } else {
-            console.log(`\n✓ All difficulty values are valid (0-4)`);
-        }
-
-        expect(analysis.invalidValues.length).toBe(0);
-    });
-
-    test('should check palette index encoding in base64', async () => {
-        // Generate test map
-        await page.evaluate(() => {
-            window.generateTestMap();
-        });
-
-        await page.waitForTimeout(3000);
-
-        const analysis = await page.evaluate(() => {
-            const exported = window.editor.layerManager.exportRLEDataBase64('TestMap', 'Test', 12345);
-            const difficultyLayer = exported.layers.find(layer => layer.layer_type === 'Difficulty');
-
-            // Decode base64 to bytes
-            const bytes = window.base64RLEEncoder.base64ToBytes(difficultyLayer.data_b64);
-
-            // Manually decode first few tag bytes
-            const tagByteAnalysis = [];
-            let p = 0;
-
-            for (let i = 0; i < Math.min(10, bytes.length) && p < bytes.length; i++) {
-                const tag = bytes[p++];
-                const colorIndex = tag >> 5;
-                const lenPart = tag & 31;
-
-                let runLength;
-                if (lenPart === 31) {
-                    // Read ULEB128
-                    let shift = 0;
-                    let byte;
-                    let value = 0;
-
-                    do {
-                        if (p >= bytes.length) break;
-                        byte = bytes[p++];
-                        value |= (byte & 0x7F) << shift;
-                        shift += 7;
-                    } while (byte & 0x80);
-
-                    runLength = value;
-                } else {
-                    runLength = lenPart;
-                }
-
-                tagByteAnalysis.push({
-                    position: p - 1,
-                    tagByte: tag,
-                    tagByteBinary: tag.toString(2).padStart(8, '0'),
-                    colorIndex: colorIndex,
-                    lenPart: lenPart,
-                    runLength: runLength,
-                    paletteColor: difficultyLayer.palette[colorIndex]
-                });
-            }
-
-            return {
-                palette: difficultyLayer.palette,
-                bytesLength: bytes.length,
-                firstBytes: Array.from(bytes.slice(0, 20)),
-                tagByteAnalysis: tagByteAnalysis
-            };
-        });
-
-        console.log(`\n=== Base64 Tag Byte Analysis (Difficulty Layer) ===`);
-        console.log(`Palette: ${analysis.palette.join(', ')}`);
-        console.log(`Total bytes: ${analysis.bytesLength}`);
-        console.log(`First 20 bytes: ${analysis.firstBytes.join(', ')}`);
-        console.log(`\nTag byte decoding:`);
-
-        for (const tag of analysis.tagByteAnalysis) {
-            console.log(`  Byte ${tag.position}: ${tag.tagByte} (0b${tag.tagByteBinary})`);
-            console.log(`    → Color index: ${tag.colorIndex} (${tag.paletteColor})`);
-            console.log(`    → Run length: ${tag.runLength}`);
-        }
-
-        // All color indices should be < palette size
-        for (const tag of analysis.tagByteAnalysis) {
-            expect(tag.colorIndex).toBeLessThan(analysis.palette.length);
-        }
-    });
-
-    test('should verify difficulty layer colors map to valid values', async () => {
-        const validation = await page.evaluate(() => {
-            // Get difficulty layer
-            const layers = window.editor.layerManager.layers;
-            const difficultyLayer = layers.find(layer => layer.name === 'Difficulty');
-
-            if (!difficultyLayer) {
-                return { error: 'Difficulty layer not found' };
-            }
-
-            // Get all unique colors in difficulty layer
-            const uniqueColors = new Set();
-            for (const [key, color] of difficultyLayer.tileData.entries()) {
-                uniqueColors.add(color);
-            }
-
-            // Check each color's value mapping
-            const colorMappings = [];
-            for (const color of uniqueColors) {
-                const tileset = window.configManager.getTilesetByColor(color);
-                colorMappings.push({
-                    color: color,
-                    value: tileset ? tileset.value : null,
+                mappings.push({
+                    color,
+                    resolved: !!tileset,
                     name: tileset ? tileset.name : null,
-                    isValid: tileset ? (tileset.value >= 0 && tileset.value <= 4) : false
+                    value: tileset ? tileset.value : null,
+                    inRange: !!tileset && Number.isInteger(tileset.value) &&
+                        tileset.value >= 0 && tileset.value <= max
                 });
             }
+            return { tileCount: layer.tileData.size, mappings };
+        }, MAX_DIFFICULTY);
+
+        // The generated map must actually put more than one difficulty on the layer,
+        // otherwise this test would be checking a single default colour.
+        expect(analysis.mappings.length).toBeGreaterThan(1);
+
+        const unresolved = analysis.mappings.filter(m => !m.resolved);
+        expect(unresolved, `colours with no tileset: ${JSON.stringify(unresolved)}`).toEqual([]);
+
+        const outOfRange = analysis.mappings.filter(m => !m.inRange);
+        expect(outOfRange, `out-of-range difficulties: ${JSON.stringify(outOfRange)}`).toEqual([]);
+    });
+
+    test('the exported Difficulty palette resolves through color_mappings', async ({ page }) => {
+        const result = await page.evaluate((max) => {
+            const exported = window.editor.layerManager.exportRLEData('TestMap', 'Difficulty', 12345);
+            const layer = exported.layers.find(l => l.layer_type === 'Difficulty');
+            const table = exported.color_mappings.difficulty;
+
+            const problems = [];
+            const values = [];
+
+            layer.palette.forEach((color, index) => {
+                const entry = table[color.toLowerCase()];
+                if (!entry) {
+                    problems.push({ index, color, kind: 'not in color_mappings.difficulty' });
+                    return;
+                }
+                if (!Number.isInteger(entry.value) || entry.value < 0 || entry.value > max) {
+                    problems.push({ index, color, value: entry.value, kind: 'value out of range' });
+                    return;
+                }
+                values.push(entry.value);
+            });
+
+            // Every run must point at a palette slot that exists.
+            layer.color_data.forEach(([idx], i) => {
+                if (idx < 0 || idx >= layer.palette.length) {
+                    problems.push({ run: i, index: idx, kind: 'index outside palette' });
+                }
+            });
+
+            return { problems, values, paletteSize: layer.palette.length, runs: layer.color_data.length };
+        }, MAX_DIFFICULTY);
+
+        expect(result.problems, JSON.stringify(result.problems, null, 2)).toEqual([]);
+        expect(result.paletteSize).toBeGreaterThan(1);
+        expect(result.runs).toBeGreaterThan(1);
+    });
+
+    test('the base64 form of the Difficulty layer decodes to the same runs', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const manager = window.editor.layerManager;
+            const arrayLayer = manager.exportRLEData('T', 'T', 12345)
+                .layers.find(l => l.layer_type === 'Difficulty');
+            const b64Layer = manager.exportRLEDataBase64('T', 'T', 12345)
+                .layers.find(l => l.layer_type === 'Difficulty');
+
+            // Difficulty has at most 5 colours, so it must take the base64 path.
+            const decoded = b64Layer.encoding === 'rle-base64-v1'
+                ? window.base64RLEEncoder.decodeFromBase64(b64Layer.data_b64)
+                : null;
 
             return {
-                tileCount: difficultyLayer.tileData.size,
-                uniqueColorCount: uniqueColors.size,
-                colorMappings: colorMappings
+                encoding: b64Layer.encoding,
+                paletteSize: b64Layer.palette.length,
+                decoded,
+                arrayRuns: arrayLayer.color_data,
+                maxIndex: decoded ? Math.max(...decoded.map(([i]) => i)) : null,
+                totalTiles: decoded ? decoded.reduce((s, [, c]) => s + c, 0) : null,
+                expectedTiles: manager.width * manager.height
             };
         });
 
-        console.log(`\n=== Difficulty Layer Color Mappings ===`);
-        console.log(`Tiles: ${validation.tileCount}`);
-        console.log(`Unique colors: ${validation.uniqueColorCount}`);
-        console.log(`\nColor mappings:`);
-
-        for (const mapping of validation.colorMappings) {
-            const status = mapping.isValid ? '✓' : '❌';
-            console.log(`${status} ${mapping.color} → value ${mapping.value} (${mapping.name || 'unknown'})`);
-        }
-
-        // All colors should map to valid difficulty values (0-4)
-        const invalidMappings = validation.colorMappings.filter(m => !m.isValid);
-        if (invalidMappings.length > 0) {
-            console.log(`\n❌ Found ${invalidMappings.length} invalid color mappings`);
-        }
-
-        expect(invalidMappings.length).toBe(0);
+        expect(result.paletteSize).toBeLessThanOrEqual(5);
+        expect(result.encoding).toBe('rle-base64-v1');
+        // Full comparison, not just the first ten tag bytes.
+        expect(result.decoded).toEqual(result.arrayRuns);
+        expect(result.maxIndex).toBeLessThan(result.paletteSize);
+        expect(result.totalTiles).toBe(result.expectedTiles);
     });
 });

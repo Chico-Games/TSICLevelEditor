@@ -7,43 +7,82 @@ const { test, expect } = require('./test-base');
 
 test.describe('Zoom on Mouse Position', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
+        await page.goto('/index.html');
         await page.waitForSelector('#grid-canvas');
         await page.waitForTimeout(500);
     });
 
-    test('mouse wheel zoom should center on cursor position', async ({ page }) => {
+    test('mouse wheel zoom keeps the world point under the cursor fixed', async ({ page }) => {
+        // The old assertion here was `expect(newOffsetX).not.toBe(initialOffsetX)` — but
+        // *any* zoom implementation moves the offsets, including one that zooms on the
+        // viewport centre. What "zoom on the cursor" actually means is that the world
+        // coordinate beneath the pointer is unchanged, which is what setZoom() computes.
         const canvas = await page.locator('#grid-canvas');
         const box = await canvas.boundingBox();
 
-        // Position mouse at specific point (not center)
-        const mouseX = box.x + box.width * 0.25; // 25% from left
-        const mouseY = box.y + box.height * 0.25; // 25% from top
+        // A point deliberately away from the centre, so centre-anchored zoom would fail.
+        const mouseX = box.x + box.width * 0.25;
+        const mouseY = box.y + box.height * 0.25;
 
-        // Get initial zoom and offset
-        const initialZoom = await page.evaluate(() => window.editor.zoom);
-        const initialOffsetX = await page.evaluate(() => window.editor.offsetX);
-        const initialOffsetY = await page.evaluate(() => window.editor.offsetY);
+        const worldUnderCursor = (localX, localY) => page.evaluate(({ x, y }) => {
+            const editor = window.editor;
+            const rect = editor.gridCanvas.getBoundingClientRect();
+            const canvasX = x - rect.left;
+            const canvasY = y - rect.top;
+            return {
+                worldX: (canvasX - editor.offsetX) / (editor.tileSize * editor.zoom),
+                worldY: (canvasY - editor.offsetY) / (editor.tileSize * editor.zoom),
+                zoom: editor.zoom
+            };
+        }, { x: localX, y: localY });
 
-        // Zoom in with mouse at that position (multiple times to ensure change)
         await page.mouse.move(mouseX, mouseY);
+        const before = await worldUnderCursor(mouseX, mouseY);
+
         for (let i = 0; i < 5; i++) {
-            await page.mouse.wheel(0, -100); // Zoom in
+            await page.mouse.wheel(0, -100); // zoom in
             await page.waitForTimeout(20);
         }
         await page.waitForTimeout(100);
 
-        // Get new zoom and offset
-        const newZoom = await page.evaluate(() => window.editor.zoom);
-        const newOffsetX = await page.evaluate(() => window.editor.offsetX);
-        const newOffsetY = await page.evaluate(() => window.editor.offsetY);
+        const after = await worldUnderCursor(mouseX, mouseY);
 
-        // Zoom should have increased
-        expect(newZoom).toBeGreaterThan(initialZoom);
+        expect(after.zoom).toBeGreaterThan(before.zoom);
+        // Sub-tile tolerance for float accumulation over five steps.
+        expect(Math.abs(after.worldX - before.worldX)).toBeLessThan(0.5);
+        expect(Math.abs(after.worldY - before.worldY)).toBeLessThan(0.5);
+    });
 
-        // Offset should have changed (zoom centered on mouse)
-        expect(newOffsetX).not.toBe(initialOffsetX);
-        expect(newOffsetY).not.toBe(initialOffsetY);
+    test('zooming out also keeps the world point under the cursor fixed', async ({ page }) => {
+        const canvas = await page.locator('#grid-canvas');
+        const box = await canvas.boundingBox();
+        const mouseX = box.x + box.width * 0.7;
+        const mouseY = box.y + box.height * 0.3;
+
+        const worldUnderCursor = () => page.evaluate(({ x, y }) => {
+            const editor = window.editor;
+            const rect = editor.gridCanvas.getBoundingClientRect();
+            return {
+                worldX: ((x - rect.left) - editor.offsetX) / (editor.tileSize * editor.zoom),
+                worldY: ((y - rect.top) - editor.offsetY) / (editor.tileSize * editor.zoom),
+                zoom: editor.zoom
+            };
+        }, { x: mouseX, y: mouseY });
+
+        await page.mouse.move(mouseX, mouseY);
+        const before = await worldUnderCursor();
+
+        for (let i = 0; i < 4; i++) {
+            await page.mouse.wheel(0, 100); // zoom out
+            await page.waitForTimeout(20);
+        }
+        await page.waitForTimeout(100);
+
+        const after = await worldUnderCursor();
+
+        expect(after.zoom).toBeLessThan(before.zoom);
+        expect(Math.abs(after.worldX - before.worldX)).toBeLessThan(0.5);
+        expect(Math.abs(after.worldY - before.worldY)).toBeLessThan(0.5);
     });
 
     test('zoom in button should center on viewport center', async ({ page }) => {

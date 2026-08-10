@@ -1,138 +1,189 @@
-const { test, expect, initializeEditor } = require('./test-base');
+/**
+ * Export format contract
+ *
+ * The exported file gives Unreal a per-layer `palette` of colours plus RLE runs of
+ * [paletteIndex, count], and a separate `color_mappings` table that turns a colour
+ * into the enum value the runtime wants. The thing that can actually break is the
+ * join between them: an index that isn't in the palette, or a palette colour that
+ * isn't in color_mappings, means the loader silently resolves the wrong tile.
+ *
+ * This file used to "check" that by printing a table and asserting nothing at all —
+ * both of its tests had zero expect() calls, so no export defect could ever fail it.
+ */
 
-test.describe('Export Format for Unreal', () => {
-    let page;
+const { test, expect, initializeEditor, generateTestMap } = require('./test-base');
 
-    test.beforeEach(async ({ page: testPage }) => {
-        page = testPage;
+test.describe('Export format for Unreal', () => {
+    test.beforeEach(async ({ page }) => {
         await initializeEditor(page);
-        await page.waitForTimeout(500);
+        await generateTestMap(page);
     });
 
-    test('should check what data format Unreal expects vs what we export', async () => {
-        // Generate test map
-        await page.evaluate(() => {
-            window.generateTestMap();
-        });
+    test('every RLE run resolves through the palette to a defined colour mapping', async ({ page }) => {
+        const report = await page.evaluate(() => {
+            const exported = window.editor.layerManager.exportRLEData('TestMap', 'Format check', 12345);
 
-        await page.waitForTimeout(3000);
+            // layer_type -> which color_mappings table its palette must resolve against
+            const categoryForLayer = {
+                Height: 'heights',
+                Difficulty: 'difficulty',
+                Hazard: 'hazards',
+                Sky: 'biomes',
+                Floor: 'biomes',
+                Underground: 'biomes',
+                SkyHeightOffset: 'heights',
+                UndergroundHeightOffset: 'heights'
+            };
 
-        const analysis = await page.evaluate(() => {
-            const exported = window.editor.layerManager.exportRLEDataBase64('TestMap', 'Test', 12345);
-            const difficultyLayer = exported.layers.find(layer => layer.layer_type === 'Difficulty');
+            const problems = [];
+            const summary = [];
 
-            // Decode RLE
-            const rleData = window.base64RLEEncoder.decodeFromBase64(difficultyLayer.data_b64);
+            for (const layer of exported.layers) {
+                const category = categoryForLayer[layer.layer_type];
+                const table = category ? exported.color_mappings[category] : null;
 
-            // What we're currently exporting: palette indices
-            const paletteIndices = rleData.map(([idx, count]) => idx);
-            const uniquePaletteIndices = [...new Set(paletteIndices)];
+                if (!table) {
+                    problems.push({
+                        layer: layer.layer_type,
+                        kind: 'no color_mappings category',
+                        detail: category
+                    });
+                    continue;
+                }
 
-            // What Unreal might expect: actual difficulty values (0-4)
-            const difficultyValues = rleData.map(([idx, count]) => {
-                const color = difficultyLayer.palette[idx];
-                const tileset = window.configManager.getTilesetByColor(color);
-                return tileset ? tileset.value : null;
-            });
-            const uniqueDifficultyValues = [...new Set(difficultyValues)];
+                const resolvedValues = new Set();
 
-            // Check first 20 entries
-            const first20Comparison = [];
-            for (let i = 0; i < Math.min(20, rleData.length); i++) {
-                const [paletteIdx, count] = rleData[i];
-                const color = difficultyLayer.palette[paletteIdx];
-                const tileset = window.configManager.getTilesetByColor(color);
-                const value = tileset ? tileset.value : null;
+                for (let i = 0; i < layer.color_data.length; i++) {
+                    const run = layer.color_data[i];
+                    const [paletteIndex, count] = run;
 
-                first20Comparison.push({
-                    run: i,
-                    paletteIndex: paletteIdx,
-                    color: color,
-                    tilesetValue: value,
-                    count: count
+                    if (paletteIndex < 0 || paletteIndex >= layer.palette.length) {
+                        problems.push({
+                            layer: layer.layer_type, kind: 'index out of palette range',
+                            detail: `run ${i}: index ${paletteIndex}, palette size ${layer.palette.length}`
+                        });
+                        continue;
+                    }
+                    if (!Number.isInteger(count) || count <= 0) {
+                        problems.push({
+                            layer: layer.layer_type, kind: 'non-positive run count',
+                            detail: `run ${i}: count ${count}`
+                        });
+                    }
+
+                    const color = layer.palette[paletteIndex].toLowerCase();
+                    const entry = table[color];
+                    if (!entry) {
+                        problems.push({
+                            layer: layer.layer_type, kind: 'palette colour missing from color_mappings',
+                            detail: `${color} not in color_mappings.${category}`
+                        });
+                        continue;
+                    }
+                    resolvedValues.add(entry.value);
+                }
+
+                summary.push({
+                    layer: layer.layer_type,
+                    category,
+                    paletteSize: layer.palette.length,
+                    runs: layer.color_data.length,
+                    resolvedValues: Array.from(resolvedValues).sort((a, b) => a - b)
                 });
             }
 
+            return { problems, summary };
+        });
+
+        expect(report.problems, JSON.stringify(report.problems, null, 2)).toEqual([]);
+        // Every layer must actually have been checked.
+        expect(report.summary.length).toBe(8);
+    });
+
+    test('resolved values stay inside the range each layer type allows', async ({ page }) => {
+        const outOfRange = await page.evaluate(() => {
+            const exported = window.editor.layerManager.exportRLEData('TestMap', 'Range check', 12345);
+
+            // Ranges come from the Unreal enums mirrored in config.js dataTypes.
+            const limits = {
+                Height: { category: 'heights', max: 9 },
+                Difficulty: { category: 'difficulty', max: 4 },
+                Hazard: { category: 'hazards', max: 2 },
+                SkyHeightOffset: { category: 'heights', max: 9 },
+                UndergroundHeightOffset: { category: 'heights', max: 9 }
+            };
+
+            const bad = [];
+            for (const layer of exported.layers) {
+                const limit = limits[layer.layer_type];
+                if (!limit) continue; // biome layers validate by palette membership, not range
+
+                const table = exported.color_mappings[limit.category];
+                for (const color of layer.palette) {
+                    const entry = table[color.toLowerCase()];
+                    if (!entry) continue; // reported by the previous test
+                    if (!Number.isInteger(entry.value) || entry.value < 0 || entry.value > limit.max) {
+                        bad.push({
+                            layer: layer.layer_type, color,
+                            value: entry.value, max: limit.max
+                        });
+                    }
+                }
+            }
+            return bad;
+        });
+
+        expect(outOfRange, JSON.stringify(outOfRange, null, 2)).toEqual([]);
+    });
+
+    test('the first stroke on a freshly loaded document exports valid data', async ({ page }) => {
+        // Regression: startup selected the first tileset in the config (a Difficulty
+        // colour) while the active layer was Height, so the user's first stroke wrote
+        // #90ee90 into the Height layer and the export failed validation with
+        // 'palette colour "#90ee90" is not defined in color_mappings.heights'.
+        await page.goto('/index.html');
+        await page.waitForFunction(() => window.editor && window.editor.layerManager);
+        await page.waitForFunction(() => {
+            const lm = window.editor.layerManager;
+            return lm.layers.length > 0 && lm.layers.every(l => l.tileData.size === l.width * l.height);
+        });
+
+        const result = await page.evaluate(() => {
+            const editor = window.editor;
+            const layer = editor.layerManager.getActiveLayer();
+
+            editor.setTiles([{ x: 3, y: 3 }]);
+
+            const exported = editor.layerManager.exportRLEData('T', 'T', 1);
+            const validation = window.rleValidator.validate(exported);
+
             return {
-                exportFormat: 'base64-RLE with palette indices',
-                palette: difficultyLayer.palette,
-                uniquePaletteIndices: uniquePaletteIndices,
-                uniqueDifficultyValues: uniqueDifficultyValues,
-                first20Comparison: first20Comparison
+                activeLayer: layer.layerType,
+                selectedCategory: editor.selectedTileset.category,
+                errors: validation.errors,
+                valid: validation.valid
             };
         });
 
-        console.log(`\n=== Export Format Analysis ===`);
-        console.log(`Format: ${analysis.exportFormat}`);
-        console.log(`\nPalette: ${analysis.palette.join(', ')}`);
-        console.log(`\nWhat we export (palette indices): ${analysis.uniquePaletteIndices.join(', ')}`);
-        console.log(`What Unreal expects (difficulty values): ${analysis.uniqueDifficultyValues.join(', ')}`);
-
-        console.log(`\n=== First 20 RLE Runs ===`);
-        console.log(`Run | Palette Idx | Color     | Difficulty Value | Count`);
-        console.log(`----|-------------|-----------|------------------|------`);
-        for (const entry of analysis.first20Comparison) {
-            console.log(`${entry.run.toString().padStart(3)} | ${entry.paletteIndex.toString().padStart(11)} | ${entry.color} | ${entry.tilesetValue !== null ? entry.tilesetValue.toString().padStart(16) : '            null'} | ${entry.count}`);
-        }
-
-        console.log(`\n⚠️  ISSUE: We're exporting palette indices (${analysis.uniquePaletteIndices.join(', ')})`);
-        console.log(`   but Unreal might expect difficulty values (${analysis.uniqueDifficultyValues.join(', ')})`);
+        // The selected colour must belong to the active layer's own category.
+        expect(result.activeLayer).toBe('Height');
+        expect(result.selectedCategory).toBe('Height');
+        expect(result.errors, result.errors.join('\n')).toEqual([]);
+        expect(result.valid).toBe(true);
     });
 
-    test('should simulate what Unreal sees when reading our export', async () => {
-        // Generate test map
-        await page.evaluate(() => {
-            window.generateTestMap();
+    test('the exported file passes the project rle-validator', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const exported = window.editor.layerManager.exportRLEData('TestMap', 'Validator check', 12345);
+            const validation = window.rleValidator.validate(exported);
+            return {
+                valid: validation.valid,
+                errors: validation.errors,
+                warnings: validation.warnings
+            };
         });
 
-        await page.waitForTimeout(3000);
-
-        const simulation = await page.evaluate(() => {
-            const exported = window.editor.layerManager.exportRLEDataBase64('TestMap', 'Test', 12345);
-            const difficultyLayer = exported.layers.find(layer => layer.layer_type === 'Difficulty');
-
-            // Decode base64 to get palette indices
-            const rleData = window.base64RLEEncoder.decodeFromBase64(difficultyLayer.data_b64);
-
-            // Simulate what Unreal sees if it reads palette indices as difficulty values
-            const unrealInterpretation = [];
-            for (let i = 0; i < Math.min(10, rleData.length); i++) {
-                const [paletteIdx, count] = rleData[i];
-                const color = difficultyLayer.palette[paletteIdx];
-                const tileset = window.configManager.getTilesetByColor(color);
-                const actualValue = tileset ? tileset.value : null;
-
-                unrealInterpretation.push({
-                    entry: i,
-                    whatWeExport: paletteIdx,
-                    whatUnrealReadsAsValue: paletteIdx, // If Unreal reads paletteIdx as value
-                    whatItShouldBe: actualValue,
-                    isValid: paletteIdx >= 0 && paletteIdx <= 4,
-                    error: paletteIdx > 4 ? `Invalid difficulty value ${paletteIdx} (max: 4)` : null
-                });
-            }
-
-            return unrealInterpretation;
-        });
-
-        console.log(`\n=== Unreal Engine Interpretation Simulation ===`);
-        console.log(`Entry | Exported | Unreal Reads | Should Be | Valid? | Error`);
-        console.log(`------|----------|--------------|-----------|--------|------`);
-
-        let hasErrors = false;
-        for (const sim of simulation) {
-            const status = sim.isValid ? '✓' : '❌';
-            const error = sim.error || '';
-            console.log(`${sim.entry.toString().padStart(5)} | ${sim.whatWeExport.toString().padStart(8)} | ${sim.whatUnrealReadsAsValue.toString().padStart(12)} | ${sim.whatItShouldBe.toString().padStart(9)} | ${status.padEnd(6)} | ${error}`);
-
-            if (!sim.isValid) {
-                hasErrors = true;
-            }
-        }
-
-        if (hasErrors) {
-            console.log(`\n❌ Unreal would see invalid difficulty values!`);
-            console.log(`   Solution: Export difficulty VALUES instead of palette INDICES`);
-        }
+        expect(result.errors, result.errors.join('\n')).toEqual([]);
+        expect(result.valid).toBe(true);
     });
 });

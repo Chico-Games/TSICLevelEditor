@@ -1,382 +1,294 @@
 /**
- * Color Search Tests
- * Verifies that the color palette search functionality works correctly
+ * Colour palette search
+ *
+ * filterColors() (js/app.js) matches a query against three things: the tileset key
+ * (`data-name`), the displayed label, and the enclosing SUB-category header
+ * (Shared / Sky / Ground / Underground / Height / Difficulty / Hazards). While a
+ * search is active it un-hides every tab so results can come from all of them.
+ *
+ * Corrections to the previous version of this file:
+ *  - it searched for "Biomes" expecting a category match; there is no "Biomes"
+ *    sub-category, so that test asserted behaviour the app never had;
+ *  - "should maintain search state when switching layers" asserted the opposite of
+ *    what updatePaletteForLayer does — it deliberately clears the search;
+ *  - "should hide categories with no matches" and "auto-expand" queried
+ *    `.color-category` / `.color-category-header`, markup that no longer exists;
+ *  - "should handle special characters" asserted `page.title()`, which no search bug
+ *    could ever change;
+ *  - "search performance with rapid typing" measured the 50ms-per-character delay the
+ *    test itself injected, then asserted the total was under 2s.
  */
 
-const { test, expect } = require('./test-base');
+const { test, expect, initializeEditor, clickLayer } = require('./test-base');
 
-test.describe('Color Search', () => {
+/** Names of every colour swatch currently visible anywhere in the palette. */
+async function visibleColorNames(page) {
+    return await page.evaluate(() =>
+        Array.from(document.querySelectorAll('.palette-tab-content.active .color-subcategory:not(.hidden) .color-item:not(.hidden)'))
+            .map(item => item.dataset.name)
+    );
+}
+
+async function search(page, query) {
+    await page.fill('#color-search', query);
+    await page.waitForTimeout(150);
+}
+
+test.describe('Colour search', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
-        await page.waitForSelector('#grid-canvas');
-        await page.waitForTimeout(500);
+        await initializeEditor(page);
+        // Biome layer: the palette has the most to filter here.
+        await clickLayer(page, 'Floor');
     });
 
-    test('search input should be visible', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
-        await expect(searchInput).toBeVisible();
+    test('the search box and its clear button start in the right state', async ({ page }) => {
+        const input = page.locator('#color-search');
+        await expect(input).toBeVisible();
+        expect(await input.getAttribute('placeholder')).toBe('Search colors...');
+        expect(await input.inputValue()).toBe('');
 
-        const placeholder = await searchInput.getAttribute('placeholder');
-        expect(placeholder).toBe('Search colors...');
+        const clearVisible = await page.evaluate(() =>
+            document.getElementById('color-search-clear').classList.contains('visible')
+        );
+        expect(clearVisible).toBe(false);
     });
 
-    test('clear button should be hidden initially', async ({ page }) => {
-        const clearButton = await page.locator('#color-search-clear');
-        const isVisible = await clearButton.evaluate(el => el.classList.contains('visible'));
-        expect(isVisible).toBe(false);
+    test('typing reveals the clear button', async ({ page }) => {
+        await search(page, 'ware');
+        const clearVisible = await page.evaluate(() =>
+            document.getElementById('color-search-clear').classList.contains('visible')
+        );
+        expect(clearVisible).toBe(true);
     });
 
-    test('typing in search should show clear button', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
-        const clearButton = await page.locator('#color-search-clear');
+    test('filtering by partial name keeps only matching swatches', async ({ page }) => {
+        const before = await visibleColorNames(page);
+        await search(page, 'carpark');
+        const after = await visibleColorNames(page);
 
-        await searchInput.fill('grass');
-        await page.waitForTimeout(100);
-
-        const isVisible = await clearButton.evaluate(el => el.classList.contains('visible'));
-        expect(isVisible).toBe(true);
+        expect(after.length).toBeGreaterThan(0);
+        expect(after.length).toBeLessThan(before.length);
+        // Every survivor genuinely matches, and nothing that matches was dropped.
+        for (const name of after) {
+            expect(name.toLowerCase(), `${name} does not match "carpark"`).toContain('carpark');
+        }
+        const expectedMatches = before.filter(n => n.toLowerCase().includes('carpark'));
+        expect(after.sort()).toEqual(expectedMatches.sort());
     });
 
-    test('should filter colors by partial name match', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
-        await searchInput.fill('show');
-        await page.waitForTimeout(200);
+    test('search is case-insensitive', async ({ page }) => {
+        await search(page, 'WAREHOUSE');
+        const upper = await visibleColorNames(page);
 
-        // Count visible color items
-        const visibleColors = await page.evaluate(() => {
-            const colorItems = document.querySelectorAll('.color-item');
-            return Array.from(colorItems).filter(item => !item.classList.contains('hidden')).length;
-        });
+        await search(page, '');
+        await search(page, 'warehouse');
+        const lower = await visibleColorNames(page);
 
-        console.log(`Visible colors after searching "show": ${visibleColors}`);
-
-        // Should have at least one match (e.g., Biome_ShowFloor)
-        expect(visibleColors).toBeGreaterThan(0);
-
-        // Verify that all visible colors contain "show" in their name
-        const allMatchShow = await page.evaluate(() => {
-            const colorItems = document.querySelectorAll('.color-item:not(.hidden)');
-            return Array.from(colorItems).every(item =>
-                item.dataset.name.toLowerCase().includes('show')
-            );
-        });
-
-        expect(allMatchShow).toBe(true);
+        expect(upper.length).toBeGreaterThan(0);
+        expect(upper.sort()).toEqual(lower.sort());
     });
 
-    test('should be case-insensitive', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
+    test('a sub-category name matches every colour inside it', async ({ page }) => {
+        // "Biomes" is a TAB, not a sub-category — the sub-categories are Shared, Sky,
+        // Ground and Underground, and those are what the search matches.
+        await search(page, 'underground');
 
-        // Test with uppercase
-        await searchInput.fill('WAREHOUSE');
-        await page.waitForTimeout(200);
-
-        const visibleColorsUpper = await page.evaluate(() => {
-            const colorItems = document.querySelectorAll('.color-item:not(.hidden)');
-            return colorItems.length;
-        });
-
-        // Clear and test with lowercase
-        await searchInput.fill('');
-        await page.waitForTimeout(100);
-        await searchInput.fill('warehouse');
-        await page.waitForTimeout(200);
-
-        const visibleColorsLower = await page.evaluate(() => {
-            const colorItems = document.querySelectorAll('.color-item:not(.hidden)');
-            return colorItems.length;
-        });
-
-        // Should return same results
-        expect(visibleColorsUpper).toBe(visibleColorsLower);
-        expect(visibleColorsUpper).toBeGreaterThan(0);
-    });
-
-    test('should match by category name', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
-        await searchInput.fill('Biomes');
-        await page.waitForTimeout(200);
-
-        // Should show all colors in the Biomes category
         const result = await page.evaluate(() => {
-            const categories = document.querySelectorAll('.color-category');
-            let biomeCategory = null;
-
-            for (const category of categories) {
-                const header = category.querySelector('.color-category-header');
-                if (header && header.textContent.includes('Biomes')) {
-                    biomeCategory = category;
-                    break;
-                }
-            }
-
-            if (!biomeCategory) return { exists: false };
-
-            const isHidden = biomeCategory.classList.contains('hidden');
-            const colorItems = biomeCategory.querySelectorAll('.color-item');
-            const visibleItems = Array.from(colorItems).filter(item => !item.classList.contains('hidden')).length;
-
+            const sub = Array.from(document.querySelectorAll('.palette-tab-content.active .color-subcategory'))
+                .find(s => s.querySelector('.color-subcategory-header')?.textContent.trim() === 'Underground');
+            if (!sub) return { found: false };
             return {
-                exists: true,
-                isHidden,
-                totalItems: colorItems.length,
-                visibleItems
+                found: true,
+                hidden: sub.classList.contains('hidden'),
+                total: sub.querySelectorAll('.color-item').length,
+                visible: sub.querySelectorAll('.color-item:not(.hidden)').length
             };
         });
 
-        console.log('Biomes category search result:', result);
-
-        expect(result.exists).toBe(true);
-        expect(result.isHidden).toBe(false);
-        expect(result.visibleItems).toBeGreaterThan(0);
-        expect(result.visibleItems).toBe(result.totalItems); // All biome colors should be visible
+        expect(result.found).toBe(true);
+        expect(result.hidden).toBe(false);
+        expect(result.total).toBeGreaterThan(0);
+        expect(result.visible).toBe(result.total);
     });
 
-    test('clear button should reset search', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
-        const clearButton = await page.locator('#color-search-clear');
+    test('the clear button restores the full palette', async ({ page }) => {
+        const all = await visibleColorNames(page);
 
-        // Enter search query
-        await searchInput.fill('grass');
-        await page.waitForTimeout(200);
+        await search(page, 'ware');
+        const filtered = await visibleColorNames(page);
+        expect(filtered.length).toBeLessThan(all.length);
 
-        const visibleBeforeClear = await page.evaluate(() => {
-            return document.querySelectorAll('.color-item:not(.hidden)').length;
-        });
+        await page.click('#color-search-clear');
+        await page.waitForTimeout(150);
 
-        // Click clear button
-        await clearButton.click();
-        await page.waitForTimeout(200);
-
-        const visibleAfterClear = await page.evaluate(() => {
-            return document.querySelectorAll('.color-item:not(.hidden)').length;
-        });
-
-        const inputValue = await searchInput.inputValue();
-
-        // After clearing, all colors should be visible again
-        expect(inputValue).toBe('');
-        expect(visibleAfterClear).toBeGreaterThan(visibleBeforeClear);
-
-        // Clear button should be hidden again
-        const isVisible = await clearButton.evaluate(el => el.classList.contains('visible'));
-        expect(isVisible).toBe(false);
+        expect(await page.inputValue('#color-search')).toBe('');
+        expect((await visibleColorNames(page)).sort()).toEqual(all.sort());
+        expect(await page.evaluate(() =>
+            document.getElementById('color-search-clear').classList.contains('visible')
+        )).toBe(false);
     });
 
-    test('Escape key should clear search', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
+    test('Escape clears the search', async ({ page }) => {
+        const all = await visibleColorNames(page);
 
-        // Enter search query
-        await searchInput.fill('grass');
-        await page.waitForTimeout(200);
+        await search(page, 'ware');
+        await page.press('#color-search', 'Escape');
+        await page.waitForTimeout(150);
 
-        // Press Escape
-        await searchInput.press('Escape');
-        await page.waitForTimeout(200);
-
-        const inputValue = await searchInput.inputValue();
-        const visibleColors = await page.evaluate(() => {
-            return document.querySelectorAll('.color-item:not(.hidden)').length;
-        });
-
-        expect(inputValue).toBe('');
-        expect(visibleColors).toBeGreaterThan(10); // Should show many colors again
+        expect(await page.inputValue('#color-search')).toBe('');
+        expect((await visibleColorNames(page)).sort()).toEqual(all.sort());
     });
 
-    test('should show "no results" message for non-matching query', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
-        await searchInput.fill('xyznonexistent');
-        await page.waitForTimeout(200);
+    test('a query with no matches shows the no-results message', async ({ page }) => {
+        await search(page, 'xyznonexistent');
 
-        const noResultsMsg = await page.evaluate(() => {
+        const state = await page.evaluate(() => {
             const msg = document.querySelector('.search-no-results');
-            return msg ? {
-                exists: true,
-                visible: msg.style.display !== 'none',
-                text: msg.textContent
-            } : { exists: false };
+            return {
+                exists: !!msg,
+                visible: msg ? msg.style.display !== 'none' : false,
+                text: msg ? msg.textContent : null,
+                visibleColors: document.querySelectorAll('.color-item:not(.hidden)').length
+            };
         });
 
-        expect(noResultsMsg.exists).toBe(true);
-        expect(noResultsMsg.visible).toBe(true);
-        expect(noResultsMsg.text).toContain('No colors found');
-        expect(noResultsMsg.text).toContain('xyznonexistent');
+        expect(state.exists).toBe(true);
+        expect(state.visible).toBe(true);
+        expect(state.text).toContain('No colors found');
+        expect(state.text).toContain('xyznonexistent');
+        expect(state.visibleColors).toBe(0);
     });
 
-    test('should hide categories with no matches', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
+    test('sub-categories with no matches are hidden', async ({ page }) => {
+        await search(page, 'warehouse');
 
-        // Search for something specific that should only be in one category
-        await searchInput.fill('Radiation');
-        await page.waitForTimeout(200);
+        const subcategories = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.palette-tab-content.active .color-subcategory')).map(sub => ({
+                name: sub.querySelector('.color-subcategory-header')?.textContent.trim(),
+                hidden: sub.classList.contains('hidden'),
+                visibleItems: sub.querySelectorAll('.color-item:not(.hidden)').length
+            }))
+        );
 
-        const categoryVisibility = await page.evaluate(() => {
-            const categories = document.querySelectorAll('.color-category');
-            return Array.from(categories).map(cat => {
-                const header = cat.querySelector('.color-category-header');
-                return {
-                    name: header ? header.textContent : 'Unknown',
-                    hidden: cat.classList.contains('hidden')
-                };
-            });
-        });
-
-        console.log('Category visibility after searching "Radiation":', categoryVisibility);
-
-        // At least one category should be hidden
-        const hiddenCategories = categoryVisibility.filter(cat => cat.hidden);
-        expect(hiddenCategories.length).toBeGreaterThan(0);
-
-        // At least one category should be visible (the one with Radiation hazards)
-        const visibleCategories = categoryVisibility.filter(cat => !cat.hidden);
-        expect(visibleCategories.length).toBeGreaterThan(0);
+        expect(subcategories.length).toBeGreaterThan(1);
+        for (const sub of subcategories) {
+            // Hidden exactly when it has nothing to show — both directions.
+            expect(sub.hidden, `${sub.name} hidden=${sub.hidden} with ${sub.visibleItems} matches`)
+                .toBe(sub.visibleItems === 0);
+        }
+        expect(subcategories.some(s => !s.hidden)).toBe(true);
+        expect(subcategories.some(s => s.hidden)).toBe(true);
     });
 
-    test('should auto-expand categories with matches', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
+    test('a search reaches colours on tabs that are not currently open', async ({ page }) => {
+        // filterColors() activates every tab while a query is present.
+        await clickLayer(page, 'Floor'); // biomes tab
+        await search(page, 'lost');
 
-        // First, collapse a category
-        const categoryHeader = await page.locator('.color-category-header').first();
-        await categoryHeader.click();
-        await page.waitForTimeout(200);
+        const found = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.color-item:not(.hidden)')).map(i => i.dataset.name)
+        );
 
-        // Verify it's collapsed
-        const isCollapsedBefore = await page.evaluate(() => {
-            const category = document.querySelector('.color-category');
-            return category ? category.classList.contains('collapsed') : false;
-        });
-
-        expect(isCollapsedBefore).toBe(true);
-
-        // Now search for something that will match in that category
-        await searchInput.fill('biome');
-        await page.waitForTimeout(200);
-
-        // Category should auto-expand
-        const isCollapsedAfter = await page.evaluate(() => {
-            const category = document.querySelector('.color-category:not(.hidden)');
-            return category ? category.classList.contains('collapsed') : false;
-        });
-
-        expect(isCollapsedAfter).toBe(false);
+        expect(found).toContain('Biome_LostAndFound'); // lives on the POI tab
     });
 
-    test('empty search should show all colors', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
+    test('special characters filter rather than crash', async ({ page }) => {
+        for (const query of ['()', '[]', '{}', '._-', '123', '\\', '*']) {
+            await search(page, query);
 
-        // First search for something
-        await searchInput.fill('grass');
-        await page.waitForTimeout(200);
+            const state = await page.evaluate(() => ({
+                visible: Array.from(document.querySelectorAll('.color-item:not(.hidden)')).map(i => i.dataset.name),
+                noResultsShown: (() => {
+                    const msg = document.querySelector('.search-no-results');
+                    return !!msg && msg.style.display !== 'none';
+                })()
+            }));
 
-        const visibleWithSearch = await page.evaluate(() => {
-            return document.querySelectorAll('.color-item:not(.hidden)').length;
-        });
-
-        // Clear search
-        await searchInput.fill('');
-        await page.waitForTimeout(200);
-
-        const visibleWithoutSearch = await page.evaluate(() => {
-            return document.querySelectorAll('.color-item:not(.hidden)').length;
-        });
-
-        expect(visibleWithoutSearch).toBeGreaterThan(visibleWithSearch);
-        expect(visibleWithoutSearch).toBeGreaterThan(10); // Should have many colors
-    });
-
-    test('should handle special characters in search', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
-
-        // Test with various special characters
-        const queries = ['()', '[]', '{}', '._-', '123'];
-
-        for (const query of queries) {
-            await searchInput.fill(query);
-            await page.waitForTimeout(100);
-
-            // Should not crash
-            const pageTitle = await page.title();
-            expect(pageTitle).toBe('TSIC Level Editor');
+            // Treated as a literal substring: no matches for any of these, and the
+            // no-results message must appear rather than the palette silently emptying.
+            expect(state.visible, `query "${query}" matched ${state.visible}`).toEqual([]);
+            expect(state.noResultsShown, `query "${query}" showed no message`).toBe(true);
         }
     });
 
-    test('search should work after loading a file', async ({ page }) => {
-        // Generate a test map first
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
+    test('clicking a filtered colour selects it', async ({ page }) => {
+        await search(page, 'bathroom');
 
-        const searchInput = await page.locator('#color-search');
-        await searchInput.fill('warehouse');
-        await page.waitForTimeout(200);
-
-        const visibleColors = await page.evaluate(() => {
-            return document.querySelectorAll('.color-item:not(.hidden)').length;
-        });
-
-        expect(visibleColors).toBeGreaterThan(0);
-    });
-
-    test('should maintain search state when switching layers', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
-        await searchInput.fill('radiation');
-        await page.waitForTimeout(200);
-
-        // Switch to a different layer
-        await page.click('.layer-item:has-text("Floor")');
-        await page.waitForTimeout(200);
-
-        // Search should still be active
-        const inputValue = await searchInput.inputValue();
-        expect(inputValue).toBe('radiation');
-
-        const visibleColors = await page.evaluate(() => {
-            return document.querySelectorAll('.color-item:not(.hidden)').length;
-        });
-
-        expect(visibleColors).toBeGreaterThan(0);
-    });
-
-    test('clicking a filtered color should select it', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
-        await searchInput.fill('bathroom');
-        await page.waitForTimeout(200);
-
-        // Click the first visible color
-        const firstVisibleColor = await page.locator('.color-item:not(.hidden)').first();
-        await firstVisibleColor.click();
+        await page.locator('.color-item:not(.hidden)').first().click();
         await page.waitForTimeout(100);
 
-        // Verify color was selected
-        const colorLabel = await page.locator('#current-color-label').textContent();
-        expect(colorLabel.toLowerCase()).toContain('bathroom');
+        const selected = await page.evaluate(() => ({
+            name: window.editor.selectedTileset.name,
+            label: document.getElementById('current-color-label').textContent
+        }));
+
+        expect(selected.name).toBe('Biome_Bathroom');
+        expect(selected.label.toLowerCase()).toContain('bathroom');
     });
 
-    test('search performance with rapid typing', async ({ page }) => {
-        const searchInput = await page.locator('#color-search');
+    test('switching layers clears the search', async ({ page }) => {
+        // updatePaletteForLayer() deliberately resets the query, because the new layer
+        // shows a different set of colours. The old test asserted the opposite.
+        await search(page, 'warehouse');
+        expect(await page.inputValue('#color-search')).toBe('warehouse');
 
-        const startTime = Date.now();
+        await clickLayer(page, 'Difficulty');
+        await page.waitForTimeout(150);
 
-        // Rapidly type characters
-        const searchText = 'warehouse';
-        for (const char of searchText) {
-            await searchInput.type(char, { delay: 50 });
+        expect(await page.inputValue('#color-search')).toBe('');
+        const names = await visibleColorNames(page);
+        expect(names.length).toBe(5); // all five difficulties selectable again
+    });
+
+    test('clearing the search on a layer switch does not re-expose other layers colours', async ({ page }) => {
+        // Regression: updatePaletteForLayer() hid the irrelevant sub-categories and
+        // THEN cleared the search; filterColors('') un-hides every sub-category, so the
+        // clear undid the filtering and the Difficulty layer offered Height and Hazard
+        // swatches — which paint colours that layer cannot export.
+        await search(page, 'ware');
+        await clickLayer(page, 'Difficulty');
+        await page.waitForTimeout(150);
+
+        const names = await visibleColorNames(page);
+        expect(names.length).toBeGreaterThan(0);
+
+        const foreign = await page.evaluate((shown) => {
+            const tilesets = window.configManager.getTilesets();
+            return shown.filter(n => tilesets[n]?.category !== 'Difficulty');
+        }, names);
+
+        expect(foreign, `non-Difficulty colours on show: ${foreign}`).toEqual([]);
+    });
+
+    test('search still works after generating a map', async ({ page }) => {
+        await page.evaluate(() => window.generateTestMap());
+        await page.waitForTimeout(500);
+        await clickLayer(page, 'Floor');
+
+        await search(page, 'warehouse');
+        const names = await visibleColorNames(page);
+
+        expect(names).toEqual(['Biome_Warehouse']);
+    });
+
+    test('filtering is applied synchronously on each keystroke', async ({ page }) => {
+        // Replaces a "performance" test that only measured its own typing delay.
+        // What matters is that the palette is correct after every character, with no
+        // debounce leaving stale results behind.
+        const input = page.locator('#color-search');
+        const query = 'warehouse';
+        let previousCount = Infinity;
+
+        for (let i = 1; i <= query.length; i++) {
+            await input.fill(query.slice(0, i));
+            const visible = await page.evaluate(() =>
+                document.querySelectorAll('.color-item:not(.hidden)').length
+            );
+            // Narrowing the query can never widen the result set.
+            expect(visible, `after typing "${query.slice(0, i)}"`).toBeLessThanOrEqual(previousCount);
+            previousCount = visible;
         }
 
-        await page.waitForTimeout(200);
-
-        const endTime = Date.now();
-        const duration = endTime - startTime;
-
-        console.log(`Search performance test duration: ${duration}ms`);
-
-        // Should complete in reasonable time (less than 2 seconds)
-        expect(duration).toBeLessThan(2000);
-
-        // Should still have results
-        const visibleColors = await page.evaluate(() => {
-            return document.querySelectorAll('.color-item:not(.hidden)').length;
-        });
-
-        expect(visibleColors).toBeGreaterThan(0);
+        expect(previousCount).toBe(1);
     });
 });

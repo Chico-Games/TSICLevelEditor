@@ -1,163 +1,93 @@
 # Test Suite for TSIC Level Editor
 
-This directory contains automated tests for the TSIC Level Editor.
+Playwright end-to-end tests for the TSIC Level Editor.
 
 ## Quick Start
 
-### Option 1: Playwright Tests (Recommended)
-
-**Install:**
 ```bash
 npm install
 npm run install-browsers
+npm test
 ```
 
-**Run tests:**
+| Script | What it does |
+| --- | --- |
+| `npm test` | Run the whole suite (4 workers, artifacts kept only for failures) |
+| `npm run test:ui` | Playwright UI mode |
+| `npm run test:headed` | Run with a visible browser |
+| `npm run test:debug` | Headed, single worker — for stepping through one test |
+| `npm run test:report` | Run and open the HTML report |
+
+Run one file or one test:
+
 ```bash
-npm test                  # Run all tests
-npm run test:ui          # Run with UI mode (interactive)
-npm run test:headed      # Run with visible browser
-npm run test:report      # Generate HTML report
+npx playwright test tests/undo-redo.test.js
+npx playwright test -g "undo restores the previous colour"
 ```
 
-### Option 2: Python + Selenium
+## The test server
 
-**Install:**
-```bash
-pip install selenium webdriver-manager
-```
+`playwright.config.js` starts `http-server` on **127.0.0.1:8931** and points `baseURL`
+at it. The port is deliberately unusual: the Unreal Editor binds its own HTTP server to
+`127.0.0.1:8000`, and because `reuseExistingServer` is on, a suite configured for port
+8000 silently ran every test against Unreal's 404 page instead of the app. Tests
+navigate with `page.goto('/index.html')` so they follow `baseURL`; do not hardcode a
+host. Override the port with `LEVEL_EDITOR_TEST_PORT` if 8931 is taken.
 
-**Run tests:**
-```bash
-npm run test:python
-# or
-python tests/selenium_test.py
-```
+## Writing tests: things that will mislead you
 
-## Test Files
+Import from `./test-base`, not `@playwright/test` — the wrapper fails a test if the page
+logs a console error or throws, which is how several rendering bugs surface.
 
-### `playwright.test.js`
-Comprehensive E2E test suite with 25+ tests covering:
-- Page loading and initialization
-- Configuration loading
-- All drawing tools
-- Layer management
-- Keyboard shortcuts
-- Undo/Redo
-- File operations
-- Zoom and pan
-- Statistics and minimap
+**Layers are never empty.** With no project loaded the app fills every layer with that
+layer's default colour, so before a test does anything:
 
-### `selenium_test.py`
-Python-based test suite with 14 tests covering core functionality:
-- Basic UI loading
-- Drawing operations
-- Tool switching
-- Layer operations
-- Keyboard shortcuts
+- `layer.tileData.size === 65536` (the grid is **256×256**, not 512×512)
+- `layerManager.getTotalTileCount() === 524288` (8 layers)
 
-## Test Coverage
+So `expect(tileData.size).toBeGreaterThan(0)` proves nothing, and
+`expect(getTotalTileCount()).toBe(25)` can never hold. Compare against a snapshot
+(`snapshotActiveLayer` / `countChangedTiles`) or count distinct colours instead.
 
-Both test suites verify:
-- ✅ All UI elements load correctly
-- ✅ Configuration loads from JSON
-- ✅ Drawing tools work (pencil, bucket, line, rectangle, eraser, eyedropper)
-- ✅ Brush sizes work
-- ✅ Layer management (add, remove, visibility, opacity)
-- ✅ Undo/Redo functionality
-- ✅ Keyboard shortcuts
-- ✅ Zoom and pan controls
-- ✅ Statistics update correctly
-- ✅ Minimap renders
+**The eraser repaints the layer default; it does not delete tiles.** Tile counts never
+shrink when you erase.
 
-## Running Specific Tests
+**There are 8 layers**: Height, Difficulty, Hazard, Sky, Floor, Underground,
+SkyHeightOffset, UndergroundHeightOffset.
 
-**Playwright - Run one test:**
-```bash
-npx playwright test tests/playwright.test.js -g "should draw on canvas"
-```
+**`#btn-new` / Ctrl+N opens the New Project prompt** — it does not clear the canvas.
+There is no "clear the level" shortcut.
 
-**Playwright - Debug mode:**
-```bash
-npx playwright test tests/playwright.test.js --debug
-```
+**The palette is tab-based.** `.color-category` / `.color-category-header` no longer
+exist; the markup is `.palette-tab` + `.palette-tab-content` containing
+`.color-subcategory` blocks. The tab and sub-categories on show follow the active layer,
+so a swatch for another layer's category is present in the DOM but hidden. Select
+colours with `selectColor(page, 'Biome_Warehouse')` rather than clicking `.color-item`.
 
-**Playwright - Multiple browsers:**
-```bash
-npx playwright test tests/playwright.test.js --project=chromium
-npx playwright test tests/playwright.test.js --project=firefox
-npx playwright test tests/playwright.test.js --project=webkit
-```
+**Maze direction bits** are `North = index + worldWidth` (bottom-left origin), South =
+`- worldWidth`, East = `+ 1`, West = `- 1`. See `DIRECTION_ENCODING_REFERENCE.md`.
 
-## CI/CD Integration
+**`rle-base64-v1` holds at most 8 palette colours** (3 bits of the tag byte). Layers with
+more fall back to the array RLE form; see `base64-palette-limit.test.js`.
 
-These tests are designed to run in CI/CD pipelines. See [TESTING.md](../TESTING.md) for GitHub Actions example.
+## Helpers in `test-base.js`
 
-## Manual Testing
+| Helper | Purpose |
+| --- | --- |
+| `initializeEditor(page)` | Navigate and wait until the default fill has completed |
+| `clickLayer(page, name)` | Select a layer via the layers panel (throws if absent) |
+| `selectColor(page, name)` | Select a tileset by config key |
+| `getSelectedColor(page)` | `{ name, color, category }` of the current selection |
+| `getVisibleColorSubcategories(page)` | Sub-category headers on show in the active tab |
+| `getVisibleColorNames(page)` | Selectable swatch names in the active tab |
+| `snapshotActiveLayer(page)` | Plain-object copy of the active layer's tiles |
+| `countChangedTiles(page, snap)` | Tiles differing from a snapshot |
+| `generateTestMap(page)` | Run the Perlin generator and wait for real terrain |
 
-For manual testing checklist, see [TESTING.md](../TESTING.md).
+## Manual profiling pages
 
-## Troubleshooting
-
-### Tests fail with "Cannot find index.html"
-- Make sure you're running tests from the project root
-- Check that `index.html` exists in the parent directory
-
-### Playwright browsers not installed
-```bash
-npm run install-browsers
-```
-
-### Python test fails with "chromedriver not found"
-```bash
-pip install webdriver-manager
-```
-
-### Tests timeout
-- Increase timeout in test file
-- Check if application loads correctly in browser manually
-- Verify no JavaScript errors in console (F12)
-
-## Writing New Tests
-
-### Add Playwright test:
-```javascript
-test('should do something', async ({ page }) => {
-    await page.waitForTimeout(500);
-
-    // Your test code here
-    const element = page.locator('#some-id');
-    await expect(element).toBeVisible();
-});
-```
-
-### Add Python test:
-```python
-def test_15_new_feature(self):
-    """Test new feature"""
-    print("\n[TEST] New feature")
-
-    time.sleep(0.5)
-
-    # Your test code here
-    element = self.driver.find_element(By.ID, "some-id")
-    self.assertTrue(element.is_displayed())
-
-    print("  ✓ Feature works")
-```
-
-## Resources
-
-- [Playwright Documentation](https://playwright.dev/)
-- [Selenium Documentation](https://www.selenium.dev/documentation/)
-- [Full Testing Guide](../TESTING.md)
-
-## Test Results
-
-After running tests, you'll see:
-- ✅ Pass count
-- ❌ Failure count
-- ⏱️ Execution time
-- 📊 HTML report (with `npm run test:report`)
-
-Happy testing! 🧪
+`test-direct-performance.html` and `test-complex-level-performance.html` in the repo root
+are standalone scratch pages. They are **not** part of the suite (they build their own
+editor and have drifted out of sync with the app). Automated performance coverage lives
+in `tests/performance.test.js`, which measures the real app with in-page
+`performance.now()` brackets.

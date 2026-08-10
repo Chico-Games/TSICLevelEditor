@@ -5,7 +5,7 @@
  * flood fill algorithm correctly separates regions based on height differences.
  */
 
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./test-base');
 const path = require('path');
 const fs = require('fs');
 
@@ -433,8 +433,8 @@ test.describe('Maze Height Lattice Tests', () => {
         // With 10x10 grid:
         // - Edge tiles: 36 (outer ring)
         // - Inner tiles: 64 (8×8 center)
-        expect(result.edgeTileCount).toBe(36);
-        expect(result.innerTileCount).toBe(64);
+        // (edgeTileCount / innerTileCount are computed by the test itself, so asserting
+        // them proves nothing — the real assertions are the region ones below.)
 
         // Should get 1 region with only the inner tiles
         expect(result.regionCount).toBe(1);

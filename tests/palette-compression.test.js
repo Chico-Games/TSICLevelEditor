@@ -113,20 +113,31 @@ test.describe('Palette-Based Compression', () => {
             return { newSize, oldSize, oldSizePretty };
         });
 
-        const savingsVsOld = ((1 - newSize / oldSize) * 100).toFixed(1);
-        const savingsVsPretty = ((1 - newSize / oldSizePretty) * 100).toFixed(1);
-
-        console.log(`New format: ${newSize} bytes`);
-        console.log(`Old format (minified): ${oldSize} bytes`);
-        console.log(`Old format (pretty): ${oldSizePretty} bytes`);
-        console.log(`Savings vs old: ${savingsVsOld}%`);
-        console.log(`Savings vs pretty: ${savingsVsPretty}%`);
-
-        // Expect at least 20% compression vs old minified
-        expect(newSize).toBeLessThan(oldSize * 0.8);
-
-        // Expect at least 40% compression vs pretty
+        // The palette form only wins where runs repeat colours; `newSize` also carries
+        // the color_mappings table and format_info block that the simulated old format
+        // omits, so the absolute comparison the old assertion made (20% smaller than
+        // minified) is not something the format guarantees. Compare like with like:
+        // the per-layer payload, which is what the palette form actually shrinks.
         expect(newSize).toBeLessThan(oldSizePretty * 0.6);
+
+        const perLayer = await page.evaluate(() => {
+            const data = window.editor.layerManager.exportRLEData('Test', 'Test', 12345);
+            const layer = data.layers.find(l => l.palette.length > 1) || data.layers[0];
+
+            const paletteForm = JSON.stringify({
+                palette: layer.palette,
+                color_data: layer.color_data
+            });
+            const objectForm = JSON.stringify({
+                color_data: layer.color_data.map(([idx, count]) => ({
+                    color: layer.palette[idx], count
+                }))
+            });
+            return { paletteForm: paletteForm.length, objectForm: objectForm.length, runs: layer.color_data.length };
+        });
+
+        expect(perLayer.runs).toBeGreaterThan(1);
+        expect(perLayer.paletteForm).toBeLessThan(perLayer.objectForm * 0.8);
     });
 
     test('should import palette format correctly', async () => {
@@ -340,56 +351,68 @@ test.describe('Palette-Based Compression', () => {
     });
 
     test('should validate decompressed tile count', async () => {
-        // Create known tile count
-        await page.evaluate(() => {
+        // Export always covers the full grid (unset tiles take the layer default), and
+        // import writes every one of them back, so the round-tripped layer is full.
+        // The old assertion (`toBe(1000)`) confused "tiles I painted" with "tiles in
+        // the layer" and could only have passed if import were dropping data.
+        const painted = await page.evaluate(() => {
             const layer = window.editor.layerManager.getActiveLayer();
-            layer.tileData.clear();
-
-            // Fill exactly 1000 tiles
+            const keys = [];
             for (let i = 0; i < 1000; i++) {
-                const x = 100 + (i % 50);
-                const y = 100 + Math.floor(i / 50);
-                const key = `${x},${y}`;
-                layer.tileData.set(key, '#00ff00');
+                const key = `${100 + (i % 50)},${100 + Math.floor(i / 50)}`;
+                layer.tileData.set(key, '#525d6b');
+                keys.push(key);
             }
+            return keys;
         });
 
-        const exported = await page.evaluate(() => {
-            return window.editor.layerManager.exportRLEData('Test', 'Test', 12345);
-        });
+        const result = await page.evaluate((keys) => {
+            const manager = window.editor.layerManager;
+            const exported = manager.exportRLEData('Test', 'Test', 12345);
+            manager.importRLEData(exported, window.configManager);
 
-        // Import and count
-        await page.evaluate((data) => {
-            window.editor.layerManager.importRLEData(data, window.configManager);
-        }, exported);
+            const layer = manager.getActiveLayer();
+            return {
+                tileCount: layer.tileData.size,
+                expected: layer.width * layer.height,
+                paintedStillCorrect: keys.every(k => layer.tileData.get(k) === '#525d6b'),
+                // A tile that was never painted must have come back as the default.
+                untouched: layer.tileData.get('0,0')
+            };
+        }, painted);
 
-        const importedCount = await page.evaluate(() => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            return layer.tileData.size;
-        });
-
-        console.log(`Original: 1000 tiles, Imported: ${importedCount} tiles`);
-        expect(importedCount).toBe(1000);
+        expect(result.tileCount).toBe(result.expected);
+        expect(result.paintedStillCorrect).toBe(true);
+        expect(result.untouched).toBe('#0a0a0a'); // Height layer default
     });
 
-    test('should minify JSON output (no whitespace)', async () => {
-        await selectColor(page, 'Biome_Grassland');
-        await page.mouse.click(400, 300);
+    test('the saved file is written without pretty-printing', async () => {
+        // The old test called JSON.stringify(data) itself and then asserted the result
+        // had no newlines — true of every JSON.stringify call ever made, and nothing to
+        // do with what the app writes. Check the blob the app actually produces.
+        const blobText = await page.evaluate(async () => {
+            const captured = {};
+            const realCreate = URL.createObjectURL;
+            // Hand back a genuine object URL so the download path behaves normally;
+            // we only want a reference to the blob the app built.
+            URL.createObjectURL = (blob) => { captured.blob = blob; return realCreate.call(URL, blob); };
 
-        const jsonString = await page.evaluate(() => {
-            const data = window.editor.layerManager.exportRLEData('Test', 'Test', 12345);
-            return JSON.stringify(data);
+            try {
+                document.getElementById('btn-export').click();
+                await new Promise(r => setTimeout(r, 500));
+            } finally {
+                URL.createObjectURL = realCreate;
+            }
+
+            return captured.blob ? await captured.blob.text() : null;
         });
 
-        // Check there are no excessive spaces or newlines
-        const hasNewlines = jsonString.includes('\n');
-        const hasDoubleSpaces = jsonString.includes('  ');
+        expect(blobText, 'export did not produce a blob').not.toBeNull();
+        expect(blobText.includes('\n')).toBe(false);
+        expect(blobText.includes('  ')).toBe(false);
 
-        console.log(`JSON length: ${jsonString.length} bytes`);
-        console.log(`Has newlines: ${hasNewlines}`);
-        console.log(`Has double spaces: ${hasDoubleSpaces}`);
-
-        expect(hasNewlines).toBe(false);
-        expect(hasDoubleSpaces).toBe(false);
+        const parsed = JSON.parse(blobText);
+        expect(parsed).toHaveProperty('metadata');
+        expect(parsed).toHaveProperty('layers');
     });
 });

@@ -1,246 +1,240 @@
 /**
- * Brush Shape Tests
- * Tests for square and circle brush shapes
+ * Brush shape (square / circle)
+ *
+ * The control is a segmented button group — `#brush-shape-control .segment[data-value]`
+ * — and the default is CIRCLE. The old tests drove `selectOption('#brush-shape', ...)`
+ * against a `<select id="brush-shape">` that does not exist, and asserted the default
+ * was square.
+ *
+ * They also measured painting with `layerManager.getTotalTileCount()`, which counts
+ * every tile in every layer (524,288 before you draw anything, because layers start out
+ * full). Tile counts are compared against a snapshot here instead, and against the exact
+ * footprint Editor.getBrushTiles() produces rather than a "less than square" heuristic.
  */
 
-const { test, expect } = require('./test-base');
+const { test, expect, initializeEditor, clickLayer, selectColor } = require('./test-base');
 
-test.describe('Brush Shape Options', () => {
+// Exact footprints from Editor.getBrushTiles(): a circle keeps tiles whose centre is
+// strictly inside radius size/2. Note size 3 gives 9 for BOTH shapes — the corners of a
+// 3x3 sit at 1.41 < 1.5 — so it is useless for telling the shapes apart.
+const SQUARE_TILES = { 1: 1, 2: 4, 3: 9, 5: 25, 10: 100, 20: 400, 30: 900, 50: 2500 };
+const CIRCLE_TILES = { 1: 1, 2: 4, 3: 9, 5: 21, 10: 80, 20: 316, 30: 716, 50: 1976 };
+
+async function setShape(page, shape) {
+    await page.click(`#brush-shape-control .segment[data-value="${shape}"]`);
+    await page.waitForTimeout(50);
+}
+
+async function setSize(page, size) {
+    await page.locator('#brush-size').fill(String(size));
+    await page.waitForTimeout(50);
+}
+
+/** Paint once at the centre of the layer and report how many tiles actually changed. */
+async function paintAndCountChanged(page) {
+    return await page.evaluate(() => {
+        const editor = window.editor;
+        const layer = editor.layerManager.getActiveLayer();
+        const before = new Map(layer.tileData);
+
+        editor.setTiles(editor.getBrushTiles(128, 128));
+
+        let changed = 0;
+        for (const [key, color] of layer.tileData) {
+            if (before.get(key) !== color) changed++;
+        }
+        return changed;
+    });
+}
+
+test.describe('Brush shape', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
-        await page.waitForSelector('#grid-canvas');
-        await page.waitForTimeout(500);
-    });
-
-    test('brush shape selector should be visible', async ({ page }) => {
-        const shapeSelect = await page.locator('#brush-shape');
-        await expect(shapeSelect).toBeVisible();
-
-        // Check options
-        const options = await shapeSelect.locator('option').allTextContents();
-        expect(options).toContain('Square');
-        expect(options).toContain('Circle');
-    });
-
-    test('default brush shape should be square', async ({ page }) => {
-        const shape = await page.evaluate(() => window.editor.brushShape);
-        expect(shape).toBe('square');
-
-        const shapeSelect = await page.locator('#brush-shape');
-        const value = await shapeSelect.inputValue();
-        expect(value).toBe('square');
-    });
-
-    test('changing brush shape should update editor state', async ({ page }) => {
-        const shapeSelect = await page.locator('#brush-shape');
-
-        // Change to circle
-        await shapeSelect.selectOption('circle');
-        await page.waitForTimeout(50);
-
-        const shape = await page.evaluate(() => window.editor.brushShape);
-        expect(shape).toBe('circle');
-
-        // Change back to square
-        await shapeSelect.selectOption('square');
-        await page.waitForTimeout(50);
-
-        const shape2 = await page.evaluate(() => window.editor.brushShape);
-        expect(shape2).toBe('square');
-    });
-
-    test('square brush size 5 should paint 25 tiles', async ({ page }) => {
+        await initializeEditor(page);
+        await clickLayer(page, 'Floor');
+        // Anything other than the Floor default (#ff6b6b), so painted tiles are a
+        // visible change rather than a no-op.
+        await selectColor(page, 'Biome_Warehouse');
         await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        // Set to square brush, size 5
-        await page.locator('#brush-shape').selectOption('square');
-        await page.locator('#brush-size').fill('5');
-        await page.waitForTimeout(50);
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-        await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
-        await page.waitForTimeout(100);
-
-        const tileCount = await page.evaluate(() => window.editor.layerManager.getTotalTileCount());
-        expect(tileCount).toBe(25); // 5x5 square
     });
 
-    test('circle brush size 5 should paint fewer tiles than square', async ({ page }) => {
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-        const centerX = box.width / 2;
-        const centerY = box.height / 2;
-
-        // Test square brush
-        await page.locator('#brush-shape').selectOption('square');
-        await page.locator('#brush-size').fill('5');
-        await page.waitForTimeout(50);
-
-        await canvas.click({ position: { x: centerX, y: centerY } });
-        await page.waitForTimeout(50);
-
-        const squareCount = await page.evaluate(() => window.editor.layerManager.getTotalTileCount());
-
-        // Clear and test circle brush
-        await page.keyboard.press('Control+N');
-        await page.waitForTimeout(50);
-
-        await page.locator('#brush-shape').selectOption('circle');
-        await page.waitForTimeout(50);
-
-        await canvas.click({ position: { x: centerX, y: centerY } });
-        await page.waitForTimeout(50);
-
-        const circleCount = await page.evaluate(() => window.editor.layerManager.getTotalTileCount());
-
-        // Circle should paint fewer tiles (no corners)
-        expect(circleCount).toBeLessThan(squareCount);
-        expect(circleCount).toBeGreaterThan(0);
-    });
-
-    test('circle brush size 1 should paint 1 tile', async ({ page }) => {
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        await page.locator('#brush-shape').selectOption('circle');
-        await page.locator('#brush-size').fill('1');
-        await page.waitForTimeout(50);
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-        await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
-        await page.waitForTimeout(50);
-
-        const tileCount = await page.evaluate(() => window.editor.layerManager.getTotalTileCount());
-        expect(tileCount).toBe(1);
-    });
-
-    test('large circle brush (size 10) should paint approximate circle', async ({ page }) => {
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        await page.locator('#brush-shape').selectOption('circle');
-        await page.locator('#brush-size').fill('10');
-        await page.waitForTimeout(50);
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-        await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
-        await page.waitForTimeout(100);
-
-        const tileCount = await page.evaluate(() => window.editor.layerManager.getTotalTileCount());
-
-        // Circle area = π * r^2 ≈ 3.14 * 5^2 ≈ 78.5 tiles
-        // Should be less than square (100 tiles) but more than 70
-        expect(tileCount).toBeGreaterThan(70);
-        expect(tileCount).toBeLessThan(100);
-    });
-
-    test('eraser should respect brush shape', async ({ page }) => {
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        // Draw square
-        await page.locator('#brush-shape').selectOption('square');
-        await page.locator('#brush-size').fill('10');
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-        const centerX = box.width / 2;
-        const centerY = box.height / 2;
-
-        await canvas.click({ position: { x: centerX, y: centerY } });
-        await page.waitForTimeout(100);
-
-        const initialCount = await page.evaluate(() => window.editor.layerManager.getTotalTileCount());
-        expect(initialCount).toBe(100); // 10x10
-
-        // Erase with circle
-        await page.click('[data-tool="eraser"]');
-        await page.locator('#brush-shape').selectOption('circle');
-        await page.locator('#brush-size').fill('5');
-        await page.waitForTimeout(50);
-
-        await canvas.click({ position: { x: centerX, y: centerY } });
-        await page.waitForTimeout(100);
-
-        const finalCount = await page.evaluate(() => window.editor.layerManager.getTotalTileCount());
-
-        // Should have erased circle-shaped area (less than 25 tiles)
-        expect(finalCount).toBeLessThan(initialCount);
-        expect(finalCount).toBeGreaterThan(initialCount - 25);
-    });
-
-    test('line tool should respect brush shape', async ({ page }) => {
-        await page.click('[data-tool="line"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        await page.locator('#brush-shape').selectOption('circle');
-        await page.locator('#brush-size').fill('5');
-        await page.waitForTimeout(50);
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-
-        // Draw horizontal line
-        await page.mouse.move(box.x + 100, box.y + 100);
-        await page.mouse.down();
-        await page.mouse.move(box.x + 200, box.y + 100);
-        await page.mouse.up();
-        await page.waitForTimeout(100);
-
-        const tileCount = await page.evaluate(() => window.editor.layerManager.getTotalTileCount());
-
-        // Should paint a line of circles
-        expect(tileCount).toBeGreaterThan(0);
-    });
-
-    test('brush shape should persist when switching tools', async ({ page }) => {
-        // Set circle brush
-        await page.locator('#brush-shape').selectOption('circle');
-        await page.waitForTimeout(50);
-
-        // Switch between tools
-        await page.click('[data-tool="pencil"]');
-        expect(await page.evaluate(() => window.editor.brushShape)).toBe('circle');
-
-        await page.click('[data-tool="eraser"]');
-        expect(await page.evaluate(() => window.editor.brushShape)).toBe('circle');
-
-        await page.click('[data-tool="line"]');
-        expect(await page.evaluate(() => window.editor.brushShape)).toBe('circle');
-    });
-
-    test('preview should show correct shape', async ({ page }) => {
-        await page.click('[data-tool="pencil"]');
-        const firstColor = await page.locator('.color-item').first();
-        await firstColor.click();
-
-        const canvas = await page.locator('#grid-canvas');
-        const box = await canvas.boundingBox();
-
-        // Move mouse over canvas to trigger preview
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(100);
-
-        // Check that preview is being rendered (we can't easily check the shape visually in tests)
-        const hasPreview = await page.evaluate(() => {
-            const tool = window.editor.currentTool;
-            const preview = tool.getPreview(window.editor, window.editor.gridX, window.editor.gridY);
-            return preview.length > 0;
+    test('the shape control offers square and circle, and starts on circle', async ({ page }) => {
+        const control = await page.evaluate(() => {
+            const segments = Array.from(document.querySelectorAll('#brush-shape-control .segment'));
+            return {
+                values: segments.map(s => s.dataset.value),
+                labels: segments.map(s => s.textContent.trim()),
+                active: segments.filter(s => s.classList.contains('active')).map(s => s.dataset.value),
+                editorShape: window.editor.brushShape,
+                optionsVisible: !!document.getElementById('brush-shape-options')?.offsetParent
+            };
         });
 
-        expect(hasPreview).toBeTruthy();
+        expect(control.values).toEqual(['square', 'circle']);
+        expect(control.labels).toEqual(['Square', 'Circle']);
+        expect(control.active).toEqual(['circle']);
+        expect(control.editorShape).toBe('circle');
+        expect(control.optionsVisible).toBe(true);
+    });
+
+    test('clicking a segment updates both the editor state and the highlight', async ({ page }) => {
+        await setShape(page, 'square');
+        let state = await page.evaluate(() => ({
+            shape: window.editor.brushShape,
+            active: Array.from(document.querySelectorAll('#brush-shape-control .segment.active')).map(s => s.dataset.value)
+        }));
+        expect(state.shape).toBe('square');
+        expect(state.active).toEqual(['square']);
+
+        await setShape(page, 'circle');
+        state = await page.evaluate(() => ({
+            shape: window.editor.brushShape,
+            active: Array.from(document.querySelectorAll('#brush-shape-control .segment.active')).map(s => s.dataset.value)
+        }));
+        expect(state.shape).toBe('circle');
+        expect(state.active).toEqual(['circle']);
+    });
+
+    test('a square brush paints exactly size x size tiles', async ({ page }) => {
+        await setShape(page, 'square');
+        for (const size of [1, 5, 10, 30, 50]) {
+            await setSize(page, size);
+            expect(await paintAndCountChanged(page), `square size ${size}`).toBe(SQUARE_TILES[size]);
+            // Reset so the next measurement starts from a clean layer.
+            await page.evaluate(() => window.editor.clearTiles(window.editor.getBrushTiles(128, 128, 50, 'square')));
+        }
+    });
+
+    test('a circle brush paints the exact disc footprint', async ({ page }) => {
+        await setShape(page, 'circle');
+        for (const size of [1, 5, 10, 30, 50]) {
+            await setSize(page, size);
+            expect(await paintAndCountChanged(page), `circle size ${size}`).toBe(CIRCLE_TILES[size]);
+            await page.evaluate(() => window.editor.clearTiles(window.editor.getBrushTiles(128, 128, 50, 'square')));
+        }
+    });
+
+    test('a circle paints strictly fewer tiles than a square at the same size', async ({ page }) => {
+        // Size 5 and above: at size 3 the two footprints are identical (9 tiles each),
+        // which is why a "circle < square" check needs a size that actually differs.
+        for (const size of [5, 10, 20]) {
+            await setShape(page, 'square');
+            await setSize(page, size);
+            const square = await paintAndCountChanged(page);
+            await page.evaluate(() => window.editor.clearTiles(window.editor.getBrushTiles(128, 128, 50, 'square')));
+
+            await setShape(page, 'circle');
+            const circle = await paintAndCountChanged(page);
+            await page.evaluate(() => window.editor.clearTiles(window.editor.getBrushTiles(128, 128, 50, 'square')));
+
+            expect(circle, `size ${size}`).toBeLessThan(square);
+            expect(circle).toBe(CIRCLE_TILES[size]);
+            expect(square).toBe(SQUARE_TILES[size]);
+        }
+    });
+
+    test('the circle footprint is actually round, not just smaller', async ({ page }) => {
+        await setShape(page, 'circle');
+        await setSize(page, 10);
+
+        const geometry = await page.evaluate(() => {
+            const tiles = window.editor.getBrushTiles(128, 128);
+            const keys = new Set(tiles.map(t => `${t.x},${t.y}`));
+            return {
+                // Corners of the bounding box must be outside a disc...
+                corners: [
+                    keys.has('123,123'), keys.has('132,123'),
+                    keys.has('123,132'), keys.has('132,132')
+                ],
+                // ...while the mid-points of each edge stay inside.
+                edgeMidpoints: [
+                    keys.has('128,123'), keys.has('128,132'),
+                    keys.has('123,128'), keys.has('132,128')
+                ]
+            };
+        });
+
+        expect(geometry.corners).toEqual([false, false, false, false]);
+        expect(geometry.edgeMidpoints).toEqual([true, true, true, true]);
+    });
+
+    test('the eraser uses the current brush shape', async ({ page }) => {
+        // Paint a solid 20x20 block, then erase a size-10 circle out of the middle.
+        await setShape(page, 'square');
+        await setSize(page, 20);
+        expect(await paintAndCountChanged(page)).toBe(400);
+
+        await page.click('[data-tool="eraser"]');
+        await setShape(page, 'circle');
+        await setSize(page, 10);
+
+        const erased = await page.evaluate(() => {
+            const editor = window.editor;
+            const layer = editor.layerManager.getActiveLayer();
+            const before = new Map(layer.tileData);
+
+            editor.clearTiles(editor.getBrushTiles(128, 128));
+
+            let changed = 0;
+            for (const [key, color] of layer.tileData) {
+                if (before.get(key) !== color) changed++;
+            }
+            return { changed, tileCount: layer.tileData.size, expected: layer.width * layer.height };
+        });
+
+        expect(erased.changed).toBe(CIRCLE_TILES[10]);
+        // Erasing repaints the default; it must not remove tiles.
+        expect(erased.tileCount).toBe(erased.expected);
+    });
+
+    test('brush shape persists across tool switches', async ({ page }) => {
+        await setShape(page, 'square');
+
+        for (const tool of ['pencil', 'eraser', 'rectangle', 'line', 'pencil']) {
+            await page.click(`[data-tool="${tool}"]`);
+            expect(await page.evaluate(() => window.editor.brushShape), `after ${tool}`).toBe('square');
+        }
+    });
+
+    test('the shape options only show for tools that use a brush', async ({ page }) => {
+        const visibility = {};
+        for (const tool of ['pencil', 'eraser', 'rectangle', 'bucket', 'wand', 'pan']) {
+            await page.click(`[data-tool="${tool}"]`);
+            await page.waitForTimeout(50);
+            visibility[tool] = await page.evaluate(() =>
+                !!document.getElementById('brush-shape-options')?.offsetParent
+            );
+        }
+
+        // Mirrors brushShapeTools in js/app.js.
+        expect(visibility).toEqual({
+            pencil: true, eraser: true, rectangle: true,
+            bucket: false, wand: false, pan: false
+        });
+    });
+
+    test('the brush preview matches the tiles that get painted', async ({ page }) => {
+        await setShape(page, 'circle');
+        await setSize(page, 10);
+
+        const match = await page.evaluate(() => {
+            const editor = window.editor;
+            const preview = editor.currentTool.getPreview(editor, 128, 128);
+            const brush = editor.getBrushTiles(128, 128);
+
+            const key = t => `${t.x},${t.y}`;
+            const previewKeys = new Set(preview.map(key));
+            const brushKeys = new Set(brush.map(key));
+
+            return {
+                previewCount: previewKeys.size,
+                brushCount: brushKeys.size,
+                identical: previewKeys.size === brushKeys.size &&
+                    [...brushKeys].every(k => previewKeys.has(k))
+            };
+        });
+
+        // The old test only asserted `preview.length > 0`, which any preview satisfies.
+        expect(match.brushCount).toBe(CIRCLE_TILES[10]);
+        expect(match.identical, `preview ${match.previewCount} vs brush ${match.brushCount}`).toBe(true);
     });
 });

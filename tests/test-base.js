@@ -87,11 +87,71 @@ const test = base.test.extend({
 });
 
 /**
- * Helper function to initialize editor
+ * Helper function to initialize editor.
+ *
+ * Note: with no project loaded the app fills EVERY layer with that layer's default
+ * colour (app.js "[INIT] No project loaded - filling layers with valid defaults"),
+ * so `layer.tileData.size` is already width*height before the test does anything.
+ * Assertions about drawing must therefore compare against a snapshot — counting
+ * tiles proves nothing. Use countChangedTiles() / snapshotLayer() below.
  */
 async function initializeEditor(page) {
-    await page.goto('http://localhost:8000/index.html');
+    await page.goto('/index.html');
     await page.waitForFunction(() => window.editor && window.editor.layerManager);
+    // The default fill happens after the editor object exists; wait for it to land.
+    await page.waitForFunction(() => {
+        const lm = window.editor.layerManager;
+        return lm.layers.length > 0 &&
+            lm.layers.every(l => l.tileData.size === l.width * l.height);
+    });
+}
+
+/**
+ * Snapshot the active layer's tile colours as a plain object, for before/after diffs.
+ */
+async function snapshotActiveLayer(page) {
+    return await page.evaluate(() => {
+        const layer = window.editor.layerManager.getActiveLayer();
+        return Object.fromEntries(layer.tileData);
+    });
+}
+
+/**
+ * Count the tiles on the active layer whose colour differs from `snapshot`.
+ * This is the meaningful "how much did I paint" measure, because the layer starts
+ * out completely filled with its default colour.
+ */
+async function countChangedTiles(page, snapshot) {
+    return await page.evaluate((before) => {
+        const layer = window.editor.layerManager.getActiveLayer();
+        let changed = 0;
+        for (const [key, color] of layer.tileData) {
+            if (before[key] !== color) changed++;
+        }
+        for (const key of Object.keys(before)) {
+            if (!layer.tileData.has(key)) changed++;
+        }
+        return changed;
+    }, snapshot);
+}
+
+/**
+ * Generate the Perlin test map and wait for it to finish.
+ */
+async function generateTestMap(page) {
+    await page.evaluate(() => window.generateTestMap());
+    await page.waitForFunction(() => {
+        const floor = window.editor.layerManager.layers.find(l => l.layerType === 'Floor');
+        // Generation replaces tileData wholesale; more than one distinct colour means
+        // it actually ran rather than leaving the uniform default fill in place.
+        if (!floor || floor.tileData.size === 0) return false;
+        const seen = new Set();
+        for (const color of floor.tileData.values()) {
+            seen.add(color);
+            if (seen.size > 1) return true;
+        }
+        return false;
+    }, null, { timeout: 20000 });
 }
 
 /**
@@ -103,11 +163,10 @@ async function clickLayer(page, layerName) {
         const layerItems = Array.from(layersList.querySelectorAll('.layer-item'));
         const layerItem = layerItems.find(item => {
             const layerNameElement = item.querySelector('.layer-name');
-            return layerNameElement && layerNameElement.textContent.includes(name);
+            return layerNameElement && layerNameElement.textContent.trim() === name;
         });
-        if (layerItem) {
-            layerItem.click();
-        }
+        if (!layerItem) throw new Error(`No layer named "${name}" in the layers panel`);
+        layerItem.click();
     }, layerName);
 }
 
@@ -128,18 +187,35 @@ async function getSelectedColor(page) {
 }
 
 /**
- * Helper function to get visible color categories
+ * Names of the colour sub-categories currently on screen.
+ *
+ * The palette was rebuilt as tabs (`.palette-tab` / `.palette-tab-content`) holding
+ * `.color-subcategory` blocks — the old `.color-category` / `.color-category-header`
+ * markup these helpers used to query no longer exists anywhere in index.html, so the
+ * old version of this helper silently returned [] and every assertion built on it
+ * ("expect(categories).not.toContain('Height')") passed vacuously.
  */
-async function getVisibleColorCategories(page) {
+async function getVisibleColorSubcategories(page) {
     return await page.evaluate(() => {
-        const categories = Array.from(document.querySelectorAll('.color-category'));
-        return categories
-            .filter(cat => !cat.classList.contains('hidden'))
-            .map(cat => {
-                const header = cat.querySelector('.color-category-header');
-                return header ? header.textContent.trim() : null;
-            })
-            .filter(name => name !== null);
+        const inActiveTab = Array.from(
+            document.querySelectorAll('.palette-tab-content.active .color-subcategory')
+        );
+        return inActiveTab
+            .filter(sub => !sub.classList.contains('hidden'))
+            .map(sub => sub.querySelector('.color-subcategory-header'))
+            .filter(Boolean)
+            .map(header => header.textContent.trim());
+    });
+}
+
+/**
+ * The colour names currently selectable (visible sub-category, not hidden by search).
+ */
+async function getVisibleColorNames(page) {
+    return await page.evaluate(() => {
+        return Array.from(
+            document.querySelectorAll('.palette-tab-content.active .color-subcategory:not(.hidden) .color-item:not(.hidden)')
+        ).map(item => item.dataset.name);
     });
 }
 
@@ -158,6 +234,10 @@ module.exports = {
     initializeEditor,
     clickLayer,
     getSelectedColor,
-    getVisibleColorCategories,
-    selectColor
+    getVisibleColorSubcategories,
+    getVisibleColorNames,
+    selectColor,
+    snapshotActiveLayer,
+    countChangedTiles,
+    generateTestMap
 };

@@ -1,266 +1,179 @@
 /**
- * Test Map Generation Tests
- * Tests for the random splodge test map generator
+ * Test map generation
+ *
+ * Every assertion in the old version of this file was of the form
+ * `expect(layer.tileData.size).toBeGreaterThan(50)`. Layers are pre-filled with their
+ * default colour at startup, so `tileData.size` is already 65536 per layer before
+ * anything happens: those assertions passed identically whether generation ran, did
+ * nothing, or threw. The file also drove `#btn-load-test-map`, a button removed in
+ * 459245b, so in practice the tests timed out instead.
+ *
+ * What actually distinguishes "generated" from "untouched" is the number of DISTINCT
+ * colours on a layer, so that is what these tests measure.
  */
 
-const { test, expect } = require('./test-base');
+const { test, expect, initializeEditor, generateTestMap } = require('./test-base');
 
-test.describe('Test Map Generation', () => {
-    test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
-        await page.waitForSelector('#grid-canvas');
-        await page.waitForTimeout(500); // Wait for initialization
-    });
+const GRID_TILES = 256 * 256;
 
-    test('should have Load Test Map button visible', async ({ page }) => {
-        const button = await page.locator('#btn-load-test-map');
-        const isVisible = await button.isVisible();
-        expect(isVisible).toBe(true);
-
-        const buttonText = await button.textContent();
-        expect(buttonText).toContain('Load Test Map');
-    });
-
-    test('should generate test map when button is clicked', async ({ page }) => {
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-
-        // Wait for generation to complete
-        await page.waitForTimeout(1000);
-
-        // Check that tiles were generated
-        const tileCount = await page.evaluate(() => {
-            return window.editor.layerManager.getTotalTileCount();
-        });
-
-        // Should have generated many tiles
-        expect(tileCount).toBeGreaterThan(100);
-    });
-
-    test('should generate splodges on all layer types', async ({ page }) => {
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
-
-        // Check each layer has tiles (now using tileData)
-        const layerStats = await page.evaluate(() => {
-            const stats = {};
-            window.editor.layerManager.layers.forEach(layer => {
-                const layerType = layer.layerType || layer.name;
-                stats[layerType] = {
-                    tiles: layer.tileData?.size || 0
-                };
-            });
-            return stats;
-        });
-
-        console.log('Layer statistics:', layerStats);
-
-        // Verify at least some layers have data
-        let totalTiles = 0;
-        for (const [layerName, data] of Object.entries(layerStats)) {
-            totalTiles += data.tiles;
-        }
-
-        expect(totalTiles).toBeGreaterThan(500); // Should have generated lots of tiles
-    });
-
-    test('should generate biome splodges on Floor layer', async ({ page }) => {
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
-
-        // Check Floor layer has tile data
-        const floorTiles = await page.evaluate(() => {
-            const layer = window.editor.layerManager.layers.find(
-                l => l.layerType && l.layerType.toLowerCase() === 'floor'
-            );
-            return layer ? layer.tileData.size : 0;
-        });
-
-        expect(floorTiles).toBeGreaterThan(50);
-    });
-
-    test('should generate height splodges on Height layer', async ({ page }) => {
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
-
-        // Check Height layer has tile data
-        const heightTiles = await page.evaluate(() => {
-            const layer = window.editor.layerManager.layers.find(
-                l => l.layerType && l.layerType.toLowerCase() === 'height'
-            );
-            return layer ? layer.tileData.size : 0;
-        });
-
-        expect(heightTiles).toBeGreaterThan(50);
-    });
-
-    test('should generate difficulty splodges on Difficulty layer', async ({ page }) => {
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
-
-        // Check Difficulty layer has tile data
-        const difficultyTiles = await page.evaluate(() => {
-            const layer = window.editor.layerManager.layers.find(
-                l => l.layerType && l.layerType.toLowerCase() === 'difficulty'
-            );
-            return layer ? layer.tileData.size : 0;
-        });
-
-        expect(difficultyTiles).toBeGreaterThan(50);
-    });
-
-    test('should generate hazard splodges on Hazard layer', async ({ page }) => {
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
-
-        // Check Hazard layer has tile data
-        const hazardTiles = await page.evaluate(() => {
-            const layer = window.editor.layerManager.layers.find(
-                l => l.layerType && l.layerType.toLowerCase() === 'hazard'
-            );
-            return layer ? layer.tileData.size : 0;
-        });
-
-        expect(hazardTiles).toBeGreaterThan(20);
-    });
-
-    test('should generate tiles on multiple layers', async ({ page }) => {
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
-
-        // Check that tiles were generated on at least 4 different layers
-        const layersWithTiles = await page.evaluate(() => {
-            let layerCount = 0;
-            window.editor.layerManager.layers.forEach(layer => {
-                if (layer.tileData.size > 0) layerCount++;
-            });
-            return layerCount;
-        });
-
-        // Should have tiles on at least 4 layers
-        expect(layersWithTiles).toBeGreaterThanOrEqual(4);
-    });
-
-    test('should render splodges on canvas', async ({ page }) => {
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
-
-        // Take a screenshot to verify visually (optional)
-        const canvas = await page.locator('#grid-canvas');
-        const screenshot = await canvas.screenshot();
-        expect(screenshot).toBeTruthy();
-
-        // Check canvas has content (non-blank)
-        const hasContent = await page.evaluate(() => {
-            const canvas = document.getElementById('grid-canvas');
-            const ctx = canvas.getContext('2d');
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-
-            // Check if canvas has any non-black pixels
-            for (let i = 0; i < data.length; i += 4) {
-                if (data[i] !== 0 || data[i + 1] !== 0 || data[i + 2] !== 0) {
-                    return true;
-                }
+/** Per-layer colour histogram — the only reliable signal that generation ran. */
+async function layerColourStats(page) {
+    return await page.evaluate(() => {
+        return window.editor.layerManager.layers.map(layer => {
+            const counts = new Map();
+            for (const color of layer.tileData.values()) {
+                counts.set(color, (counts.get(color) || 0) + 1);
             }
-            return false;
+            return {
+                name: layer.name,
+                layerType: layer.layerType,
+                tileCount: layer.tileData.size,
+                expected: layer.width * layer.height,
+                distinctColors: counts.size,
+                largestShare: Math.max(...counts.values()) / layer.tileData.size
+            };
         });
+    });
+}
 
-        expect(hasContent).toBe(true);
+test.describe('Test map generation', () => {
+    test.beforeEach(async ({ page }) => {
+        await initializeEditor(page);
     });
 
-    test('should update status message', async ({ page }) => {
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-
-        // Check status message appears
-        await page.waitForTimeout(100);
-        const statusMessage = await page.locator('#status-message').textContent();
-        expect(statusMessage).toContain('Test map generated');
+    test('before generation every layer holds exactly one colour', async ({ page }) => {
+        // Establishes the baseline the other tests are measured against. Without this,
+        // "the layer has tiles" would look like evidence of generation.
+        const stats = await layerColourStats(page);
+        for (const layer of stats) {
+            expect(layer.tileCount, `${layer.name} tile count`).toBe(GRID_TILES);
+            expect(layer.distinctColors, `${layer.name} colours before generation`).toBe(1);
+        }
     });
 
-    test('should mark editor as dirty after generation', async ({ page }) => {
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
+    test('generation paints multiple biomes onto the content layers', async ({ page }) => {
+        await generateTestMap(page);
+        const stats = await layerColourStats(page);
 
-        // Check that editor is marked as dirty
-        const isDirty = await page.evaluate(() => {
-            return window.editor.isDirty;
-        });
-
-        expect(isDirty).toBe(true);
+        const contentLayers = ['Floor', 'Sky', 'Underground', 'Height', 'Difficulty', 'Hazard'];
+        for (const type of contentLayers) {
+            const layer = stats.find(s => s.layerType === type);
+            expect(layer, `${type} layer missing`).toBeDefined();
+            expect(layer.distinctColors, `${type} should have several colours`).toBeGreaterThan(1);
+            // Still a complete grid — generation must not leave holes.
+            expect(layer.tileCount, `${type} tile count`).toBe(GRID_TILES);
+        }
     });
 
-    test('should support undo after generation', async ({ page }) => {
-        // Get initial tile count
-        const initialCount = await page.evaluate(() => {
-            return window.editor.layerManager.getTotalTileCount();
-        });
+    test('generated terrain is varied rather than one colour with speckles', async ({ page }) => {
+        await generateTestMap(page);
+        const stats = await layerColourStats(page);
+        const floor = stats.find(s => s.layerType === 'Floor');
 
-        // Click the Load Test Map button
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
+        expect(floor.distinctColors).toBeGreaterThanOrEqual(4);
+        // No single biome may swamp the map — that would be indistinguishable from
+        // "generation barely ran".
+        expect(floor.largestShare).toBeLessThan(0.9);
+    });
 
-        // Get count after generation
-        const afterGenCount = await page.evaluate(() => {
-            return window.editor.layerManager.getTotalTileCount();
-        });
+    test('generation is reported to the user and marks the document dirty', async ({ page }) => {
+        await generateTestMap(page);
 
-        expect(afterGenCount).toBeGreaterThan(initialCount);
+        const status = await page.locator('#status-message').textContent();
+        expect(status).toContain('Test map generated');
+        expect(await page.evaluate(() => window.editor.isDirty)).toBe(true);
+    });
 
-        // Undo
+    test('undo after generation restores the pre-generation world', async ({ page }) => {
+        const before = await page.evaluate(() =>
+            window.editor.layerManager.layers.map(l => Object.fromEntries(l.tileData))
+        );
+
+        await generateTestMap(page);
+
+        const afterGen = await layerColourStats(page);
+        expect(afterGen.find(s => s.layerType === 'Floor').distinctColors).toBeGreaterThan(1);
+
         await page.keyboard.press('Control+Z');
         await page.waitForTimeout(500);
 
-        // Should be back to initial count
-        const afterUndoCount = await page.evaluate(() => {
-            return window.editor.layerManager.getTotalTileCount();
-        });
+        const restored = await page.evaluate((snapshots) => {
+            const layers = window.editor.layerManager.layers;
+            const diffs = [];
+            layers.forEach((layer, i) => {
+                const snapshot = snapshots[i];
+                if (!snapshot) return;
+                for (const [key, color] of layer.tileData) {
+                    if (snapshot[key] !== color && diffs.length < 5) {
+                        diffs.push({ layer: layer.name, key, was: snapshot[key], now: color });
+                    }
+                }
+            });
+            return diffs;
+        }, before);
 
-        expect(afterUndoCount).toBe(initialCount);
+        // The old test compared getTotalTileCount() before and after, which cannot
+        // change: the grid is always full.
+        expect(restored, JSON.stringify(restored)).toEqual([]);
     });
 
-    test('should generate consistent amount of tiles', async ({ page }) => {
-        // Generate first map
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
-
-        // Get first map tile count
-        const firstMapTiles = await page.evaluate(() => {
-            let totalTiles = 0;
-            window.editor.layerManager.layers.forEach(layer => {
-                totalTiles += layer.tileData.size;
-            });
-            return totalTiles;
+    test('successive generations produce different terrain', async ({ page }) => {
+        await generateTestMap(page);
+        const first = await page.evaluate(() => {
+            const floor = window.editor.layerManager.layers.find(l => l.layerType === 'Floor');
+            return Array.from({ length: 200 }, (_, i) => floor.tileData.get(`${i},${i}`));
         });
 
-        // Clear and generate second map
-        await page.click('#btn-new');
-        await page.click('#btn-load-test-map');
-        await page.waitForTimeout(1000);
-
-        // Get second map tile count
-        const secondMapTiles = await page.evaluate(() => {
-            let totalTiles = 0;
-            window.editor.layerManager.layers.forEach(layer => {
-                totalTiles += layer.tileData.size;
-            });
-            return totalTiles;
+        await generateTestMap(page);
+        const second = await page.evaluate(() => {
+            const floor = window.editor.layerManager.layers.find(l => l.layerType === 'Floor');
+            return Array.from({ length: 200 }, (_, i) => floor.tileData.get(`${i},${i}`));
         });
 
-        // Both maps should have substantial tiles (both > 500)
-        expect(firstMapTiles).toBeGreaterThan(500);
-        expect(secondMapTiles).toBeGreaterThan(500);
+        const differences = first.filter((c, i) => c !== second[i]).length;
+        expect(differences).toBeGreaterThan(0);
+    });
 
-        // Tile counts should be reasonably similar (within 50% of each other)
-        expect(Math.abs(firstMapTiles - secondMapTiles)).toBeLessThan(firstMapTiles * 0.5);
+    test('generated colours all resolve to known tilesets', async ({ page }) => {
+        await generateTestMap(page);
+
+        const unknown = await page.evaluate(() => {
+            const bad = [];
+            for (const layer of window.editor.layerManager.layers) {
+                for (const color of new Set(layer.tileData.values())) {
+                    if (!window.configManager.getTilesetByColor(color)) {
+                        bad.push({ layer: layer.name, color });
+                    }
+                }
+            }
+            return bad;
+        });
+
+        // A colour with no tileset would export as an unresolvable palette entry.
+        expect(unknown, JSON.stringify(unknown)).toEqual([]);
+    });
+
+    test('the canvas actually renders the generated map', async ({ page }) => {
+        // The old version checked for "any non-black pixel", which the default grey
+        // Height fill satisfies on a blank document. Compare the rendered pixels
+        // before and after instead.
+        const canvasHash = () => page.evaluate(() => {
+            const canvas = document.getElementById('grid-canvas');
+            const ctx = canvas.getContext('2d');
+            const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            let hash = 0;
+            for (let i = 0; i < data.length; i += 401) { // sparse sample, deterministic
+                hash = (hash * 31 + data[i]) >>> 0;
+            }
+            return hash;
+        });
+
+        const before = await canvasHash();
+        await generateTestMap(page);
+        await page.evaluate(() => window.editor.render());
+        await page.waitForTimeout(300);
+        const after = await canvasHash();
+
+        expect(after).not.toBe(before);
     });
 });

@@ -1,226 +1,205 @@
 /**
- * Transparent Colors and Default Fill Tests
- * Verifies that #000000 renders as transparent and layers are filled with defaults
+ * Default layer fill and the "transparent" (#000000) convention
+ *
+ * With no project loaded the app fills every layer with that layer's default colour,
+ * so the world never contains unset tiles. #000000 is the wire-format placeholder for
+ * "empty": export rewrites it to the layer default.
+ *
+ * The previous version of this file asserted a 512x512 grid (it is 256x256), expected
+ * Height to default to #525d6b and the biome layers to #000000 (neither matches
+ * getDefaultColorForLayerType), read `color_data[0].color` from runs that are actually
+ * `[paletteIndex, count]` arrays, contained one test with no assertions at all, and one
+ * whose only assertion sat inside `if (layer.color_data.length === 1)`.
  */
 
-const { test, expect } = require('./test-base');
+const { test, expect, initializeEditor, selectColor, clickLayer } = require('./test-base');
 
-test.describe('Transparent Colors and Default Fill', () => {
+// Mirrors getDefaultColorForLayerType() in js/layers.js and
+// Editor.getDefaultColorForLayer() in js/editor.js — the last test checks they agree.
+const LAYER_DEFAULTS = {
+    Height: '#0a0a0a',
+    Difficulty: '#90ee90',
+    Hazard: '#1a1a1a',
+    Sky: '#b8b8b8',
+    Floor: '#ff6b6b',
+    Underground: '#2f2f2f',
+    SkyHeightOffset: '#0a0a0a',
+    UndergroundHeightOffset: '#0a0a0a'
+};
+
+test.describe('Default fill and transparent colours', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto('http://localhost:8000');
-        await page.waitForSelector('#grid-canvas');
-        await page.waitForTimeout(1000); // Wait for initialization
+        await initializeEditor(page);
     });
 
-    test('all layers should be filled with default colors on initialization', async ({ page }) => {
-        // Check that layers have tiles
-        const layerStats = await page.evaluate(() => {
-            const layers = window.editor.layerManager.layers;
-            return layers.map(layer => ({
-                name: layer.name,
-                layerType: layer.layerType,
-                tileCount: layer.tileData.size,
-                totalExpected: layer.width * layer.height
-            }));
-        });
-
-        console.log('Layer statistics:', layerStats);
-
-        // Each layer should have all tiles filled
-        layerStats.forEach(stat => {
-            expect(stat.tileCount).toBe(stat.totalExpected);
-            console.log(`${stat.name} (${stat.layerType}): ${stat.tileCount} tiles`);
-        });
-    });
-
-    test('Height layer should use ground floor as default', async ({ page }) => {
-        const heightLayerData = await page.evaluate(() => {
-            const layers = window.editor.layerManager.layers;
-            const heightLayer = layers.find(l => l.layerType === 'Height');
-
-            if (!heightLayer) return null;
-
-            // Sample a few tiles to check color
-            const samples = [];
-            for (let i = 0; i < 5; i++) {
-                const key = `${i},${i}`;
-                samples.push(heightLayer.tileData.get(key));
-            }
-
-            return {
-                exists: true,
-                sampleColors: samples,
-                totalTiles: heightLayer.tileData.size
-            };
-        });
-
-        expect(heightLayerData.exists).toBe(true);
-        expect(heightLayerData.totalTiles).toBe(512 * 512);
-
-        // All sampled tiles should be the ground floor color (#525d6b)
-        heightLayerData.sampleColors.forEach(color => {
-            expect(color).toBe('#525d6b');
-        });
-
-        console.log('Height layer default color samples:', heightLayerData.sampleColors);
-    });
-
-    test('Biome layers should use transparent default (#000000)', async ({ page }) => {
-        const biomeLayersData = await page.evaluate(() => {
-            const layers = window.editor.layerManager.layers;
-            const biomeLayers = layers.filter(l =>
-                l.layerType === 'Floor' ||
-                l.layerType === 'Underground' ||
-                l.layerType === 'Sky'
-            );
-
-            return biomeLayers.map(layer => {
-                // Sample a few tiles
-                const samples = [];
-                for (let i = 0; i < 5; i++) {
-                    const key = `${i},${i}`;
-                    samples.push(layer.tileData.get(key));
-                }
-
-                return {
-                    name: layer.name,
-                    layerType: layer.layerType,
-                    sampleColors: samples
-                };
-            });
-        });
-
-        console.log('Biome layers default colors:', biomeLayersData);
-
-        // All biome layers should use #000000 (transparent)
-        biomeLayersData.forEach(layerData => {
-            layerData.sampleColors.forEach(color => {
-                expect(color).toBe('#000000');
-            });
-        });
-    });
-
-    test('transparent colors (#000000) should not be rendered on canvas', async ({ page }) => {
-        // Paint one tile with a non-transparent color
-        await page.click('[data-tool="pencil"]');
-
-        // Select a visible color (e.g., Biome_ShowFloor)
-        const showfloorColor = await page.locator('.color-item[data-name="Biome_ShowFloor"]');
-        await showfloorColor.click();
-        await page.waitForTimeout(100);
-
-        // Click on canvas to paint
-        const canvas = await page.locator('#grid-canvas');
-        await canvas.click({ position: { x: 100, y: 100 } });
-        await page.waitForTimeout(200);
-
-        // Check rendering - count non-transparent vs transparent tiles
-        const renderStats = await page.evaluate(() => {
-            const layers = window.editor.layerManager.layers;
-            let transparentCount = 0;
-            let nonTransparentCount = 0;
-
-            for (const layer of layers) {
-                for (const [key, color] of layer.tileData.entries()) {
-                    if (color.toLowerCase() === '#000000') {
-                        transparentCount++;
-                    } else {
-                        nonTransparentCount++;
-                    }
-                }
-            }
-
-            return {
-                transparentCount,
-                nonTransparentCount,
-                totalTiles: transparentCount + nonTransparentCount
-            };
-        });
-
-        console.log('Render stats:', renderStats);
-
-        // We should have mostly transparent tiles (defaults) and only a few non-transparent (painted)
-        expect(renderStats.transparentCount).toBeGreaterThan(renderStats.nonTransparentCount);
-        expect(renderStats.nonTransparentCount).toBeGreaterThan(0); // At least one non-transparent tile
-    });
-
-    test('erasing a tile should restore default color', async ({ page }) => {
-        // Paint a tile first
-        await page.click('[data-tool="pencil"]');
-        const showfloorColor = await page.locator('.color-item[data-name="Biome_ShowFloor"]');
-        await showfloorColor.click();
-        await page.waitForTimeout(100);
-
-        const canvas = await page.locator('#grid-canvas');
-        await canvas.click({ position: { x: 100, y: 100 } });
-        await page.waitForTimeout(200);
-
-        // Get the painted tile color
-        const paintedColor = await page.evaluate(() => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            const key = `${6},${6}`; // Approximate grid position of click
-            return layer.tileData.get(key) || null;
-        });
-
-        console.log('Painted tile color:', paintedColor);
-
-        // Now erase it
-        await page.click('[data-tool="eraser"]');
-        await canvas.click({ position: { x: 100, y: 100 } });
-        await page.waitForTimeout(200);
-
-        // Get the erased tile - it should be gone (or set to default)
-        const erasedTileExists = await page.evaluate(() => {
-            const layer = window.editor.layerManager.getActiveLayer();
-            const key = `${6},${6}`;
-            return layer.tileData.has(key);
-        });
-
-        // After erasing, the tile should either not exist or be transparent
-        // (depends on implementation - currently it deletes the tile)
-        console.log('Tile exists after erase:', erasedTileExists);
-    });
-
-    test('RLE export should compress transparent tiles efficiently', async ({ page }) => {
-        // Export with mostly default (transparent) tiles
-        const rleData = await page.evaluate(() => {
-            return window.editor.layerManager.exportRLEData('TestDefaults', 'Test', 123);
-        });
-
-        console.log('RLE export layers:', rleData.layers.length);
-
-        // Check that layers with all-default colors have minimal RLE entries
-        rleData.layers.forEach(layer => {
-            console.log(`${layer.layer_type}: ${layer.color_data.length} RLE entries`);
-
-            // Layers filled with a single default color should compress to 1 entry
-            if (layer.color_data.length === 1) {
-                const entry = layer.color_data[0];
-                expect(entry.count).toBe(512 * 512);
-                console.log(`  Single entry: ${entry.color} x ${entry.count}`);
-            }
-        });
-    });
-
-    test('loading a new level should fill layers with defaults', async ({ page }) => {
-        // Click New button
-        await page.click('#btn-new');
-        await page.waitForTimeout(500);
-
-        // All layers should be filled again
-        const layerStats = await page.evaluate(() => {
-            const layers = window.editor.layerManager.layers;
-            return layers.map(layer => ({
+    test('every layer is completely filled on initialisation', async ({ page }) => {
+        const stats = await page.evaluate(() => {
+            return window.editor.layerManager.layers.map(layer => ({
                 name: layer.name,
                 tileCount: layer.tileData.size,
                 expected: layer.width * layer.height
             }));
         });
 
-        console.log('After New:', layerStats);
+        expect(stats.length).toBe(8);
+        for (const stat of stats) {
+            expect(stat.tileCount, `${stat.name} tile count`).toBe(stat.expected);
+        }
+    });
 
-        layerStats.forEach(stat => {
-            expect(stat.tileCount).toBe(stat.expected);
+    test('each layer is filled uniformly with its own default colour', async ({ page }) => {
+        const perLayer = await page.evaluate(() => {
+            return window.editor.layerManager.layers.map(layer => {
+                const colors = new Set();
+                for (const color of layer.tileData.values()) colors.add(color);
+                return {
+                    layerType: layer.layerType,
+                    distinctColors: Array.from(colors),
+                    corner: layer.tileData.get('0,0'),
+                    far: layer.tileData.get(`${layer.width - 1},${layer.height - 1}`)
+                };
+            });
         });
+
+        for (const layer of perLayer) {
+            const expected = LAYER_DEFAULTS[layer.layerType];
+            expect(expected, `unexpected layer type ${layer.layerType}`).toBeDefined();
+            // Exactly one colour across the whole layer: sampling a few tiles, as the
+            // old test did, would not notice a partial fill.
+            expect(layer.distinctColors, `${layer.layerType} should be uniformly filled`).toEqual([expected]);
+            expect(layer.corner).toBe(expected);
+            expect(layer.far).toBe(expected);
+        }
+    });
+
+    test('painting replaces the default colour only under the brush', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const layer = window.editor.layerManager.getActiveLayer();
+            const before = new Map(layer.tileData);
+
+            layer.setTile(10, 10, 1, { color: '#ffffff' });
+
+            let changed = 0;
+            for (const [key, color] of layer.tileData) {
+                if (before.get(key) !== color) changed++;
+            }
+            return {
+                changed,
+                painted: layer.tileData.get('10,10'),
+                neighbour: layer.tileData.get('11,10'),
+                defaultColor: before.get('11,10')
+            };
+        });
+
+        expect(result.changed).toBe(1);
+        expect(result.painted).toBe('#ffffff');
+        expect(result.neighbour).toBe(result.defaultColor);
+    });
+
+    test('the eraser repaints the layer default rather than deleting the tile', async ({ page }) => {
+        // Deliberate design choice (editor.js clearTiles: "Paint with default color
+        // instead of clearing") so the world never has holes. The old test for this
+        // logged whether the tile still existed and asserted nothing at all.
+        await clickLayer(page, 'Floor');
+        await selectColor(page, 'Biome_Warehouse');
+
+        const result = await page.evaluate(() => {
+            const editor = window.editor;
+            const layer = editor.layerManager.getActiveLayer();
+            const defaultColor = editor.getDefaultColorForLayer(layer.layerType).toLowerCase();
+
+            editor.setTiles([{ x: 20, y: 20 }]);
+            const afterPaint = layer.tileData.get('20,20');
+
+            editor.clearTiles([{ x: 20, y: 20 }]);
+
+            return {
+                defaultColor,
+                afterPaint,
+                afterErase: layer.tileData.get('20,20'),
+                stillPresent: layer.tileData.has('20,20'),
+                tileCount: layer.tileData.size,
+                expected: layer.width * layer.height
+            };
+        });
+
+        expect(result.afterPaint).toBe('#4ecdc4'); // Biome_Warehouse
+        expect(result.afterErase).toBe(result.defaultColor);
+        expect(result.stillPresent).toBe(true);
+        // Erasing must not shrink the layer — that is what keeps exports full-size.
+        expect(result.tileCount).toBe(result.expected);
+    });
+
+    test('an untouched layer compresses to a single RLE run of the default colour', async ({ page }) => {
+        const layers = await page.evaluate(() => {
+            const manager = window.editor.layerManager;
+            const exported = manager.exportRLEData('Defaults', 'Test', 123);
+            const expected = manager.width * manager.height;
+            return exported.layers.map(layer => ({
+                type: layer.layer_type,
+                runs: layer.color_data.length,
+                // color_data holds [paletteIndex, count] pairs, NOT {color, count}.
+                runLength: layer.color_data[0][1],
+                paletteColor: layer.palette[layer.color_data[0][0]].toLowerCase(),
+                expected
+            }));
+        });
+
+        expect(layers.length).toBe(8);
+        for (const layer of layers) {
+            // Unconditional: the old assertion sat inside `if (runs === 1)`, so a
+            // compression regression skipped the check instead of failing it.
+            expect(layer.runs, `${layer.type} run count`).toBe(1);
+            expect(layer.runLength, `${layer.type} run length`).toBe(layer.expected);
+            expect(layer.paletteColor, `${layer.type} run colour`).toBe(LAYER_DEFAULTS[layer.type]);
+        }
+    });
+
+    test('#000000 is rewritten to the layer default on export', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const layer = window.editor.layerManager.layers.find(l => l.layerType === 'Floor');
+
+            layer.tileData.set('5,5', '#000000');
+            layer.tileData.set('6,5', '#000000');
+
+            const exported = layer.exportRLEData();
+            const paletteHasBlack = exported.palette.includes('#000000');
+
+            layer.importRLEData(exported, window.configManager);
+
+            return {
+                paletteHasBlack,
+                afterImport: [layer.tileData.get('5,5'), layer.tileData.get('6,5')]
+            };
+        });
+
+        // #000000 never reaches the file: Unreal would resolve it to Tile.Biome.Empty.
+        expect(result.paletteHasBlack).toBe(false);
+        expect(result.afterImport).toEqual(['#ff6b6b', '#ff6b6b']);
+    });
+
+    test('the two copies of the default-colour table agree', async ({ page }) => {
+        // js/layers.js and js/editor.js each carry their own switch statement. The
+        // initial fill uses the editor.js one and export uses the layers.js one, so a
+        // divergence would fill a layer with a colour the exporter then rewrites.
+        const comparison = await page.evaluate((types) => {
+            return types.map(type => {
+                const layer = window.editor.layerManager.layers.find(l => l.layerType === type);
+                const saved = new Map(layer.tileData);
+                layer.tileData.clear();
+                const exported = layer.exportRLEData(); // fills from the layers.js table
+                layer.tileData = saved;
+                return {
+                    type,
+                    fromEditor: window.editor.getDefaultColorForLayer(type).toLowerCase(),
+                    fromExport: exported.palette[0].toLowerCase()
+                };
+            });
+        }, Object.keys(LAYER_DEFAULTS));
+
+        for (const row of comparison) {
+            expect(row.fromEditor, `${row.type} editor.js default`).toBe(LAYER_DEFAULTS[row.type]);
+            expect(row.fromExport, `${row.type} layers.js default`).toBe(LAYER_DEFAULTS[row.type]);
+        }
     });
 });
