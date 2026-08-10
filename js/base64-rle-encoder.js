@@ -3,8 +3,11 @@
  * Ultra-compact binary RLE format encoded as base64 strings
  *
  * Format:
- * - Tag byte = (colorIndex << 5) | lenPart where lenPart = min(runLen, 31)
- * - If runLen > 31, append ULEB128 bytes for (runLen - 31)
+ * - Tag byte = (colorIndex << 5) | lenPart
+ *   The colour index occupies the TOP 3 BITS (the decoder reads it back as
+ *   `tag >> 5`), so the palette can hold at most 8 colours — see MAX_PALETTE_SIZE.
+ * - lenPart 0-30 is the run length itself; lenPart == 31 flags "full run length
+ *   follows as ULEB128".
  * - Encode to bytes, then base64
  *
  * Benefits:
@@ -15,22 +18,60 @@
 
 class Base64RLEEncoder {
     /**
+     * Largest palette this encoding can represent.
+     * The tag byte gives the colour index 3 bits, so indices run 0..7.
+     * Callers with a bigger palette must use the array RLE form instead —
+     * see WorldLayer.exportRLEDataBase64().
+     */
+    static get MAX_PALETTE_SIZE() {
+        return 8;
+    }
+
+    static get MAX_COLOR_INDEX() {
+        return Base64RLEEncoder.MAX_PALETTE_SIZE - 1;
+    }
+
+    /**
+     * Can this RLE data be represented in rle-base64-v1 at all?
+     * @param {Array<[number, number]>} rleData - Array of [paletteIndex, count] pairs
+     * @returns {boolean}
+     */
+    canEncode(rleData) {
+        return rleData.every(([colorIndex]) =>
+            Number.isInteger(colorIndex) &&
+            colorIndex >= 0 &&
+            colorIndex <= Base64RLEEncoder.MAX_COLOR_INDEX
+        );
+    }
+
+    /**
      * Encode RLE data to base64 string
      * @param {Array<[number, number]>} rleData - Array of [paletteIndex, count] pairs
      * @returns {string} - Base64 encoded string
+     * @throws {RangeError} if a palette index or run length cannot be represented
      */
     encodeToBase64(rleData) {
-        // Calculate approximate size
-        let estimatedSize = rleData.length * 2; // Conservative estimate
         const bytes = [];
 
         for (const [colorIndex, runLength] of rleData) {
-            if (colorIndex < 0 || colorIndex > 7) {
-                // If we need more than 3 bits for index, expand to 8 bits
-                // For now, throw error - palette should be optimized to max 8 colors per layer
-                if (colorIndex > 31) {
-                    throw new Error(`Color index ${colorIndex} too large (max 31 for 5-bit encoding)`);
-                }
+            // The tag byte only has 3 bits for the index. Anything larger used to be
+            // written anyway and then truncated by Uint8Array, silently swapping tile
+            // colours on export (index 8 decoded as 0, 9 as 1, ...). Refuse instead.
+            if (!Number.isInteger(colorIndex) ||
+                colorIndex < 0 ||
+                colorIndex > Base64RLEEncoder.MAX_COLOR_INDEX) {
+                throw new RangeError(
+                    `Palette index ${colorIndex} cannot be encoded: rle-base64-v1 stores the ` +
+                    `index in the top 3 bits of the tag byte, so it supports at most ` +
+                    `${Base64RLEEncoder.MAX_PALETTE_SIZE} colours (indices 0-${Base64RLEEncoder.MAX_COLOR_INDEX}). ` +
+                    `Use the array RLE format for larger palettes.`
+                );
+            }
+
+            if (!Number.isInteger(runLength) || runLength < 0) {
+                throw new RangeError(
+                    `Run length ${runLength} cannot be encoded: expected a non-negative integer.`
+                );
             }
 
             // Encode tag byte: (colorIndex << 5) | lenPart
@@ -54,7 +95,7 @@ class Base64RLEEncoder {
                 let value = runLength;
                 while (value >= 128) {
                     bytes.push((value & 0x7F) | 0x80);
-                    value >>= 7;
+                    value >>>= 7; // unsigned: >> would sign-extend past 2^31
                 }
                 bytes.push(value & 0x7F);
             }

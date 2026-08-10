@@ -286,18 +286,27 @@ class WorldLayer {
         }
         rle.push([currentIndex, count]);
 
-        // Encode to base64 using base64RLEEncoder
-        if (typeof base64RLEEncoder !== 'undefined') {
+        // Encode to base64 using base64RLEEncoder.
+        // rle-base64-v1 only has 3 bits for the palette index, so it tops out at 8
+        // colours. A Floor layer using more than 8 biomes is completely normal, and
+        // forcing it through the base64 path used to truncate the tag byte and swap
+        // tile colours silently — fall back to the loss-free array form instead.
+        const fitsBase64 = typeof base64RLEEncoder !== 'undefined' &&
+            palette.length <= Base64RLEEncoder.MAX_PALETTE_SIZE;
+
+        if (fitsBase64) {
             return base64RLEEncoder.encodeLayer(rle, palette, this.layerType, this.width, this.height);
-        } else {
-            // Fallback to array format if encoder not available
-            console.warn('base64RLEEncoder not available, using array format');
-            return {
-                layer_type: this.layerType,
-                palette: palette,
-                color_data: rle
-            };
         }
+
+        if (typeof base64RLEEncoder === 'undefined') {
+            console.warn('base64RLEEncoder not available, using array format');
+        }
+
+        return {
+            layer_type: this.layerType,
+            palette: palette,
+            color_data: rle
+        };
     }
 
     /**

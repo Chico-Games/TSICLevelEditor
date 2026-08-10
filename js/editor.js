@@ -1918,50 +1918,84 @@ class LevelEditor {
     }
 
     /**
-     * Save state for undo (per-layer: only saves active layer's state)
+     * Save state for undo.
+     *
+     * Drawing tools touch one layer, so by default only the active layer is
+     * checkpointed. Whole-document operations (generate test map, clear all, resize)
+     * rewrite every layer, and checkpointing just the active one left Ctrl+Z reverting
+     * 1 of 8 layers and silently keeping the rest — pass { allLayers: true } for those.
+     * Group members share a groupId so undo/redo can move them together.
+     *
      * PERFORMANCE: Direct Map cloning is 10-100x faster than exportData + JSON.stringify
+     * @param {{allLayers?: boolean}} [options]
      */
-    saveState() {
-        const layer = this.layerManager.getActiveLayer();
-        if (!layer) return;
+    saveState(options = {}) {
+        const layers = options.allLayers
+            ? this.layerManager.layers
+            : [this.layerManager.getActiveLayer()];
 
-        // Save state to the active layer's own undo stack
-        const state = {
+        if (layers.length === 0 || !layers[0]) return;
+
+        // undefined for single-layer edits, so their behaviour is unchanged.
+        const groupId = options.allLayers
+            ? (this._undoGroupCounter = (this._undoGroupCounter || 0) + 1)
+            : undefined;
+
+        for (const layer of layers) {
             // Deep clone the Map - much faster than exporting to array + JSON
-            tileData: new Map(layer.tileData)
-        };
+            layer.undoStack.push({ tileData: new Map(layer.tileData), groupId });
 
-        layer.undoStack.push(state);
+            if (layer.undoStack.length > layer.maxHistorySize) {
+                layer.undoStack.shift();
+            }
 
-        if (layer.undoStack.length > layer.maxHistorySize) {
-            layer.undoStack.shift();
+            layer.redoStack = [];
         }
 
-        layer.redoStack = [];
         this.updateUndoRedoButtons();
     }
 
     /**
-     * Undo last action (per-layer: only restores active layer)
+     * Layers whose top `stackName` entry belongs to the same group as the active
+     * layer's. Returns just the active layer for ordinary single-layer edits, and for
+     * grouped edits skips any layer that has since been edited on its own — you cannot
+     * revert past a newer change.
+     */
+    _layersInTopmostGroup(stackName) {
+        const active = this.layerManager.getActiveLayer();
+        if (!active || active[stackName].length === 0) return [];
+
+        const groupId = active[stackName][active[stackName].length - 1].groupId;
+        if (groupId === undefined) return [active];
+
+        return this.layerManager.layers.filter(layer => {
+            const stack = layer[stackName];
+            return stack.length > 0 && stack[stack.length - 1].groupId === groupId;
+        });
+    }
+
+    /**
+     * Undo last action (single layer, or every layer of a grouped operation)
      */
     undo() {
-        const layer = this.layerManager.getActiveLayer();
-        if (!layer || layer.undoStack.length === 0) return;
+        const layers = this._layersInTopmostGroup('undoStack');
+        if (layers.length === 0) return;
 
-        // Save current state to redo stack (using optimized Map cloning)
-        const currentState = {
-            tileData: new Map(layer.tileData)
-        };
-        layer.redoStack.push(currentState);
+        for (const layer of layers) {
+            const previousState = layer.undoStack.pop();
 
-        // Restore previous state directly from Maps
-        const previousState = layer.undoStack.pop();
+            // Current state goes to redo, tagged with the same group so redo moves
+            // the same set back.
+            layer.redoStack.push({
+                tileData: new Map(layer.tileData),
+                groupId: previousState.groupId
+            });
 
-        // Clone the Map data
-        layer.tileData = new Map(previousState.tileData);
+            layer.tileData = new Map(previousState.tileData);
 
-        // CRITICAL: Invalidate cache after restoring data
-        layer.cacheDirty = true;
+            // CRITICAL: Invalidate cache after restoring data
+            layer.cacheDirty = true;
+        }
 
         this.render();
         this.renderMinimap();
@@ -1970,26 +2004,25 @@ class LevelEditor {
     }
 
     /**
-     * Redo last undone action (per-layer: only restores active layer)
+     * Redo last undone action (single layer, or every layer of a grouped operation)
      */
     redo() {
-        const layer = this.layerManager.getActiveLayer();
-        if (!layer || layer.redoStack.length === 0) return;
+        const layers = this._layersInTopmostGroup('redoStack');
+        if (layers.length === 0) return;
 
-        // Save current state to undo stack (using optimized Map cloning)
-        const currentState = {
-            tileData: new Map(layer.tileData)
-        };
-        layer.undoStack.push(currentState);
+        for (const layer of layers) {
+            const nextState = layer.redoStack.pop();
 
-        // Restore next state directly from Maps
-        const nextState = layer.redoStack.pop();
+            layer.undoStack.push({
+                tileData: new Map(layer.tileData),
+                groupId: nextState.groupId
+            });
 
-        // Clone the Map data
-        layer.tileData = new Map(nextState.tileData);
+            layer.tileData = new Map(nextState.tileData);
 
-        // CRITICAL: Invalidate cache after restoring data
-        layer.cacheDirty = true;
+            // CRITICAL: Invalidate cache after restoring data
+            layer.cacheDirty = true;
+        }
 
         this.render();
         this.renderMinimap();
@@ -2016,7 +2049,7 @@ class LevelEditor {
      * Resize grid
      */
     resizeGrid(newWidth, newHeight) {
-        this.saveState();
+        this.saveState({ allLayers: true });
         this.layerManager.resize(newWidth, newHeight);
         this.resizeCanvas();
         this.isDirty = true;
@@ -2026,7 +2059,7 @@ class LevelEditor {
      * Clear all layers and refill with defaults
      */
     clearAll() {
-        this.saveState();
+        this.saveState({ allLayers: true });
         this.layerManager.clearAll();
 
         // Refill each layer with its default color

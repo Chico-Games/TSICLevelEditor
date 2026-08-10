@@ -74,13 +74,23 @@ class ClipboardHistory {
      * Delete entry at index
      */
     deleteEntry(index) {
-        if (index >= 0 && index < this.entries.length) {
-            this.entries.splice(index, 1);
-            if (this.activeIndex >= this.entries.length) {
-                this.activeIndex = this.entries.length - 1;
-            }
-            this.updateUI();
+        if (index < 0 || index >= this.entries.length) return;
+
+        this.entries.splice(index, 1);
+
+        // Keep pointing at the same entry. Removing something *before* the active one
+        // shifts it down by one; removing the active one falls back to the entry that
+        // slid into its place (or the new last entry).
+        if (index < this.activeIndex) {
+            this.activeIndex--;
+        } else if (index === this.activeIndex) {
+            this.activeIndex = Math.min(this.activeIndex, this.entries.length - 1);
         }
+        if (this.activeIndex >= this.entries.length) {
+            this.activeIndex = this.entries.length - 1;
+        }
+
+        this.updateUI();
     }
 
     /**

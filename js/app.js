@@ -141,7 +141,8 @@ function generateTestMap() {
             return;
         }
 
-        editor.saveState();
+        // Rewrites every layer, so checkpoint every layer.
+        editor.saveState({ allLayers: true });
 
         // Clear all existing data first
         editor.layerManager.layers.forEach(layer => {
@@ -321,6 +322,18 @@ function generateTestMap() {
         const hazardLayer = layers.find(l => l.layerType && l.layerType.toLowerCase() === 'hazard');
         if (hazardLayer && hazards.length > 0) {
             generatePerlinLayer(hazardLayer, hazards, 50, 4, 0.6, 2.5, baseSeed + 5000);
+        }
+
+        // Every layer was cleared above, but only the six content layers get terrain —
+        // the height-offset layers would otherwise be left with zero tiles, breaking the
+        // "no unset tiles" invariant the rest of the app relies on (startup fill, erase
+        // and export all keep layers completely filled).
+        for (const layer of editor.layerManager.layers) {
+            if (layer.tileData.size > 0) continue;
+            const defaultColor = editor.getDefaultColorForLayer(layer.layerType);
+            if (defaultColor) {
+                editor.layerManager.fillLayerWithDefault(layer, defaultColor);
+            }
         }
 
         // Reset visibility to show first layer only
@@ -1301,7 +1314,8 @@ function generateMapWithSettings() {
         const settings = randomGenSettings.getSettings();
         console.log('[RandomGen] Generating with settings:', settings);
 
-        editor.saveState();
+        // Rewrites every layer, so checkpoint every layer.
+        editor.saveState({ allLayers: true });
 
         // Clear all existing data first
         editor.layerManager.layers.forEach(layer => {
@@ -1613,6 +1627,15 @@ async function init() {
     const firstTileset = Object.keys(tilesets)[0];
     if (firstTileset) {
         editor.selectTileset(firstTileset);
+    }
+
+    // ...but the first tileset overall is rarely valid for the initially active layer.
+    // Switching layers already runs this; startup did not, so a fresh document opened
+    // on the Height layer had a Difficulty colour selected and the user's very first
+    // stroke painted #90ee90 onto Height — an export that fails rleValidator with
+    // 'palette colour "#90ee90" is not defined in color_mappings.heights'.
+    if (activeLayer) {
+        ensureValidColorForLayer(activeLayer.layerType || activeLayer.name);
     }
 
     // Start auto-save
@@ -2075,6 +2098,19 @@ function updatePaletteForLayer(layerType) {
     const tabButtons = document.querySelectorAll('.palette-tab');
     const tabContents = document.querySelectorAll('.palette-tab-content');
 
+    // Clear any active search FIRST. filterColors('') un-hides every sub-category, so
+    // clearing at the end (as this used to) undid the per-layer filtering applied just
+    // below — switching layers with a search active left every "Other" colour on show,
+    // letting a Height colour be painted onto the Difficulty layer.
+    const searchInput = document.getElementById('color-search');
+    if (searchInput && searchInput.value) {
+        searchInput.value = '';
+        document.getElementById('color-search-clear').classList.remove('visible');
+        if (typeof window.filterColors === 'function') {
+            window.filterColors('');
+        }
+    }
+
     // Determine which tabs are valid for this layer type
     const isDataLayer = (layerType === 'Height' || layerType === 'Difficulty' || layerType === 'Hazard' || layerType === 'SkyHeightOffset' || layerType === 'UndergroundHeightOffset');
 
@@ -2114,14 +2150,25 @@ function updatePaletteForLayer(layerType) {
         content.classList.toggle('active', content.dataset.tab === targetTab);
     });
 
-    // For the "Other" tab, show only the relevant subcategory for the layer type
+    // For the "Other" tab, show only the relevant subcategory for the layer type.
+    // This used to be `subcatName.includes(layerType)`, which works for Height /
+    // Difficulty / Hazard but not for SkyHeightOffset or UndergroundHeightOffset:
+    // 'height'.includes('skyheightoffset') is false, so those layers showed an empty
+    // palette and no colour could be picked at all.
     if (isDataLayer) {
+        const SUBCATEGORY_FOR_LAYER = {
+            Height: 'height',
+            Difficulty: 'difficulty',
+            Hazard: 'hazards',
+            SkyHeightOffset: 'height',
+            UndergroundHeightOffset: 'height'
+        };
+        const wanted = SUBCATEGORY_FOR_LAYER[layerType];
         const subcategories = document.querySelectorAll('.palette-tab-content[data-tab="other"] .color-subcategory');
         subcategories.forEach(subcat => {
             const header = subcat.querySelector('.color-subcategory-header');
-            const subcatName = header ? header.textContent : '';
-            const shouldShow = subcatName.toLowerCase().includes(layerType.toLowerCase());
-            subcat.classList.toggle('hidden', !shouldShow);
+            const subcatName = header ? header.textContent.trim().toLowerCase() : '';
+            subcat.classList.toggle('hidden', subcatName !== wanted);
         });
     }
 
@@ -2133,15 +2180,6 @@ function updatePaletteForLayer(layerType) {
         });
     }
 
-    // Clear any active search when switching layers
-    const searchInput = document.getElementById('color-search');
-    if (searchInput && searchInput.value) {
-        searchInput.value = '';
-        document.getElementById('color-search-clear').classList.remove('visible');
-        if (typeof window.filterColors === 'function') {
-            window.filterColors('');
-        }
-    }
 }
 
 // Make it globally available

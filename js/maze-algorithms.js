@@ -425,10 +425,15 @@ class MazeGenerator {
      * Generate maze for an irregular region using Kruskal's algorithm.
      *
      * Direction Encoding (4-bit values, matches technical spec):
-     * - Bit 0 (value 1) = North (Up, toward Y=0)
-     * - Bit 1 (value 2) = South (Down, toward larger Y)
-     * - Bit 2 (value 4) = East (Right, toward larger X)
-     * - Bit 3 (value 8) = West (Left, toward smaller X)
+     * - Bit 0 (value 1) = North = tileIndex + worldWidth (toward LARGER grid Y)
+     * - Bit 1 (value 2) = South = tileIndex - worldWidth (toward SMALLER grid Y)
+     * - Bit 2 (value 4) = East  = tileIndex + 1 (toward larger X)
+     * - Bit 3 (value 8) = West  = tileIndex - 1 (toward smaller X)
+     *
+     * The grid uses a BOTTOM-LEFT origin, matching the runtime's
+     * `index = North * width + East` layout — so North increases the row index.
+     * (An older version of this comment said "North (Up, toward Y=0)", describing a
+     * top-down origin; that never matched the code below or js/maze-visualizer.js.)
      *
      * Algorithm steps:
      * 1. Build dense index mapping (world indices → 0-based maze indices)

@@ -5,11 +5,16 @@
 Each tile stores connections as a single byte (0-15) with 4 direction bits:
 
 ```
-Bit 0 (value 1)  = North (Up, toward Y=0)
-Bit 1 (value 2)  = South (Down, toward larger Y)
-Bit 2 (value 4)  = East (Right, toward larger X)
-Bit 3 (value 8)  = West (Left, toward smaller X)
+Bit 0 (value 1)  = North = tileIndex + worldWidth  (toward LARGER grid Y)
+Bit 1 (value 2)  = South = tileIndex - worldWidth  (toward SMALLER grid Y)
+Bit 2 (value 4)  = East  = tileIndex + 1           (toward larger X)
+Bit 3 (value 8)  = West  = tileIndex - 1           (toward smaller X)
 ```
+
+The grid has a **bottom-left origin**: Y=0 is the bottom row and North increases the
+row index, matching the runtime's `index = North * width + East` layout. `js/maze-algorithms.js`
+and `js/maze-visualizer.js` both follow this. (This section previously read
+"North (Up, toward Y=0)", which describes a top-down origin and matched neither.)
 
 ## Complete Lookup Table
 
