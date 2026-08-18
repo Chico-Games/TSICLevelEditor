@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/shared/components.css">
   <!-- Harness is global; scenario files register themselves into TSICTestHarness.scenarios. -->
   <script src="/shared/test-harness.js"></script>
+  <script>TSICTestHarness.preloadTestInput();</script>
   <!-- Scenario files. Add new ones here. -->
   <script src="/tests/unit-terminal-constants.test.js"></script>
   <script src="/tests/unit-terminal-boot.test.js"></script>
@@ -21,8 +22,14 @@
   <script src="/tests/focus-integration.test.js"></script>
   <script src="/tests/focus-keyboard.test.js"></script>
   <script src="/tests/inventory.test.js"></script>
+  <script src="/tests/cross-surface-drag.test.js"></script>
+  <script src="/tests/unit-inventory-js.test.js"></script>
+  <script src="/tests/inventory-qol.test.js"></script>
   <script src="/tests/storage.test.js"></script>
+  <script src="/tests/storage-qol.test.js"></script>
+  <script src="/tests/bag-layout-parity.test.js"></script>
   <script src="/tests/hotbar.test.js"></script>
+  <script src="/tests/hotbar-wheel.test.js"></script>
   <script src="/tests/behavior-bar.test.js"></script>
   <script src="/tests/settings.test.js"></script>
   <script src="/tests/controls.test.js"></script>
@@ -32,28 +39,64 @@
   <script src="/tests/health-bar.test.js"></script>
   <script src="/tests/stamina-bar.test.js"></script>
   <script src="/tests/stomach.test.js"></script>
+  <script src="/tests/conditions.test.js"></script>
   <script src="/tests/crafting.test.js"></script>
+  <script src="/tests/crafting-layout.test.js"></script>
+  <script src="/tests/layout-stability.test.js"></script>
+  <script src="/tests/tutorial-objectives.test.js"></script>
   <script src="/tests/production.test.js"></script>
   <script src="/tests/teleporter.test.js"></script>
   <script src="/tests/map.test.js"></script>
+  <script src="/tests/map-fog-gate.test.js"></script>
+  <script src="/tests/map-navigation.test.js"></script>
+  <script src="/tests/minimap-rotate.test.js"></script>
+  <script src="/tests/minimap-map-agreement.test.js"></script>
+  <script src="/tests/map-teleport-picker.test.js"></script>
   <script src="/tests/unit-fow-lookup.test.js"></script>
+  <script src="/tests/unit-height-tint.test.js"></script>
+  <script src="/tests/unit-bridge-case.test.js"></script>
+  <script src="/tests/unit-icon-placeholder.test.js"></script>
   <script src="/tests/interaction.test.js"></script>
-  <script src="/tests/selection.test.js"></script>
-  <script src="/tests/quantity-picker.test.js"></script>
+  <script src="/tests/upgrade-hud.test.js"></script>
+  <script src="/tests/storage-spa.test.js"></script>
+  <script src="/tests/screen-switching.test.js"></script>
   <script src="/tests/pause-menu.test.js"></script>
   <script src="/tests/main-menu.test.js"></script>
   <script src="/tests/save-load.test.js"></script>
+  <script src="/tests/mods.test.js"></script>
   <script src="/tests/circular-progress.test.js"></script>
+  <script src="/tests/crosshair-visibility.test.js"></script>
   <script src="/tests/voice-chat.test.js"></script>
-  <script src="/tests/construction.test.js"></script>
-  <script src="/tests/construction-carousel.test.js"></script>
   <script src="/tests/universal-storage-setup.test.js"></script>
   <script src="/tests/lore.test.js"></script>
   <script src="/tests/cheat-menu.test.js"></script>
   <script src="/tests/death-screen.test.js"></script>
-  <script src="/tests/wardrobe.test.js"></script>
   <script src="/tests/bug-report.test.js"></script>
   <script src="/tests/terminal.test.js"></script>
+  <script src="/tests/channel-coverage.test.js"></script>
+  <script src="/tests/menu-action-bar.test.js"></script>
+  <script src="/tests/construction-preview.test.js"></script>
+  <script src="/tests/e2e-deep.test.js"></script>
+  <script src="/tests/e2e-flows.test.js"></script>
+  <script src="/tests/focus-hover-mirror.test.js"></script>
+  <script src="/tests/focus-per-screen-extended.test.js"></script>
+  <script src="/tests/functional-behavior-bar.test.js"></script>
+  <script src="/tests/functional-everything.test.js"></script>
+  <script src="/tests/functional-inventory.test.js"></script>
+  <script src="/tests/functional-misc.test.js"></script>
+  <script src="/tests/growing.test.js"></script>
+  <script src="/tests/interactions-final.test.js"></script>
+  <script src="/tests/interactions-input-bridge.test.js"></script>
+  <script src="/tests/interactions-keyboard.test.js"></script>
+  <script src="/tests/interactions-mouse.test.js"></script>
+  <script src="/tests/scrolling-and-perf.test.js"></script>
+  <script src="/tests/settings-tabs.test.js"></script>
+  <script src="/tests/stress.test.js"></script>
+  <script src="/tests/unit-behavior-bar-js.test.js"></script>
+  <script src="/tests/unit-catalog.test.js"></script>
+  <script src="/tests/unit-harness.test.js"></script>
+  <script src="/tests/unit-recipe-info.test.js"></script>
+  <script src="/tests/unit-router.test.js"></script>
   <style>
     html, body { height: 100%; margin: 0; }
     #root { display: grid; grid-template-columns: 280px 1fr 380px; height: 100vh; background: #0a0a0a; color: var(--cat-ink-dark); }
@@ -167,6 +210,19 @@
         try {
           const handle = await loadIframe(scn.file);
           const failures = [];
+          // An uncaught exception in the page fails THE SCENARIO THAT CAUSED IT.
+          // Previously it only reached the console: the screen was left
+          // half-mounted, its own assertions still passed (they check the part
+          // that ran before the throw), and the damage surfaced as some later
+          // scenario measuring a dirty DOM. An order-dependent red is not a
+          // verdict — this makes the throw the verdict instead.
+          const pageErrors = [];
+          const onPageError = (ev) => {
+            const e = (ev && (ev.error || ev.reason)) || null;
+            pageErrors.push('page threw: ' + ((e && e.message) || (ev && ev.message) || String(e || ev)));
+          };
+          iframe.contentWindow.addEventListener('error', onPageError);
+          iframe.contentWindow.addEventListener('unhandledrejection', onPageError);
           const ctx = {
             handle,
             iframe,
@@ -191,9 +247,26 @@
           };
           // Focus-engine helpers (pressDir/confirm/cancel/active/assertAllReachable/...)
           ctx.focus = TSICTestHarness.makeFocusHelpers(iframe, handle, failures);
+          // Pointer gestures — the SAME shared/test-input.js the live in-game page loads, so a
+          // drag asserted here is the drag a Gauntlet node performs against a packaged build.
+          // Selectors resolve inside the scenario's document.
+          ctx.gesture = new Proxy({}, {
+            get(_, name) {
+              return (...args) => {
+                const gestures = iframe.contentWindow.TSIC && iframe.contentWindow.TSIC.testInput;
+                if (!gestures) { failures.push('ctx.gesture: shared/test-input.js not loaded in the page'); return 'ERR:not-loaded'; }
+                const result = gestures[name](...args);
+                if (typeof result === 'string' && result.indexOf('ERR:') === 0) failures.push('ctx.gesture.' + name + ': ' + result);
+                return result;
+              };
+            },
+          });
           // Give the page's defer scripts a tick to register their subscribers.
           await new Promise(r => setTimeout(r, 80));
           await scn.run(ctx);
+          // Give a deferred throw (setTimeout / rAF handlers) a tick to land.
+          await new Promise(r => setTimeout(r, 0));
+          for (const pe of pageErrors) failures.push(pe);
           if (failures.length > 0) {
             for (const f of failures) log('fail', f);
             setStatus(scn, 'fail');

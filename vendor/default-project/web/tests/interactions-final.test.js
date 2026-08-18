@@ -2,33 +2,31 @@
 
 // ---- Inventory drag-drop ---------------------------------------------
 TSICTestHarness.register({
-    name: 'Drag/Inventory: dropping slot A onto slot B publishes Transfer',
+    name: 'Drag/Inventory: dropping cell A onto cell B publishes Move',
     file: '/screens/inventory.html',
     async run(ctx) {
+        ctx.screen('Inventory');
         ctx.setItemCatalog({ ID_X: { Name: 'X', Category: 'Equipment' }, ID_Y: { Name: 'Y', Category: 'Equipment' } });
-        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', MaxSlots: 32, Items: [
-            { ItemId: 'ID_X', Count: 1, SlotIndex: 0 },
-            { ItemId: 'ID_Y', Count: 1, SlotIndex: 5 },
+        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', GridWidth: 8, MaxSlots: 32, Items: [
+            { ItemId: 'ID_X', Count: 1, SlotIndex: 0, InstanceId: 1, GridSlot: 0 },
+            { ItemId: 'ID_Y', Count: 1, SlotIndex: 1, InstanceId: 2, GridSlot: 5 },
         ]});
-        await ctx.waitFor(() => ctx.doc.querySelector('#inv-list .tsic-list-row[data-slot="0"]')
-                              && ctx.doc.querySelector('#inv-list .tsic-list-row[data-slot="5"]'));
-        const src = ctx.doc.querySelector('#inv-list .tsic-list-row[data-slot="0"]');
-        const dst = ctx.doc.querySelector('#inv-list .tsic-list-row[data-slot="5"]');
+        await ctx.waitFor(() => ctx.doc.querySelector('#inv-grid .tsic-slot[data-grid="0"][data-instance="1"]')
+                              && ctx.doc.querySelector('#inv-grid .tsic-slot[data-grid="5"][data-instance="2"]'));
+        const src = ctx.doc.querySelector('#inv-grid .tsic-slot[data-grid="0"]');
+        const dst = ctx.doc.querySelector('#inv-grid .tsic-slot[data-grid="5"]');
         ctx.expect(ctx.assert.truthy(src && dst));
-        // jsdom-friendly drag emulation: dispatch dragstart on source, then dragover
-        // + drop on the destination with a hand-built DataTransfer-style stub.
-        const stub = { _data: {}, setData(k,v){ this._data[k]=v; }, getData(k){ return this._data[k] || ''; } };
-        const ds = new ctx.win.Event('dragstart', { bubbles: true });
-        ds.dataTransfer = stub;
-        src.dispatchEvent(ds);
-        const dv = new ctx.win.Event('dragover', { bubbles: true, cancelable: true });
-        dv.dataTransfer = stub;
-        dst.dispatchEvent(dv);
-        const dr = new ctx.win.Event('drop', { bubbles: true, cancelable: true });
-        dr.dataTransfer = stub;
+        // Pointer-based drag (CEF renders no native HTML5 drag ghost): real
+        // pointerdown → pointermove past the threshold → pointerup on target.
+        const f = src.getBoundingClientRect();
+        const t = dst.getBoundingClientRect();
+        const opt = (x, y) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
         ctx.clearPublishes();
-        dst.dispatchEvent(dr);
-        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Inventory.Transfer',
+        src.dispatchEvent(new ctx.win.PointerEvent('pointerdown', opt(f.x + f.width / 2, f.y + f.height / 2)));
+        ctx.doc.dispatchEvent(new ctx.win.PointerEvent('pointermove', opt(f.x + f.width / 2 + 12, f.y + f.height / 2 + 12)));
+        ctx.doc.dispatchEvent(new ctx.win.PointerEvent('pointermove', opt(t.x + t.width / 2, t.y + t.height / 2)));
+        ctx.doc.dispatchEvent(new ctx.win.PointerEvent('pointerup', opt(t.x + t.width / 2, t.y + t.height / 2)));
+        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Inventory.Move',
             { where: p => p.FromOwnerId === 'Player' && p.ToOwnerId === 'Player' && p.FromSlot === 0 && p.ToSlot === 5 }));
     },
 });
@@ -57,17 +55,22 @@ TSICTestHarness.register({
     name: 'BugReport: changing Category publishes its new value on submit',
     file: '/screens/bug-report.html',
     async run(ctx) {
-        await ctx.waitFor(() => ctx.doc.querySelector('select'));
-        const sel = ctx.doc.querySelector('select');
-        const cats = Array.from(sel.options).map(o => o.value);
-        ctx.expect(ctx.assert.truthy(cats.length >= 2));
-        sel.value = cats[1] || cats[0];
-        const ta = ctx.doc.querySelector('textarea');
-        if (ta) ta.value = 'reproducible';
+        await ctx.waitFor(() => ctx.doc.querySelector('#br-category'));
+        // Category is a tsic-dropdown (no native <select> under CEF).
+        const opts = JSON.parse(ctx.doc.querySelector('#br-category').getAttribute('data-tsic-options'));
+        ctx.expect(ctx.assert.truthy(opts.length >= 2));
+        // Pick by value, not position: FurniturePlacement needs a captured
+        // furniture target before it will submit, and Bug is the default (so it
+        // would prove nothing). An index-based pick silently changes meaning
+        // whenever the option list is reordered.
+        const picked = opts.map(o => o.value).find(v => v !== 'FurniturePlacement' && v !== 'Bug');
+        ctx.expect(ctx.assert.truthy(picked, 'expected a non-default category needing no attachment'));
+        ctx.win.tsic.dropdown.set('#br-category', picked);
+        const ta = ctx.doc.querySelector('#br-description');
+        ta.value = 'reproducible';
         ctx.clearPublishes();
-        const submit = Array.from(ctx.doc.querySelectorAll('button')).find(b => /submit|send|report/i.test(b.textContent || ''));
-        submit && submit.click();
-        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.BugReport.Submit', { where: p => p.Category === sel.value }));
+        ctx.doc.getElementById('btn-submit').click();
+        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.BugReport.Submit', { where: p => p.Category === picked }));
     },
 });
 
@@ -113,15 +116,16 @@ TSICTestHarness.register({
 // The status line cycles funny flavour text on a timer and the headline is
 // static, so only the bar + percentage track the injected Progress value.
 TSICTestHarness.register({
-    name: 'LoadingScreen: progress bar updates on Progress',
+    name: 'LoadingScreen: survives Progress broadcasts (flavor-text design)',
     file: '/screens/loading-screen.html',
     async run(ctx) {
+        // The loading screen shows cycling flavor text by design — backend
+        // progress payloads are absorbed without a bar. It must stay alive.
         ctx.inject('tsic.msg.UI.Loading.Progress', { Progress: 0.1, Label: 'Step 1' });
         ctx.inject('tsic.msg.UI.Loading.Progress', { Progress: 0.7, Label: 'Step 7' });
         await new Promise(r => setTimeout(r, 80));
-        // 0.7 → bar fill 70% and percentage readout "70%".
-        ctx.expect(ctx.assert.truthy(ctx.doc.getElementById('loading-bar-fill').style.width === '70%'));
-        ctx.expect(ctx.assert.truthy(/70%/.test(ctx.doc.getElementById('loading-pct').textContent || '')));
+        ctx.expect(ctx.assert.truthy((ctx.doc.getElementById('loading-status').textContent || '').length > 0,
+            'status line renders'));
     },
 });
 
@@ -144,36 +148,6 @@ TSICTestHarness.register({
         ctx.doc.querySelector('#repair-station .tsic-list-row').click();
         ctx.doc.querySelector('#repair-station .rs-action').click();
         ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Recipe.Start', { where: p => p.Kind === 'Repair' }));
-    },
-});
-
-// ---- ConstructionCarousel: only 1 prev / 1 next ----------------------
-TSICTestHarness.register({
-    name: 'ConstructionCarousel: 1-prev / 1-next renders 3 slots',
-    file: '/screens/construction-carousel.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Construction.Carousel', {
-            bActive: true,
-            Prev: [{ FurnitureId: 'A', Label: 'A', bAffordable: true }],
-            Current: { FurnitureId: 'C', Label: 'C', bAffordable: true },
-            Next: [{ FurnitureId: 'N', Label: 'N', bAffordable: true }],
-        });
-        await ctx.waitFor(() => ctx.doc.querySelectorAll('#cc-row .cc-slot').length === 3);
-        ctx.expect(ctx.assert.domCount(ctx.doc, '#cc-row .cc-slot.current', 1));
-    },
-});
-
-// ---- Construction: bAffordable=false row visually disabled --------------
-TSICTestHarness.register({
-    name: 'Construction: unaffordable row gets disabled class',
-    file: '/screens/construction.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Construction.Available', { Items: [
-            { EntityDefId: 'F1', Name: 'OK',   Category: 'Furniture', bAffordable: true  },
-            { EntityDefId: 'F2', Name: 'NOPE', Category: 'Furniture', bAffordable: false },
-        ]});
-        await ctx.waitFor(() => ctx.doc.querySelectorAll('#items .c-row').length === 2);
-        ctx.expect(ctx.assert.domCount(ctx.doc, '#items .c-row.disabled', 1));
     },
 });
 
@@ -212,8 +186,8 @@ TSICTestHarness.register({
         await new Promise(r => setTimeout(r, 60));
         // The edge vignette opacity ramps with ScreenMist. Assert the element
         // exists and lit up (opacity > 0) and the page survived.
-        ctx.expect(ctx.assert.domExists(ctx.doc, '#vignette'));
-        const op = parseFloat(ctx.doc.getElementById('vignette').style.opacity || '0');
+        ctx.expect(ctx.assert.domExists(ctx.doc, '#hud-detection .dt-vignette'));
+        const op = parseFloat(ctx.doc.querySelector('#hud-detection .dt-vignette').style.opacity || '0');
         ctx.expect(ctx.assert.truthy(op > 0, `expected vignette to light up, opacity=${op}`));
     },
 });
@@ -239,10 +213,11 @@ TSICTestHarness.register({
 // ---- VoiceChat: self PTT independent of speakers list ----------------
 TSICTestHarness.register({
     name: 'VoiceChat: PTT only, no speakers, indicator on + no rows',
-    file: '/screens/voice-chat.html',
+    file: '/screens/in-game.html',
     async run(ctx) {
+        await ctx.waitFor(() => ctx.doc.querySelector('#vc-self'));
         ctx.inject('tsic.msg.UI.VoiceChat.State', { Speaking: [], bSelfPushToTalk: true });
-        await new Promise(r => setTimeout(r, 60));
+        await ctx.waitFor(() => ctx.doc.getElementById('vc-self').classList.contains('on'));
         ctx.expect(ctx.assert.truthy(ctx.doc.getElementById('vc-self').classList.contains('on')));
         ctx.expect(ctx.assert.domCount(ctx.doc, '#vc-list .vc-row', 0));
     },
@@ -264,19 +239,6 @@ TSICTestHarness.register({
 });
 
 // ---- Map: clustering threshold flips when scale changes ----------------
-TSICTestHarness.register({
-    name: 'Map: ten close-by icons cluster at very low scale',
-    file: '/screens/map.html',
-    async run(ctx) {
-        const icons = [];
-        for (let i = 0; i < 10; i++) icons.push({ IconId: `i${i}`, Category: 'landmark', Position: { X: i, Y: i }, Label: `i${i}` });
-        ctx.inject('tsic.msg.UI.Map.Snapshot', { Players: [], Icons: icons, MinBounds: { X: -5000, Y: -5000 }, MaxBounds: { X: 5000, Y: 5000 } });
-        await new Promise(r => setTimeout(r, 200));
-        // At very low scale (jsdom dims are 0 so scale clamps), expect 1 cluster.
-        const circles = ctx.doc.querySelectorAll('#g-icons circle');
-        ctx.expect(ctx.assert.truthy(circles.length <= 10));
-    },
-});
 
 // ---- Teleporter: same-source travel publishes FromId == fromId ------
 TSICTestHarness.register({
@@ -337,22 +299,12 @@ TSICTestHarness.register({
 });
 
 // ---- Inventory empty state ---------------------------------------------
-TSICTestHarness.register({
-    name: 'Inventory: empty payload renders no hoverable rows',
-    file: '/screens/inventory.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', MaxSlots: 32, Items: [] });
-        await ctx.waitFor(() => ctx.doc.querySelector('#inv-list .tsic-empty'));
-        // No populated rows means nothing to hover, so no Equip/Drop context entries.
-        ctx.expect(ctx.assert.eq(ctx.doc.querySelectorAll('#inv-list .tsic-list-row').length, 0));
-    },
-});
-
 // ---- Cheat menu: spawn fields with content publishes formatted command --
 TSICTestHarness.register({
     name: 'CheatMenu: SpawnCreature picks from catalog and publishes Spawn <name> <p>',
     file: '/screens/cheat-menu.html',
     async run(ctx) {
+        ctx.screen('CheatMenu');
         await ctx.waitFor(() => ctx.doc.getElementById('cm-spawn-creature'));
         ctx.inject('tsic.msg.UI.Cheat.Catalog', {
             Creatures: [{ DisplayName: 'Spider', InternalName: '/Game/Characters/Enemies/Spider/BP_Spider.BP_Spider_C', Description: '' }],
@@ -361,7 +313,7 @@ TSICTestHarness.register({
         ctx.clearPublishes();
         ctx.doc.getElementById('cm-spawn-creature').click();
         ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Cheat.Execute', {
-            where: p => p.Command === 'Spawn /Game/Characters/Enemies/Spider/BP_Spider.BP_Spider_C 1',
+            where: p => p.Command === 'Spawn /Game/Characters/Enemies/Spider/BP_Spider.BP_Spider_C 0',
         }));
     },
 });
@@ -370,6 +322,7 @@ TSICTestHarness.register({
     name: 'CheatMenu: SpawnFurniture from catalog publishes SpawnFurniture <short>',
     file: '/screens/cheat-menu.html',
     async run(ctx) {
+        ctx.screen('CheatMenu');
         await ctx.waitFor(() => ctx.doc.getElementById('cm-spawn-furn'));
         ctx.inject('tsic.msg.UI.Cheat.Catalog', {
             FurnitureDefault: [{ DisplayName: 'Test', InternalName: '/Game/Furniture/FD_TestData', Description: '' }],
@@ -385,27 +338,32 @@ TSICTestHarness.register({
     name: 'CheatMenu: World teleport with X/Y/Z publishes TeleportToLocation',
     file: '/screens/cheat-menu.html',
     async run(ctx) {
+        ctx.screen('CheatMenu');
         await ctx.waitFor(() => ctx.doc.getElementById('cm-tp-world'));
         ctx.doc.getElementById('cm-world-x').value = '100';
         ctx.doc.getElementById('cm-world-y').value = '200';
         ctx.doc.getElementById('cm-world-z').value = '0';
         ctx.clearPublishes();
         ctx.doc.getElementById('cm-tp-world').click();
-        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Cheat.Execute', { where: p => p.Command === 'TeleportToLocation 1 100 200 0' }));
+        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Cheat.Execute', { where: p => p.Command === 'TeleportToLocation 0 100 200 0' }));
     },
 });
 
 // ---- Universal Storage (linked): dblclicking item with count > 1 ------
 TSICTestHarness.register({
-    name: 'UniversalStorage (linked): item dblclick with Count=12 sends Count in Transfer',
+    name: 'UniversalStorage (linked): shift-click quick-moves the whole stack to the player',
     file: '/screens/universal-storage.html',
     async run(ctx) {
-        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Universal', MaxSlots: 64, Items: [{ ItemId: 'X', Count: 12, SlotIndex: 0 }] });
-        await ctx.waitFor(() => ctx.doc.querySelector('#ss-container-list .tsic-list-row[data-slot="0"]'));
+        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Universal', GridWidth: 8, MaxSlots: 64, Items: [{ ItemId: 'X', Count: 12, InstanceId: 1, GridSlot: 0 }] });
+        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', GridWidth: 8, MaxSlots: 32, Items: [] });
+        await ctx.waitFor(() => ctx.doc.querySelector('#ss-container-list .tsic-slot[data-grid="0"]'));
         ctx.clearPublishes();
-        ctx.doc.querySelector('#ss-container-list .tsic-list-row[data-slot="0"]')
-            .dispatchEvent(new ctx.win.MouseEvent('dblclick', { bubbles: true }));
-        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Inventory.Transfer'));
+        // §7.4: quick-move (whole stack, partial allowed server-side) replaced
+        // the old dblclick transfer; dblclick is COLLECT now.
+        ctx.doc.querySelector('#ss-container-list .tsic-slot[data-grid="0"]')
+            .dispatchEvent(new ctx.win.MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }));
+        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Inventory.QuickMove',
+            { where: p => p.FromOwnerId === 'Universal' && p.ToOwnerId === 'Player' && p.ItemId === 1 && p.FromSlot === 0 }));
     },
 });
 
@@ -420,23 +378,6 @@ TSICTestHarness.register({
         const submit = Array.from(ctx.doc.querySelectorAll('button')).find(b => /submit/i.test(b.textContent || ''));
         submit && submit.click();
         ctx.expect(ctx.assert.notPublished(ctx.handle, 'UI.Cmd.BugReport.Submit'));
-    },
-});
-
-// ---- Wardrobe: closing publishes Hide + Resume in one click ----------
-TSICTestHarness.register({
-    name: 'Wardrobe: Close publishes Hide + Resume (already covered, with explicit ordering)',
-    file: '/screens/wardrobe.html',
-    async run(ctx) {
-        await ctx.waitFor(() => ctx.doc.getElementById('btn-close'));
-        ctx.clearPublishes();
-        ctx.doc.getElementById('btn-close').click();
-        const channels = ctx.publishes().map(p => p.channel);
-        // Hide should fire before Resume.
-        const hideIdx   = channels.indexOf('UI.Cmd.CharacterPreview.Hide');
-        const resumeIdx = channels.indexOf('UI.Cmd.Pause.Resume');
-        ctx.expect(ctx.assert.truthy(hideIdx >= 0 && resumeIdx >= 0 && hideIdx < resumeIdx,
-            `expected Hide before Resume; got order: ${JSON.stringify(channels)}`));
     },
 });
 

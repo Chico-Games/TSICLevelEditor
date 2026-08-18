@@ -39,29 +39,6 @@
 
     // Verified-working, test asserts old structure:
     NS.QUARANTINE = {
-        'Inventory: equipment payload renders slots in the equip row':
-            'equip row is now a fixed paper-doll grid; test expects the old per-payload slot count',
-        'Settings: renders tab strip with one button per page':
-            'settings boots a STATIC catalog that defaults the active tab; test expects the injected pages[0] active',
-        'Settings: clicking a tab switches the visible page':
-            'same STATIC-catalog default; tab switching itself works',
-        'Focus/SaveLoad: reachable + groups mutually reachable':
-            'nested-focusable engine gap: each slot row\'s inner delete button centre sits ~1px ' +
-            'closer than the row\'s own centre, so spatial nav always lands on the child and the ' +
-            'row itself is never visited — needs parent/child disambiguation in pickNeighbor',
-        // Presumed-working per maintainer; test asserts a stale interaction/selector:
-        'Drag/Inventory: dropping slot A onto slot B publishes Transfer':
-            'jsdom drag emulation against the current inventory row drag handlers — re-verify if touched',
-        'Inventory: dblclick on equipment row publishes UI.Cmd.Equipment.Equip':
-            'equip is driven by confirm/context-menu now, not raw dblclick — re-verify if touched',
-        'E2E/Inventory: equippable hover → dblclick → Equip; equipment list reflects update':
-            'same equip-interaction drift — re-verify if touched',
-        'E2E/ActionBar: re-broadcast with new status redraws rows':
-            'behavior-bar (hud-behavior-bar.js) selectors/flow — re-verify if touched',
-        'Perf/ActionBar: 50 rows render in < 250ms':
-            'behavior-bar render path — re-verify if touched',
-        'Stress/ActionBar: 50 visible rows all render':
-            'behavior-bar render path — re-verify if touched',
     };
 
     NS.installMockTsic = function (win, options) {
@@ -69,6 +46,7 @@
         const subscribers = new Map();   // channel -> Set(callbacks)
         const stickyCache = new Map();   // channel -> last payload
         const publishLog  = [];           // {channel, payload, t}
+        const rectLog     = [];           // {rects, t} from setInteractiveRects
 
         const fake = {
             on(channel, cb) {
@@ -79,6 +57,10 @@
                     try { cb(stickyCache.get(channel)); } catch (e) { console.warn('[harness] cb threw', e); }
                 }
                 return () => subscribers.get(channel).delete(cb);
+            },
+            off(channel, cb) {
+                const set = subscribers.get(channel);
+                if (set) set.delete(cb);
             },
             publishMessage(channel, payload) {
                 publishLog.push({ channel, payload, t: Date.now() });
@@ -93,6 +75,19 @@
             removeInputModeTag() {},
             setMenuActionContext() {},
             clearMenuActionContext() {},
+            // JS -> C++ calls with no reply. Pages call these UNGUARDED (the real
+            // bridge always defines them), so a mock that omits one throws
+            // mid-handler and leaves the component half-built — hud-chat's open()
+            // aborted between "overlay pushed" and grabFocus() for exactly that
+            // reason, and every Chat scenario still went green because it only
+            // asserted the publishes that happen before the throw. Recorded, not
+            // dropped, so a scenario can assert what the page asked the view for.
+            setInteractiveRects(rects) { rectLog.push({ rects: rects || [], t: Date.now() }); },
+            setFocusCapture(capture) { fake._focusCapture = !!capture; },
+            focusTextField(el) { if (el) { try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (e2) {} } } },
+            blurTextField(el) { if (el) { try { el.blur(); } catch (e) {} } },
+            send() {},
+            request() { return Promise.reject(new Error('tsicbridge not available')); },
             itemCatalog: options.itemCatalog || {},
             recipeCatalog: options.recipeCatalog || {},
             itemName(id) { const d = this.itemCatalog[id]; return d ? (d.Name || id) : id; },
@@ -151,6 +146,8 @@
             // Inspection: snapshot + clear of the publish log.
             publishes() { return publishLog.slice(); },
             clearPublishes() { publishLog.length = 0; },
+            // Every setInteractiveRects() the page made, oldest first.
+            interactiveRects() { return rectLog.slice(); },
             // Subscriber introspection (used by tests to assert "page subscribed at all").
             channels() { return Array.from(subscribers.keys()); },
         };
@@ -180,13 +177,55 @@
         if (prior && prior !== fake) {
             if (prior.focus) fake.focus = prior.focus;
             if (prior.dropdown) fake.dropdown = prior.dropdown;
+            // behavior-bar.js installs these on the bridge object; they publish
+            // through the LIVE window.tsic, so carrying them over routes their
+            // SetMenuContext publishes into this mock's log.
+            if (prior.setMenuActionContext) fake.setMenuActionContext = prior.setMenuActionContext;
+            if (prior.clearMenuActionContext) fake.clearMenuActionContext = prior.clearMenuActionContext;
+            // Backstop for the whole class: anything else the real bridge (or a
+            // module that installed itself on it) exposes and this mock has no
+            // opinion about is carried across rather than left undefined. Without
+            // it, every new bridge method is a latent "is not a function" that
+            // aborts a page mid-mount and shows up as an unrelated scenario
+            // failing later in the run. Explicit members above still win.
+            for (const key of Object.keys(prior)) {
+                if (key.charAt(0) === '_') continue;
+                if (key in fake) continue;
+                if (typeof prior[key] !== 'function') continue;
+                fake[key] = prior[key].bind(prior);
+            }
         }
 
         // Install on the iframe's window so the page's `if (window.tsic)` checks pass.
         win.tsic = fake;
         // Expose the handle to the host for scenario authoring.
         win.__tsicTestHandle = handle;
+        NS.ensureTestInput(win);
         return handle;
+    };
+
+    // --- Pointer gestures (shared/test-input.js) ---------------------------
+    // The gesture code lives in shared/ because the LIVE in-game page loads it too, so a
+    // Gauntlet node can perform the identical drag through RequestWebUIEval. Screen pages
+    // driven by the harness don't load it, so evaluate the same source into the scenario's
+    // iframe rather than growing a second implementation here that could drift from it.
+    let testInputSource = null;
+
+    /** Fetch the gesture module once, before scenarios run. */
+    NS.preloadTestInput = async function () {
+        if (testInputSource !== null) return;
+        try {
+            const r = await fetch('/shared/test-input.js');
+            testInputSource = r.ok ? await r.text() : '';
+        } catch (e) {
+            testInputSource = '';
+        }
+    };
+
+    NS.ensureTestInput = function (win) {
+        if (!win || (win.TSIC && win.TSIC.testInput)) return;
+        if (!testInputSource) return;   // not preloaded — ctx.gesture will report it
+        try { win.eval(testInputSource); } catch (e) { /* page-side failure surfaces in ctx.gesture */ }
     };
 
     // Assertion helpers — return strings on failure, null on pass.
@@ -197,6 +236,9 @@
         },
         truthy(value, label) {
             return value ? null : `${label || 'expect.truthy'}: got ${JSON.stringify(value)}`;
+        },
+        falsy(value, label) {
+            return value ? `${label || 'expect.falsy'}: got ${JSON.stringify(value)}` : null;
         },
         published(handle, channel, opts) {
             const matches = handle.publishes().filter(p => p.channel === channel);

@@ -46,33 +46,22 @@
     LoadSave: 'save-load',
     Crafting: 'crafting',
     Production: 'production',
-    Upgrade: 'upgrade',
     BossSummoner: 'boss-summoner',
-    Construction: 'construction',
-    Selection: 'selection',
-    Cage: 'cage',
     Map: 'map',
-    Chat: 'chat',
     Teleporter: 'teleporter',
     BugReport: 'bug-report',
-    Storage: 'storage',
     Terminal: 'terminal',
     Repair: 'repair',
     UniversalStorage: 'universal-storage',
     UniversalStorageSetup: 'universal-storage-setup',
     CheatMenu: 'cheat-menu',
-    VoiceChat: 'voice-chat',
     PingMarkers: 'ping-markers',
     CircularProgress: 'circular-progress',
-    ConstructionCarousel: 'construction-carousel',
     Paper: 'paper',
     Screen: 'screen',
     Tablet: 'tablet',
     Tests: 'tests',
-    Equipment: 'equipment',
-    Wardrobe: 'wardrobe',
     Hotbar: 'hotbar',
-    QuantityPicker: 'quantity-picker',
     Ping: 'ping',
     Detection: 'detection',
     Stomach: 'stomach',
@@ -144,6 +133,10 @@
         ActionName: String(e.ActionName),
         Label:      String(e.Label || ''),
         Priority:   Number.isFinite(e.Priority) ? e.Priority : 100,
+        // Optional. C++ resolves the key from the action's bindings when this is
+        // empty; a screen sets it when the action is mapped in more than one
+        // context and binding scan order would advertise the wrong key.
+        KeyName:    String(e.KeyName || ''),
       });
     }
     if (!seen.has('IA_UI_CancelBack')) {
@@ -201,6 +194,36 @@
       }
       window.location.replace(`/screens/${file}.html`);
     });
+
+    // Global behaviour hotkeys. Wired once per page (HUD overlays sit on top of a
+    // real screen and would double-publish), and outside the input-mode block below
+    // so they also work during gameplay, where no menu tag is pushed.
+    //
+    // Both are gated on the C++ side rather than here: the director knows whether a
+    // menu was opened by interacting, and whether the bug-report form is already up.
+    if (!OVERLAY_SCREENS.has(myScreen())) {
+      window.tsic.on('tsic.msg.UI.Behavior.BugReport', (p) => {
+        if (!p || p.Phase !== 'Started') return;
+        window.tsic.publishMessage('UI.Cmd.Pause.BugReport', {});
+      });
+      window.tsic.on('tsic.msg.UI.Behavior.CloseMenu', (p) => {
+        if (!p || p.Phase !== 'Started') return;
+        window.tsic.publishMessage('UI.Cmd.CloseInteractionMenu', {});
+      });
+      // F1 — dev cheat menu. C++ toggles the screen and drops the command
+      // entirely in builds without the cheat manager, so no gate is needed here.
+      window.tsic.on('tsic.msg.UI.Behavior.CheatMenu', (p) => {
+        if (!p || p.Phase !== 'Started') return;
+        window.tsic.publishMessage('UI.Cmd.Pause.CheatMenu', {});
+      });
+      // F2 — re-run the last cheat, whether it came from this panel or the ~ console.
+      // C++ owns the history and toasts what it ran, so this needs no state here and
+      // works with the cheat menu closed.
+      window.tsic.on('tsic.msg.UI.Behavior.RepeatCheat', (p) => {
+        if (!p || p.Phase !== 'Started') return;
+        window.tsic.publishMessage('UI.Cmd.Cheat.RepeatLast', {});
+      });
+    }
 
     // Input-mode tag activation: append on load, release on page teardown.
     const inputTag = activeInputModeTag();

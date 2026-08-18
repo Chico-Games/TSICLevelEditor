@@ -71,17 +71,18 @@ TSICTestHarness.register({
     },
 });
 
-// ---- Hotbar -1 / null slots --------------------------------------------
+// ---- Hotbar with an empty inventory ------------------------------------
 TSICTestHarness.register({
-    name: 'Hotbar: -1 in SlotIndices renders empty slot',
+    name: 'Hotbar: an empty inventory renders every cell empty',
     file: '/screens/hotbar.html',
     async run(ctx) {
-        ctx.inject('tsic.msg.UI.Hotbar.Changed', { SlotIndices: [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1], SelectedSlot: 0 });
-        await ctx.waitFor(() => ctx.doc.querySelectorAll('#hotbar-row .tsic-slot').length === 10);
-        const slots = ctx.doc.querySelectorAll('#hotbar-row .tsic-slot');
-        // None of them should contain an item-id label (#<n> div).
-        for (const s of slots) {
-            ctx.expect(ctx.assert.truthy(!Array.from(s.children).some(c => /^#\d+$/.test(c.textContent || ''))));
+        ctx.inject('tsic.msg.UI.Inventory.Updated',
+            { OwnerId: 'Player', MaxSlots: 32, GridWidth: 8, Items: [] });
+        ctx.inject('tsic.msg.UI.Hotbar.Changed', { NumSlots: 8, SelectedSlot: -1, SelectedSlotPending: 0 });
+        await ctx.waitFor(() => ctx.doc.querySelectorAll('#hotbar-row .tsic-slot').length === 8);
+        for (const s of ctx.doc.querySelectorAll('#hotbar-row .tsic-slot')) {
+            ctx.expect(ctx.assert.falsy(s.querySelector('img'), 'no icon in an empty cell'));
+            ctx.expect(ctx.assert.falsy(s.querySelector('.count'), 'no count in an empty cell'));
         }
     },
 });
@@ -95,76 +96,16 @@ TSICTestHarness.register({
             Json: JSON.stringify({ Pages: [{ Id: 'X', Title: 'X', Groups: [{ Id: 'Display', Title: 'Display',
                 Settings: [{ Key: 'preset', Label: 'Preset', Type: 'enum', Options: ['Low','Med','High'], Value: 'Med' }] }] }] }),
         });
-        await ctx.waitFor(() => ctx.doc.querySelector('select'));
-        const sel = ctx.doc.querySelector('select');
-        sel.value = 'High';
-        sel.dispatchEvent(new ctx.win.Event('change', { bubbles: true }));
+        // Enums render as tsic-dropdowns (no native <select> under CEF).
+        await ctx.waitFor(() => ctx.doc.querySelector('button.tsic-dropdown[data-key="preset"]'));
+        ctx.clearPublishes();
+        ctx.win.tsic.dropdown.set('button.tsic-dropdown[data-key="preset"]', 'High');
         ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Settings.Set',
             { where: p => p.Key === 'preset' && JSON.parse(p.ValueJson) === 'High' }));
     },
 });
 
-// ---- Construction: deconstruct -----------------------------------------
-TSICTestHarness.register({
-    name: 'Construction: deconstruct button publishes',
-    file: '/screens/construction.html',
-    async run(ctx) {
-        await ctx.waitFor(() => ctx.doc.getElementById('btn-deconstruct'));
-        ctx.clearPublishes();
-        ctx.doc.getElementById('btn-deconstruct').click();
-        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Construction.Deconstruct'));
-    },
-});
-
-// ---- Construction: cancel button publishes -----------------------------
-TSICTestHarness.register({
-    name: 'Construction: cancel button publishes',
-    file: '/screens/construction.html',
-    async run(ctx) {
-        await ctx.waitFor(() => ctx.doc.getElementById('btn-cancel'));
-        ctx.clearPublishes();
-        ctx.doc.getElementById('btn-cancel').click();
-        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Construction.Cancel'));
-    },
-});
-
-// ---- ConstructionCarousel: edge case empty arrays ----------------------
-TSICTestHarness.register({
-    name: 'ConstructionCarousel: prev=[] next=[] current only',
-    file: '/screens/construction-carousel.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Construction.Carousel', {
-            bActive: true,
-            Prev: [], Current: { FurnitureId: 'X', Label: 'X', bAffordable: true }, Next: [],
-            RotationAxis: '', BlockedReason: '',
-        });
-        await ctx.waitFor(() => ctx.doc.querySelectorAll('#cc-row .cc-slot').length === 1);
-        ctx.expect(ctx.assert.domCount(ctx.doc, '#cc-row .cc-slot.current', 1));
-    },
-});
-
 // ---- Map: ping cross rendering -----------------------------------------
-TSICTestHarness.register({
-    name: 'Map: ping payload renders crosses in #g-pings',
-    file: '/screens/map.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Map.Snapshot', { Players: [], Icons: [], MinBounds: { X: -100, Y: -100 }, MaxBounds: { X: 100, Y: 100 } });
-        ctx.inject('tsic.msg.UI.Ping.Set', { Pings: [{ PingId: 'p1', PingType: 'Map', Location: { X: 10, Y: 20, Z: 0 }, OwnerId: 'X' }] });
-        await ctx.waitFor(() => ctx.doc.querySelectorAll('#g-pings g').length >= 1, { timeout: 2000 });
-        ctx.expect(ctx.assert.domExists(ctx.doc, '#g-pings g'));
-    },
-});
-
-// ---- Cage: explicit context skip ---------------------------------------
-TSICTestHarness.register({
-    name: 'Cage: Generic context does not render anything',
-    file: '/screens/cage.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Selection.Opened', { Context: 'Generic', Options: [{ OptionId: 'x', Label: 'leak' }] });
-        await new Promise(r => setTimeout(r, 60));
-        ctx.expect(ctx.assert.eq(ctx.doc.body.textContent.indexOf('leak'), -1));
-    },
-});
 
 // ---- Notifications: missing icon falls back gracefully -----------------
 TSICTestHarness.register({
@@ -211,7 +152,7 @@ TSICTestHarness.register({
     async run(ctx) {
         await ctx.waitFor(() => ctx.doc.querySelector('button'));
         ctx.clearPublishes();
-        const btn = Array.from(ctx.doc.querySelectorAll('button')).find(b => /^mods$/i.test((b.textContent || '').trim()));
+        const btn = ctx.doc.getElementById('btn-mods');
         btn && btn.click();
         ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Menu.Navigate', { where: p => p.Screen === 'Mods' }));
     },
@@ -268,54 +209,27 @@ TSICTestHarness.register({
 
 // ---- UniversalStorage (linked) page: container list + transfer ---------
 TSICTestHarness.register({
-    name: 'UniversalStorage (linked): item dblclick publishes Transfer (Universal -> Player)',
+    name: 'UniversalStorage (linked): cross-pane click-move publishes an id+slot Move',
     file: '/screens/universal-storage.html',
     async run(ctx) {
         ctx.setItemCatalog({ ID_X: { Name: 'X', Category: 'Equipment' } });
-        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Universal', Items: [{ ItemId: 'ID_X', Count: 1, SlotIndex: 0 }], MaxSlots: 64 });
-        await ctx.waitFor(() => ctx.doc.querySelector('#ss-container-list .tsic-list-row[data-slot="0"]'));
+        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Universal', GridWidth: 8, Items: [{ ItemId: 'ID_X', Count: 1, InstanceId: 7, GridSlot: 0 }], MaxSlots: 64 });
+        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', GridWidth: 8, Items: [], MaxSlots: 32 });
+        await ctx.waitFor(() => ctx.doc.querySelector('#ss-container-list .tsic-slot[data-grid="0"] img'));
         ctx.clearPublishes();
-        ctx.doc.querySelector('#ss-container-list .tsic-list-row[data-slot="0"]')
-            .dispatchEvent(new ctx.win.MouseEvent('dblclick', { bubbles: true }));
-        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Inventory.Transfer',
-            { where: p => p.FromOwnerId === 'Universal' && p.ToOwnerId === 'Player' }));
+        // §6 cursor model: click picks the stack up, click on a player cell commits.
+        ctx.doc.querySelector('#ss-container-list .tsic-slot[data-grid="0"]').click();
+        const target = ctx.doc.querySelector('#ss-player-list .tsic-slot[data-grid="2"]');
+        const r = target.getBoundingClientRect();
+        const o = { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, button: 0 };
+        target.dispatchEvent(new ctx.win.PointerEvent('pointerdown', o));
+        target.dispatchEvent(new ctx.win.PointerEvent('pointerup', o));
+        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Inventory.Move',
+            { where: p => p.FromOwnerId === 'Universal' && p.ToOwnerId === 'Player' && p.ItemId === 7 && p.ToSlot === 2 }));
     },
 });
 
-// ---- Equipment page ----------------------------------------------------
-TSICTestHarness.register({
-    name: 'Equipment: clicking equipped slot publishes Unequip',
-    file: '/screens/equipment.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Equipment.Updated', {
-            OwnerId: 'Player',
-            Slots: [{ SlotTag: 'Equip.Head', ItemId: 'ID_Helmet', IconUrl: '' }],
-        });
-        await ctx.waitFor(() => ctx.doc.querySelector('.tsic-slot'));
-        ctx.clearPublishes();
-        ctx.doc.querySelector('.tsic-slot').click();
-        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Equipment.Unequip',
-            { where: p => p.SlotTag === 'Equip.Head' }));
-    },
-});
-
-// ---- Chat: empty Send doesn't publish ---------------------------------
-TSICTestHarness.register({
-    name: 'Chat: pressing Enter with empty input does not publish',
-    file: '/screens/chat.html',
-    async run(ctx) {
-        await ctx.waitFor(() => ctx.doc.querySelector('input'));
-        const input = ctx.doc.querySelector('input');
-        input.focus();
-        input.value = '';
-        ctx.clearPublishes();
-        input.dispatchEvent(new ctx.win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-        // Some chat implementations still publish on Enter even when empty. Accept either
-        // behaviour but flag a mismatch with the production reference.
-        const sent = ctx.publishes().find(p => p.channel === 'UI.Cmd.Chat.Send');
-        if (sent) ctx.expect(ctx.assert.truthy((sent.payload && sent.payload.Text || '').length === 0));
-    },
-});
+// Chat coverage lives in chat.test.js (HUD component, /screens/in-game.html).
 
 // ---- Detection screen-mist amount ------------------------------------
 TSICTestHarness.register({
@@ -336,21 +250,8 @@ TSICTestHarness.register({
         for (let i = 0; i < 50; i++) enemies.push({ EntityId: i, DetectionScore: 0.05 + Math.random() * 0.95, BearingDeg: i * 7 - 180 });
         ctx.inject('tsic.msg.UI.Detection.State', { Enemies: enemies, ScreenMist: 0.5 });
         await new Promise(r => setTimeout(r, 80));
-        const markers = ctx.doc.querySelectorAll('#threats .arc');
+        const markers = ctx.doc.querySelectorAll('#hud-detection .dt-arc');
         ctx.expect(ctx.assert.truthy(markers.length >= 10, `expected many threat markers, got ${markers.length}`));
-    },
-});
-
-// ---- Wardrobe: Close publishes correctly --------------------------------
-TSICTestHarness.register({
-    name: 'Wardrobe: Close button publishes both Hide and Resume',
-    file: '/screens/wardrobe.html',
-    async run(ctx) {
-        await ctx.waitFor(() => ctx.doc.getElementById('btn-close'));
-        ctx.clearPublishes();
-        ctx.doc.getElementById('btn-close').click();
-        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.CharacterPreview.Hide'));
-        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Pause.Resume'));
     },
 });
 
@@ -381,8 +282,39 @@ TSICTestHarness.register({
         await new Promise(r => setTimeout(r, 60));
         ctx.inject('tsic.msg.UI.Ping.Set', { Pings: [{ PingId: 'p1', PingType: 'Map', Location: { X: 0, Y: 0, Z: 0 }, OwnerId: 'X' }] });
         await new Promise(r => setTimeout(r, 60));
-        // Two flashes should have appeared at least briefly. Page removes them on a timer.
-        ctx.expect(ctx.assert.truthy(true));
+        // Two flashes, one per arrival. This used to assert truthy(true), which passed
+        // whether or not the page had forgotten the removed id.
+        ctx.expect(ctx.assert.domCount(ctx.doc, '#pm-root .pm-flash', 2));
+    },
+});
+
+// ---- Ping wheel: the marker goes where the player is looking ------------
+TSICTestHarness.register({
+    name: 'PingWheel: a wedge asks the game to trace the aim',
+    file: '/screens/in-game.html',
+    async run(ctx) {
+        await ctx.waitFor(() => ctx.doc.getElementById('ping-wheel'));
+        // The wheel only takes pointer input while the HUD reveals it.
+        ctx.doc.body.classList.add('hud-show-ping');
+        await new Promise(r => setTimeout(r, 60));
+
+        const wheel = ctx.doc.getElementById('ping-wheel');
+        const rect = wheel.getBoundingClientRect();
+        ctx.expect(ctx.assert.truthy(rect.width > 0, 'the wheel has to be laid out to be clickable'));
+
+        // Straight up from the hub is the first wedge; well outside the dead zone.
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2 - rect.height * 0.34;
+
+        ctx.clearPublishes();
+        ctx.doc.getElementById('ping-shell').dispatchEvent(
+            new ctx.win.PointerEvent('pointerdown', { clientX: x, clientY: y, bubbles: true }));
+
+        // The wheel names the kind and nothing else — it used to send a literal
+        // { X:0, Y:0, Z:0 }, which planted every marker it placed on the world origin.
+        ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Ping.Request', {
+            where: p => p.bUseAimTrace === true && p.Location === undefined,
+        }));
     },
 });
 

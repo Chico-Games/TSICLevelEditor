@@ -15,7 +15,7 @@
       "r": 0.984000027179718,
       "g": 0.7490000128746033,
       "b": 0.14100000262260437,
-      "a": 1.0
+      "a": 1
     },
     "rotation_height_colors": {
       "rotation_height_direction_color_arr": [
@@ -92877,20 +92877,31 @@
       "search_loot_rarity": [],
       "hold_loot_rarity": []
     },
-    "loot_multiplier": 1.0,
+    "loot_multiplier": 1,
+    "container_loot_table": "LSP_SCPBase_Container",
     "layouts": [
       "LYD_SCPBasePower_All",
       "LYD_SCPBasePower_Up",
       "LYD_SCPBasePower_UpDown",
       "LYD_SCPBasePower_UpRight",
       "LYD_SCPBasePower_UpRightDown",
-      "LYD_SCPBasePower_All_Decrease"
+      "LYD_SCPBasePower_All_Decrease",
+      "LYD_SCPBasePower_Up_2",
+      "LYD_SCPBasePower_Up_3",
+      "LYD_SCPBasePower_UpDown_2",
+      "LYD_SCPBasePower_UpDown_3",
+      "LYD_SCPBasePower_UpRight_2",
+      "LYD_SCPBasePower_UpRight_3",
+      "LYD_SCPBasePower_UpRightDown_2",
+      "LYD_SCPBasePower_UpRightDown_3",
+      "LYD_SCPBasePower_All_2",
+      "LYD_SCPBasePower_All_3"
     ],
-    "environmental_effects": [],
     "ambient_audio": {
-      "volume": 1.0,
-      "fade_in_duration": 3.0,
-      "fade_out_duration": 3.0
+      "sound": "Ambience.SCPBasePower",
+      "volume": 0.5,
+      "fade_in_duration": 3,
+      "fade_out_duration": 3
     }
   }
 }

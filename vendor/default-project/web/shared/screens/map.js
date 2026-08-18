@@ -15,7 +15,7 @@
       position: absolute; inset: 0;
       background: #d4c19d;
       color: var(--cat-ink-soft);
-      font-family: 'Consolas', monospace;
+      font-family: var(--font-terminal);
       display: flex; flex-direction: column;
       overflow: hidden;
     }
@@ -26,10 +26,16 @@
       background: rgba(35,31,24,0.35);
       flex: 0 0 auto;
     }
-    [data-screen="Map"] #map-viewport { flex: 1 1 auto; position: relative; overflow: hidden; cursor: grab; }
+    [data-screen="Map"] #map-viewport { flex: 1 1 auto; position: relative; overflow: hidden; cursor: grab; outline: none; }
     [data-screen="Map"] #map-viewport.dragging { cursor: grabbing; }
     [data-screen="Map"] #map-content {
       position: absolute; left: 0; top: 0;
+      /* Promote to its own compositor layer: pan/zoom is a transform update, and
+         without the promotion every drag frame repainted the full viewport
+         (measured: 115 full-screen paints per 48-move drag). With it, panning
+         recomposites already-rasterised tiles. Chromium tiles huge layers, so
+         the world-sized element does not allocate world-sized textures. */
+      will-change: transform;
       transform-origin: 0 0;
       image-rendering: pixelated;
       image-rendering: -webkit-optimize-contrast;
@@ -75,16 +81,35 @@
       background-repeat: no-repeat;
     }
     [data-screen="Map"] #world-tex, [data-screen="Map"] #fow-tex, [data-screen="Map"] #overlay,
+    [data-screen="Map"] #height-tint-tex, [data-screen="Map"] #wall-tex,
     [data-screen="Map"] #debug-height-tex, [data-screen="Map"] #debug-maze-tex {
       position: absolute; left: 0; top: 0;
       pointer-events: none; user-select: none; -webkit-user-drag: none;
     }
-    [data-screen="Map"] #world-tex          { z-index: 1; image-rendering: pixelated; }
+    /* Zero-sized until setBounds() knows the world size: an <img> with no CSS
+       size paints at its natural resolution, so the basemap used to flash a
+       1:1 crop of the (unfogged) world texture in the beat before the first
+       snapshot landed — outside the fog veil, which is world-sized. */
+    [data-screen="Map"] #world-tex          { z-index: 1; image-rendering: pixelated; width: 0; height: 0; }
+    /* Furniture walls streamed in after the basemap was fetched. Same z as the
+       basemap and later in DOM order, so it paints directly on top of it and BELOW
+       the height tint — which is where walls sat back when they were baked into the
+       basemap itself, so the tint keeps affecting them exactly as before. */
+    [data-screen="Map"] #wall-tex           { z-index: 1; image-rendering: pixelated; width: 0; height: 0; }
+    [data-screen="Map"] #height-tint-tex    { z-index: 1; image-rendering: pixelated; }
     [data-screen="Map"] #debug-height-tex   { z-index: 2; }
     [data-screen="Map"] #debug-maze-tex     { z-index: 3; }
     [data-screen="Map"] #debug-all-tex      { z-index: 4; }
     [data-screen="Map"] #fow-tex            { z-index: 5; }
     [data-screen="Map"] #overlay            { z-index: 6; }
+    /* Fog-not-ready veil: the same opaque black the fog texture paints over
+       unexplored ground (see FGenerateExploredTexture::DoWork), covering every
+       map layer INCLUDING the SVG markers until real fog pixels are up. */
+    [data-screen="Map"] #fow-veil {
+      position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+      z-index: 7; pointer-events: none;
+      background: #000;
+    }
     [data-screen="Map"] #debug-height-tex, [data-screen="Map"] #debug-maze-tex, [data-screen="Map"] #debug-all-tex {
       image-rendering: pixelated; display: none;
     }
@@ -122,14 +147,14 @@
     }
     [data-screen="Map"] #map-viewport.pad-cursor #pad-cursor { display: block; }
     [data-screen="Map"] .ic-cluster { fill: rgba(35,31,24,0.35); stroke: #ffffff; }
-    [data-screen="Map"] .ic-cluster-text { fill: #ffffff; font-family: 'Consolas', monospace; font-size: 14px; }
+    [data-screen="Map"] .ic-cluster-text { fill: #ffffff; font-family: var(--font-terminal); font-size: 17px; }
     [data-screen="Map"] #world-bounds {
       fill: none; stroke: #5a4a30; stroke-width: 2;
       vector-effect: non-scaling-stroke; pointer-events: none;
     }
     [data-screen="Map"] .bound-coord {
       fill: rgba(90, 74, 48, 0.85);
-      font-family: 'Consolas', monospace;
+      font-family: var(--font-terminal);
       pointer-events: none;
     }
     @keyframes tsic-map-tp-flash {
@@ -147,8 +172,10 @@
       padding: 3px 7px;
       background: rgba(35,31,24,0.85);
       color: #f3e8c8;
-      font-family: 'Consolas', monospace;
-      font-size: 12px;
+      font-family: var(--font-terminal);
+      /* VT323 runs small for its px size — 15px matches the legibility of the
+       * 12px Consolas this used to fall back to. */
+      font-size: 15px;
       letter-spacing: 1px;
       line-height: 1.35;
       border: 1px solid #5a4a30;
@@ -162,13 +189,18 @@
   const TEMPLATE = `
     <div id="map-root">
       <div id="map-title">MAP</div>
-      <div id="map-viewport" data-cursor="map">
+      <!-- tabindex/focusable: the map has no buttons, but focus must land
+           INSIDE the overlay on open (an activeElement of <body> drops
+           anticipatory keys) and the focus engine needs a territory anchor.
+           Accept on it is a no-op click; pan/zoom stay behavior-driven. -->
+      <div id="map-viewport" data-cursor="map" tabindex="-1" data-tsic-focusable data-tsic-initial-focus>
         <div id="map-content">
           <img id="world-tex" src="/runtime/world-map.imgsrc">
+          <canvas id="height-tint-tex" width="0" height="0"></canvas>
           <img id="debug-height-tex" src="/runtime/world-debug-height.imgsrc">
           <img id="debug-maze-tex"   src="/runtime/world-debug-maze.imgsrc">
           <img id="debug-all-tex"    src="/runtime/world-debug-all.imgsrc">
-          <img id="fow-tex"   src="/runtime/fow.imgsrc">
+          <canvas id="fow-tex" width="0" height="0"></canvas>
           <svg id="overlay" xmlns="http://www.w3.org/2000/svg">
             <rect id="world-bounds" x="0" y="0" width="0" height="0"></rect>
             <g id="g-icons"></g>
@@ -176,11 +208,22 @@
             <g id="g-coords"></g>
             <g id="g-cheat-fx"></g>
           </svg>
+          <div id="fow-veil"></div>
         </div>
         <div id="empty">Waiting for map data…</div>
         <canvas id="player-canvas"></canvas>
         <div id="pad-cursor"></div>
         <div id="hover-chip"></div>
+      </div>
+      <div id="tp-bar" style="display:none;">
+        <b>TELEPORT</b>
+        <span class="tp-layers">
+          <button class="tp-layer is-active" data-layer="Floor">Ground</button>
+          <button class="tp-layer" data-layer="Sky">Sky</button>
+          <button class="tp-layer" data-layer="Underground">Underground</button>
+        </span>
+        <span id="tp-note">Click a tile to teleport there.</span>
+        <button id="tp-done">Back to cheats</button>
       </div>
       <div id="legend">
         <span id="hint" data-base="drag = pan · wheel = zoom · R = reset · Esc = close · RMB = ping · WebUI.Map.DebugHeight / DebugMazeRegions">drag = pan · wheel = zoom · R = reset · Esc = close · RMB = ping · WebUI.Map.DebugHeight / DebugMazeRegions</span>
@@ -188,17 +231,49 @@
     </div>
   `;
 
+  // Teleport-picker chrome. Kept out of the main STYLE block so the picker is
+  // obviously an addition to the map rather than part of its normal look.
+  const TELEPORT_STYLE = `
+    [data-screen="Map"] #tp-bar {
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+      padding: 5px 10px; background: var(--ink-night, #14110c); color: var(--paper-bright, #fffdf3);
+      border-bottom: 2px solid var(--mag-yellow, #f5c518); font-size: 12px;
+    }
+    [data-screen="Map"] #tp-bar b { font-family: var(--font-display, inherit); letter-spacing: 2px; color: var(--mag-yellow, #f5c518); font-weight: 400; font-size: 15px; }
+    [data-screen="Map"] #tp-bar .tp-layers { display:inline-flex; gap:3px; }
+    [data-screen="Map"] .tp-layer {
+      font: inherit; padding: 2px 9px; cursor: pointer;
+      background: transparent; color: var(--paper-bright, #fffdf3);
+      border: 1px solid rgba(255,253,247,0.4);
+    }
+    [data-screen="Map"] .tp-layer:hover { background: rgba(255,253,247,0.15); }
+    [data-screen="Map"] .tp-layer.is-active { background: var(--mag-yellow, #f5c518); color: var(--ink-night, #14110c); border-color: var(--ink-night, #14110c); font-weight: bold; }
+    [data-screen="Map"] #tp-note { opacity: 0.75; }
+    [data-screen="Map"] #tp-note.is-warn { opacity: 1; color: var(--mag-yellow, #f5c518); font-weight: bold; }
+    [data-screen="Map"] #tp-done { font: inherit; margin-left:auto; padding: 2px 10px; cursor:pointer; background: var(--mag-red, #e60000); color: var(--paper-bright, #fffdf3); border: 1px solid var(--ink-night, #14110c); }
+    [data-screen="Map"] #map-viewport.is-teleport { cursor: crosshair; }
+  `;
+
   function injectStyleOnce() {
     if (document.getElementById('screen-map-style')) return;
     const s = document.createElement('style');
     s.id = 'screen-map-style';
-    s.textContent = STYLE;
+    s.textContent = STYLE + TELEPORT_STYLE;
     document.head.appendChild(s);
   }
+
+  // Set by mount() so the module-level onShow() (which has no access to the
+  // per-mount closure) can drive the fog refresh. One mount per screen.
+  let onShowHook = null;
+  // Set by mount() so onShow(params) can hand the per-mount closure the
+  // teleport-picker flag the cheat menu opened us with.
+  let teleportModeHook = null;
 
   TSIC.registerScreen('Map', {
     inputModeTag: 'InputMode.Menu.Map',
     cancelCmd: 'UI.Cmd.GameScreen.Close',
+    screenSound: false, // plays its own Map.Open / Map.Close
+    opaque: true,       // #map-root is a full-inset opaque sheet over the HUD
     template: TEMPLATE,
 
     mount(root, ctx) {
@@ -219,13 +294,254 @@
       // Default open/reset zoom relative to the fit-whole-map scale (1 = fit whole map).
       const DEFAULT_ZOOM_MULT = 3;
       const state = { panX: 0, panY: 0, scale: 1, isPad: false, mouseX: -1, mouseY: -1 };
+      // Test/debug hook: the Gauntlet DOM-assert seam reads closure state
+      // (zoom clamps, pad mode, icon sizing) through here. Not a public API.
+      window.__tsicMap = {
+        state,
+        get minScale() { return MIN_SCALE; },
+        maxScale: MAX_SCALE,
+        iconPx: ICON_PX,
+        defaultZoomMult: DEFAULT_ZOOM_MULT,
+        // World -> local projection, so a test can aim a click at a known tile
+        // without re-deriving the projection (and silently drifting from it).
+        worldToLocal: (wx, wy) => worldToLocal(wx, wy),
+        // Drops the fog gate to its documented fail-open state (fowGrid = null)
+        // so icon/cluster contracts are testable without hours of exploration.
+        // Also lifts the fog-not-ready veil, which would otherwise cover the
+        // markers the caller is about to assert on.
+        disableFogGate() {
+          fowGrid = null;
+          fowGridSuppressed = true;
+          fowGateOverridden = true;
+          applyFowGate();
+          if (latestSnapshot) renderIcons(latestSnapshot.Icons);
+        },
+        // Fog-gate probes (see the fog readiness gate below): whether fog is in
+        // play for this session, whether its pixels are up, and whether the veil
+        // is currently covering the map.
+        get fowPainted() { return fowPainted; },
+        get fowExpected() { return fowExpected; },
+        get fowVeiled() { return !fowReady(); },
+        // Viewport-centre zoom via the REAL clamp path (what triggers drive);
+        // dt is seconds-at-rate, so large values pin against MIN/MAX.
+        zoomBy(direction, dt) { zoomBy(direction, dt); },
+      };
       let latestSnapshot = null;
       let latestPings = null;
       let tileGrid = null;
+      // Height-tint overlay (shared/height-tint.js): per-level tile tints
+      // relative to the local player's height level. null until TileGrid lands.
+      let heightTint = null;
+      let heightLevel = 0;
       // Fog-of-war hover gate. Built from UI.Map.FowGrid (see shared/fow-lookup.js).
       // null = no fog data yet → fail open (never suppress the hover panel).
+      //
+      // fowGridRaw holds the last payload; fowGrid is the built lookup, made on first
+      // read after a payload arrives and cached until the next one. Building eagerly in
+      // the message handler cost a full walk of every explored row per fog regen, all
+      // session, whether or not the map was open — see the UI.Map.FowGrid handler.
+      let fowGridRaw = null;
       let fowGrid = null;
+      // Set by disableFogGate() so a test's fail-open override isn't undone by the
+      // next lazy rebuild.
+      let fowGridSuppressed = false;
+      function getFowGrid() {
+        if (fowGridSuppressed) return null;
+        if (!fowGrid && fowGridRaw && window.TSICFow) {
+          fowGrid = window.TSICFow.build(fowGridRaw);
+        }
+        return fowGrid;
+      }
       let latestPlayers = [];
+
+      // ---- fog readiness gate --------------------------------------
+      // The basemap must NEVER paint before the fog overlay. They are two
+      // independent fetches with no ordering guarantee, and the basemap wins for
+      // two reasons: (1) #world-tex declares its src in the template, so the
+      // request is issued the moment the overlay HTML is inserted, while the fog
+      // request is only issued when the sticky UI.Map.Fow handler runs at the END
+      // of mount(); (2) the 'fow' runtime source only exists once the first FOW
+      // texture has been generated, so early on it can 404 while the basemap —
+      // baked during worldgen — already resolves. Result: opening the map showed
+      // a fully-revealed world for a beat, exposing unexplored ground. Until real
+      // fog pixels are on screen, #fow-veil covers every layer with the same
+      // opaque black the fog paints over unexplored.
+      //
+      // The gate fails CLOSED while fog status is unknown: not-yet-known is the
+      // same risk as not-yet-loaded. It opens on exactly four conditions —
+      //   1. fog pixels are painted (the normal case, well under a frame or two)
+      //   2. the fog overlay is hidden by the SetFogOfWarVisible cheat
+      //   3. the grace window expired with no fog broadcast at all → fog is off
+      //      for this session (worldgen disabled / dev map), so a fog-less world
+      //      never sits behind a black square forever
+      //   4. the fetch ladder gave up → fog is broken; a permanently black map
+      //      would be worse than an unfogged one (logged loudly)
+      // Fog counts as "in play" once a UI.Map.Fow / UI.Map.FowGrid broadcast has
+      // been seen; both are sticky, so a late mount replays the last one
+      // synchronously and condition 3 never fires in a real fogged session.
+      const FOW_ASSUME_OFF_MS = 3000;
+      const FOW_RETRY_MS = 750;
+      const FOW_MAX_RETRIES = 6;
+      let fowExpected = false;      // a fog broadcast has been seen
+      let fowPainted = false;       // fog pixels are in the #fow-tex canvas
+      let fowGraceExpired = false;  // grace window elapsed (see condition 3)
+      let fowFetchGaveUp = false;   // retry ladder exhausted (see condition 4)
+      let fowGateOverridden = false; // test seam (__tsicMap.disableFogGate)
+
+      // ---- teleport picker (cheat menu) ----------------------------
+      // Opened as UI.Screen.Changed {Name:'Map', ParamsJson:'{"mode":"teleport"}'}.
+      // Fog is revealed for the VIEW only — no HideFOW is run, so the session's
+      // real fog grid and the save are untouched.
+      let teleportMode = false;
+      let teleportLayer = 'Floor';
+      // 0 = whoever opened the picker, resolved server-side. A literal 1 is index 0 of
+      // the server's player array, so on a client it would teleport the host instead.
+      let teleportPlayer = 0;
+
+      function setTeleportMode(on, playerNum) {
+        teleportMode = !!on;
+        const picked = parseInt(playerNum, 10);
+        teleportPlayer = Number.isFinite(picked) && picked > 0 ? picked : 0;
+        const bar = qs('#tp-bar');
+        if (bar) bar.style.display = teleportMode ? 'flex' : 'none';
+        const vpEl = qs('#map-viewport');
+        if (vpEl) vpEl.classList.toggle('is-teleport', teleportMode);
+        // The teleport bar changes the viewport's height; refresh the cached size.
+        measureViewport();
+        // Revealing is a render-side override: the gate opens, the fog canvas
+        // hides, and the marker fog test short-circuits (see iconVisibleInFog).
+        fowGateOverridden = teleportMode;
+        const fowTex = qs('#fow-tex');
+        if (fowTex) fowTex.style.visibility = teleportMode ? 'hidden' : '';
+        applyFowGate();
+        if (teleportMode) selectTeleportLayer(teleportLayer);
+        rerenderSoon();
+      }
+
+      function selectTeleportLayer(layer) {
+        teleportLayer = layer;
+        root.querySelectorAll('#tp-bar .tp-layer').forEach((b) => {
+          b.classList.toggle('is-active', b.getAttribute('data-layer') === layer);
+        });
+      }
+
+      // Tile-snap and hand the tile indices to C++; the cheat owns the world
+      // position so the tile centre and layer Z are computed in one place.
+      function teleportToPoint(wx, wy) {
+        const t = tileAt(wx, wy);
+        if (!t) return;
+        if (teleportLayer === 'Sky' && !t.hasSky) { flashTeleportRefusal('no sky layer on that tile'); return; }
+        if (teleportLayer === 'Underground' && !t.hasUnderground) { flashTeleportRefusal('no underground on that tile'); return; }
+        ctx.publish('UI.Cmd.Cheat.Execute', {
+          Command: 'TeleportToTileLayer ' + teleportPlayer + ' ' + t.east + ' ' + t.north + ' ' + teleportLayer,
+        });
+        if (window.tsic && window.tsic.playSound) window.tsic.playSound('Map.Ping', 0.35);
+      }
+
+      function flashTeleportRefusal(why) {
+        const note = qs('#tp-note');
+        if (!note) return;
+        note.textContent = why;
+        note.classList.add('is-warn');
+        setTimeout(() => { note.classList.remove('is-warn'); note.textContent = TP_HINT; }, 1600);
+      }
+      const TP_HINT = 'Click a tile to teleport there.';
+      let fowStale = false;         // fog changed while the screen was hidden
+      let fowGen = 0;               // stale-guard for out-of-order fetches
+      let fowInFlight = false;
+      let fowRetries = 0;
+      let fowRetryTimer = null;
+
+      // Blit the decoded fog PNG into the #fow-tex canvas. A canvas (not an
+      // <img>) is the fog layer precisely because assigning a new .src to a live
+      // <img> clears its pixels for the whole fetch+decode — every fog regen
+      // would blank the fog layer for a few frames and flash the whole
+      // unexplored world (the same trap hud-minimap.js documents in reloadFow).
+      function paintFow(img) {
+        const cvs = qs('#fow-tex');
+        if (!cvs) return false;
+        if (cvs.width !== img.naturalWidth || cvs.height !== img.naturalHeight) {
+          cvs.width = img.naturalWidth;
+          cvs.height = img.naturalHeight;
+        }
+        const c2d = cvs.getContext('2d');
+        if (!c2d) return false;
+        c2d.clearRect(0, 0, cvs.width, cvs.height);
+        c2d.drawImage(img, 0, 0);
+        fowPainted = true;
+        applyFowGate();
+        return true;
+      }
+
+      // Fetch the current fog texture off-DOM and blit it once decoded. The
+      // runtime image source only resolves after the C++ side registers it, so a
+      // failed fetch retries a few times instead of leaving the map veiled.
+      function reloadFow() {
+        if (fowRetryTimer) { clearTimeout(fowRetryTimer); fowRetryTimer = null; }
+        fowStale = false;
+        fowInFlight = true;
+        const gen = ++fowGen;
+        const next = new Image();
+        // A zero-sized "successful" load is an empty response from the scheme
+        // handler (the runtime source exists but has no pixels yet) — treat it
+        // as a failure so the retry ladder keeps trying instead of latching a
+        // blank fog layer over a revealed basemap.
+        const onFail = () => {
+          if (gen !== fowGen) return;
+          fowInFlight = false;
+          if (fowRetries++ >= FOW_MAX_RETRIES) {
+            console.warn('[map] fog texture never loaded — revealing basemap unfogged');
+            fowFetchGaveUp = true;
+            applyFowGate();
+            return;
+          }
+          fowRetryTimer = setTimeout(() => { fowRetryTimer = null; reloadFow(); }, FOW_RETRY_MS);
+        };
+        next.onload = () => {
+          if (gen !== fowGen) return;   // a newer refresh already won
+          if (!next.naturalWidth || !next.naturalHeight || !paintFow(next)) { onFail(); return; }
+          fowInFlight = false;
+          fowRetries = 0;
+        };
+        next.onerror = onFail;
+        next.src = TSIC.runtimeImgUrl('fow') + '?t=' + Date.now();
+      }
+
+      // Fog refreshes are only worth fetching while the map is on screen: the
+      // scheme handler re-encodes the runtime texture to PNG on every fetch, and
+      // UI.Map.Fow fires on every regen (constantly while walking). Coalesce to
+      // one refresh on show. Previously-painted fog stays up meanwhile — only
+      // exploration adds revealed cells, so a stale copy reveals LESS than the
+      // truth and cannot leak. (ClearFogOfWar is the one exception: a cheat that
+      // shrinks the revealed area shows the older, MORE revealed fog until the
+      // refresh lands a fraction of a second later.)
+      function onFowBroadcast() {
+        fowExpected = true;
+        if (!ctx.isVisible()) {
+          fowStale = true;
+          applyFowGate();
+          return;
+        }
+        reloadFow();
+      }
+
+      function fowReady() {
+        if (fowGateOverridden || fowPainted || fowFetchGaveUp) return true;
+        // The fog overlay hidden by the SetFogOfWarVisible cheat has nothing to
+        // wait for. Checked via the same style.display flag fowOverlayVisible()
+        // reads, but tolerant of being called before the DOM query resolves.
+        const cvs = qs('#fow-tex');
+        if (cvs && cvs.style.display === 'none') return true;
+        // Unknown (no broadcast yet) stays closed until the grace window ends.
+        // A broadcast arriving later re-closes the gate until pixels land.
+        return fowGraceExpired && !fowExpected;
+      }
+
+      function applyFowGate() {
+        const veil = qs('#fow-veil');
+        if (!veil) return;
+        veil.style.display = fowReady() ? 'none' : 'block';
+      }
 
       function svgEl(tag, attrs) {
         const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
@@ -247,24 +563,37 @@
         qs('#map-content').style.transform =
           `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
       }
-      function updateMinScale() {
+      // Cached viewport size. clientWidth/Height on #map-viewport are layout
+      // reads: interleaved with the SVG writes in rerender() they forced a
+      // synchronous layout of the world-sized SVG on every zoom frame (the
+      // single biggest zoom cost when profiled). The size only changes on
+      // resize, on show, and when the teleport bar toggles — measure there,
+      // read the cache everywhere else.
+      let vpW = 0, vpH = 0;
+      function measureViewport() {
         const vp = qs('#map-viewport');
-        if (!bounds.hasData || !vp) return;
+        if (!vp) return;
+        vpW = vp.clientWidth;
+        vpH = vp.clientHeight;
+      }
+      function updateMinScale() {
+        if (!bounds.hasData) return;
+        if (!(vpW > 0)) measureViewport();
         const widthCm  = (bounds.maxY - bounds.minY) * PX_PER_CM;
         const heightCm = (bounds.maxX - bounds.minX) * PX_PER_CM;
         if (widthCm <= 0 || heightCm <= 0) return;
-        const sx = vp.clientWidth  / widthCm;
-        const sy = vp.clientHeight / heightCm;
+        const sx = vpW / widthCm;
+        const sy = vpH / heightCm;
         MIN_SCALE = Math.min(sx, sy) * 0.95;
       }
       function fitToBounds() {
-        const vp = qs('#map-viewport');
-        if (!bounds.hasData || !vp) return;
+        if (!bounds.hasData) return;
+        measureViewport();   // fit is rare and layout-sensitive: measure fresh
         const widthCm  = (bounds.maxY - bounds.minY) * PX_PER_CM;
         const heightCm = (bounds.maxX - bounds.minX) * PX_PER_CM;
         if (widthCm <= 0 || heightCm <= 0) return;
-        const sx = vp.clientWidth  / widthCm;
-        const sy = vp.clientHeight / heightCm;
+        const sx = vpW / widthCm;
+        const sy = vpH / heightCm;
         const fitScale = Math.min(sx, sy) * 0.95;
         MIN_SCALE = fitScale;
         state.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, fitScale * DEFAULT_ZOOM_MULT));
@@ -272,15 +601,43 @@
         const me = latestSnapshot && (latestSnapshot.Players || [])[0];
         if (me && me.Position) {
           const loc = worldToLocal(me.Position.X || 0, me.Position.Y || 0);
-          state.panX = vp.clientWidth  / 2 - loc.x * state.scale;
-          state.panY = vp.clientHeight / 2 - loc.y * state.scale;
+          state.panX = vpW / 2 - loc.x * state.scale;
+          state.panY = vpH / 2 - loc.y * state.scale;
         } else {
-          state.panX = (vp.clientWidth  - widthCm  * state.scale) / 2;
-          state.panY = (vp.clientHeight - heightCm * state.scale) / 2;
+          state.panX = (vpW - widthCm  * state.scale) / 2;
+          state.panY = (vpH - heightCm * state.scale) / 2;
         }
         applyTransform();
         if (latestSnapshot) rerender();
       }
+      // World-sized layer dimensions from the last setBounds(). Kept so a layer that
+      // joins the stack later (the adopted wall canvas) can be sized on arrival
+      // instead of waiting for the next bounds change, which may never come.
+      let layerW = 0;
+      let layerH = 0;
+      // Bumped when bounds actually change; cached world->local products
+      // (rendered pings) key off it.
+      let boundsEpoch = 0;
+      function sizeLayer(el) {
+        if (!el || !(layerW > 0)) return;
+        el.style.width  = `${layerW}px`;
+        el.style.height = `${layerH}px`;
+      }
+
+      // The furniture-wall overlay canvas is owned by shared/wall-patches.js and
+      // shared with the minimap, so it is ADOPTED into the layer stack rather than
+      // recreated here — one world-resolution canvas per session, not two.
+      if (window.TSICWallPatches) {
+        window.TSICWallPatches.onCanvas((cvs) => {
+          cvs.id = 'wall-tex';
+          const world = qs('#world-tex');
+          if (world && world.parentNode) {
+            world.parentNode.insertBefore(cvs, world.nextSibling);
+          }
+          sizeLayer(cvs);
+        });
+      }
+
       function setBounds(minB, maxB) {
         const minX = minB && typeof minB.X === 'number' ? minB.X : 0;
         const minY = minB && typeof minB.Y === 'number' ? minB.Y : 0;
@@ -289,6 +646,7 @@
         const changed = bounds.minX !== minX || bounds.minY !== minY
                      || bounds.maxX !== maxX || bounds.maxY !== maxY;
         bounds = { minX, minY, maxX, maxY, hasData: (maxX - minX) > 0 && (maxY - minY) > 0 };
+        if (changed) boundsEpoch++;
         if (changed && bounds.hasData) {
           const c = qs('#map-content');
           const w = (bounds.maxY - bounds.minY) * PX_PER_CM;
@@ -297,11 +655,10 @@
           c.style.padding = `${pad}px`;
           c.style.width  = `${w}px`;
           c.style.height = `${h}px`;
-          for (const id of ['world-tex', 'fow-tex', 'debug-height-tex', 'debug-maze-tex', 'debug-all-tex']) {
-            const img = qs('#' + id);
-            if (!img) continue;
-            img.style.width  = `${w}px`;
-            img.style.height = `${h}px`;
+          layerW = w;
+          layerH = h;
+          for (const id of ['world-tex', 'wall-tex', 'height-tint-tex', 'fow-tex', 'debug-height-tex', 'debug-maze-tex', 'debug-all-tex']) {
+            sizeLayer(qs('#' + id));
           }
           const svg = qs('#overlay');
           if (svg) {
@@ -336,12 +693,29 @@
         return (typeof col === 'string' && col.length >= 4) ? col : null;
       }
 
+      // Fill colour for a landmark marker: the same MapColor its POI pixels use
+      // on the map texture. Landmark labels and the TileGrid palette names both
+      // derive from the biome's DisplayName, so match by name first; fall back
+      // to sampling the tile under the icon (the icon sits on its POI cluster).
+      function landmarkColor(ic, wx, wy) {
+        if (tileGrid && Array.isArray(tileGrid.palette) && Array.isArray(tileGrid.colors)) {
+          const idx = tileGrid.palette.indexOf(String(ic.Label || ''));
+          const col = idx >= 0 ? tileGrid.colors[idx] : null;
+          if (typeof col === 'string' && col.length >= 4) return col;
+        }
+        return biomeColorAt(wx, wy);
+      }
+
       // Fog gate for markers: hide icons over unexplored fog, mirroring the hover
       // panel. Fail-open when there's no fog data or the fog overlay is hidden.
       function iconVisibleInFog(wx, wy) {
         const TF = window.TSICFow;
-        if (!fowGrid || !TF || !fowOverlayVisible()) return true;
-        return TF.exploredAt(fowGrid, wx, wy);
+        // The picker exists to show you everywhere you could go, so every POI is
+        // visible regardless of exploration.
+        if (teleportMode) return true;
+        const grid = getFowGrid();
+        if (!grid || !TF || !fowOverlayVisible()) return true;
+        return TF.exploredAt(grid, wx, wy);
       }
 
       // --- marker shape geometry (points centred on cx,cy) ------------
@@ -371,12 +745,29 @@
         ];
         return p.map((xy) => (cx + xy[0]).toFixed(2) + ',' + (cy + xy[1]).toFixed(2)).join(' ');
       }
+      // Landmarks are POI-biome markers: hash the POI's label onto a shape set
+      // so each POI type keeps its own silhouette. An empty label hashes to 0
+      // (circle), which is also what the legend glyph shows for the category.
+      function landmarkShape(cx, cy, r, label) {
+        const s = String(label || '');
+        let h = 0;
+        for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+        switch (Math.abs(h) % 7) {
+          case 0: return svgEl('circle', { cx: cx, cy: cy, r: r });
+          case 1: return svgEl('polygon', { points: regularPoints(cx, cy, r * 1.2, 3, -90) });
+          case 2: return svgEl('polygon', { points: regularPoints(cx, cy, r * 1.2, 3, 90) });
+          case 3: return svgEl('polygon', { points: regularPoints(cx, cy, r * 1.1, 5, -90) });
+          case 4: return svgEl('polygon', { points: regularPoints(cx, cy, r * 1.05, 6, 0) });
+          case 5: return svgEl('polygon', { points: starPoints(cx, cy, r * 1.3, r * 0.6, 6, -90) });
+          default: return svgEl('polygon', { points: starPoints(cx, cy, r * 1.3, r * 0.55, 4, -90) });
+        }
+      }
       // A distinct shape per icon category so type reads without relying on colour.
-      // spawn = star, teleporter = diamond, deathbox = cross, landmark = circle,
-      // other = square.
-      function markerShape(category, cx, cy, r) {
+      // spawn = star, teleporter = diamond, deathbox = cross, other = square;
+      // landmarks get a per-POI shape from their label.
+      function markerShape(category, cx, cy, r, label) {
         const c = (category || '').toLowerCase();
-        if (c === 'landmark') return svgEl('circle', { cx: cx, cy: cy, r: r });
+        if (c === 'landmark') return landmarkShape(cx, cy, r, label);
         if (c === 'spawn' || c === 'spawnpoint') return svgEl('polygon', { points: starPoints(cx, cy, r * 1.25, r * 0.55, 5, -90) });
         if (c === 'fasttravel' || c === 'teleporter') return svgEl('polygon', { points: regularPoints(cx, cy, r * 1.2, 4, -90) });
         if (c === 'deathbox') return svgEl('polygon', { points: crossPoints(cx, cy, r * 1.15, r * 0.38) });
@@ -424,9 +815,34 @@
         }
       }
 
-      const CLUSTER_SCREEN_PX = 32;
+      // Clustering is per POI type: only markers that share a category (and,
+      // for landmarks, the same POI label) merge into one group marker, so the
+      // group can honestly wear its members' shape and colour. The radius is
+      // wider than the old mixed-type value (32) because worldgen spreads each
+      // POI type out — same-type neighbours sit farther apart than mixed ones.
+      const CLUSTER_SCREEN_PX = 48;
+      function iconTypeKey(ic) {
+        const c = (ic.Category || '').toLowerCase();
+        return c === 'landmark' ? c + '|' + String(ic.Label || '') : c;
+      }
       function clusterIcons(icons) {
         if (state.scale >= 0.5) return { clusters: [], singletons: icons || [] };
+        const byType = new Map();
+        for (const ic of icons || []) {
+          const key = iconTypeKey(ic);
+          if (!byType.has(key)) byType.set(key, []);
+          byType.get(key).push(ic);
+        }
+        const clusters = [];
+        const singletons = [];
+        for (const bucket of byType.values()) {
+          const part = clusterIconBucket(bucket);
+          clusters.push(...part.clusters);
+          singletons.push(...part.singletons);
+        }
+        return { clusters, singletons };
+      }
+      function clusterIconBucket(icons) {
         const radiusLocal = CLUSTER_SCREEN_PX / state.scale;
         const remaining = (icons || []).slice();
         const clusters = [];
@@ -453,16 +869,101 @@
               cx += (g.Position && g.Position.X) || 0;
               cy += (g.Position && g.Position.Y) || 0;
             }
-            clusters.push({ x: cx / group.length, y: cy / group.length, count: group.length });
+            cx /= group.length;
+            cy /= group.length;
+            // Represent the cluster with its centre-most REAL member (not the
+            // centroid) so zooming in on the group marker lands on an actual POI.
+            let rep = group[0];
+            let best = Infinity;
+            for (const g of group) {
+              const d = Math.hypot(((g.Position && g.Position.X) || 0) - cx,
+                                   ((g.Position && g.Position.Y) || 0) - cy);
+              if (d < best) { best = d; rep = g; }
+            }
+            clusters.push({ rep: rep, count: group.length });
           }
         }
         return { clusters, singletons };
       }
 
+      // Keyed marker DOM. renderIcons used to tear down and recreate every SVG
+      // marker on every call — and it is called on every snapshot broadcast,
+      // which is continuous while the map is open. Markers keep the original
+      // flat shape-with-baked-geometry form (position and 1/scale baked into
+      // the points, class on the shape — the form the Gauntlet map node's
+      // getBBox contract was written against), but each is registered under a
+      // key of (icon, position, scale, bounds). A render where nothing changed
+      // — every snapshot broadcast while the player reads the map — matches
+      // every key and writes NOTHING to the DOM; a zoom or bounds change drops
+      // the layer wholesale and rebuilds it exactly as the old code did.
+      //
+      // Negative results, all measured on this screen at 250/500 icons:
+      // - Two-layer markers (outer translate g + inner counter-scale g) with
+      //   in-place transform updates on zoom: won at 250 icons, LOST ~2x at
+      //   500 — scattered SVG transform invalidations across a retained tree
+      //   beat one bulk rebuild, and the doubled node count taxed every pass.
+      // - The same structure rebuilt wholesale on zoom: worst of all (5 nodes
+      //   per marker rebuilt vs the old 2-3).
+      // - A shared CSS custom property (scale(var(--mi)), one setProperty per
+      //   zoom tick) was ~3x MORE style time than attribute writes — even with
+      //   a dozen var users, because changing an inherited custom property
+      //   invalidates style for the whole subtree it is set on.
+      const iconDom = new Map();   // key -> { els: [nodes], shape, fill }
+      let iconsRenderedScale = ''; // geometry bakes the scale: change = rebuild
+      let iconsRenderedEpoch = -1; // geometry bakes the bounds too
+      // Zoom-compensation groups OUTSIDE #g-icons (ping crosses, corner coords):
+      // rebuilt rarely, but their scale must track every zoom change. Each
+      // rebuild repopulates its own list; renderIcons sweeps both on zoom.
+      let pingScaleGs = [];
+      let coordScaleGs = [];
+      let auxScaleApplied = '';
+      function newAuxScaleGroup(list) {
+        const inv = state.scale > 0 ? (1 / state.scale) : 1;
+        const sg = svgEl('g', { transform: `scale(${inv.toFixed(5)})` });
+        list.push(sg);
+        return sg;
+      }
+      function clearIconDom() {
+        iconDom.clear();
+        iconsRenderedScale = '';
+        iconsRenderedEpoch = -1;
+        const g = qs('#g-icons');
+        if (g) g.textContent = '';
+      }
+      // Empty-state reset for every diffed overlay group: dropping the DOM
+      // without also dropping the "already rendered" records would leave the
+      // caches claiming content that is no longer there.
+      function clearOverlaySvg() {
+        clearIconDom();
+        const pingsG = qs('#g-pings');
+        if (pingsG) pingsG.textContent = '';
+        pingsRendered = null;
+        pingsRenderedEpoch = -1;
+        pingScaleGs = [];
+        const coordsG = qs('#g-coords');
+        if (coordsG) coordsG.textContent = '';
+        coordsKey = '';
+        coordScaleGs = [];
+      }
       function renderIcons(icons) {
         const g = qs('#g-icons');
-        g.textContent = '';
         const inv = state.scale > 0 ? (1 / state.scale) : 1;
+        const scaleStr = inv.toFixed(5);
+        if (scaleStr !== iconsRenderedScale || boundsEpoch !== iconsRenderedEpoch) {
+          // Zoom or bounds changed: marker geometry bakes both, so drop the
+          // layer and rebuild below (one bulk pass — see note above).
+          clearIconDom();
+          iconsRenderedScale = scaleStr;
+          iconsRenderedEpoch = boundsEpoch;
+        }
+        if (scaleStr !== auxScaleApplied) {
+          auxScaleApplied = scaleStr;
+          // Ping/coord scale groups follow the same zoom compensation; they are
+          // a dozen nodes, so in-place attribute writes are the cheap option.
+          const auxStr = `scale(${scaleStr})`;
+          for (const el of pingScaleGs) el.setAttribute('transform', auxStr);
+          for (const el of coordScaleGs) el.setAttribute('transform', auxStr);
+        }
         const r = ICON_PX * inv;
         const sw = 1.5 * inv;
         // Hide markers sitting on unexplored fog before clustering, so cluster
@@ -470,53 +971,103 @@
         const visible = (icons || []).filter((ic) =>
           iconVisibleInFog((ic.Position && ic.Position.X) || 0, (ic.Position && ic.Position.Y) || 0));
         const { clusters, singletons } = clusterIcons(visible);
-        for (const ic of singletons) {
+
+        // Keys carry everything the baked geometry depends on beyond scale and
+        // bounds (handled above): identity and world position. Cluster keys add
+        // the count so a membership change rebuilds the badge.
+        const posKey = (ic) => {
+          const p = ic.Position || {};
+          return (ic.IconId || iconTypeKey(ic)) + '|' + (p.X || 0) + ',' + (p.Y || 0);
+        };
+        const desired = new Map();   // key -> { ic, cluster? }
+        for (const ic of singletons) desired.set('s|' + posKey(ic), { ic });
+        for (const cl of clusters) desired.set('c|' + posKey(cl.rep) + '|' + cl.count, { ic: cl.rep, cluster: cl });
+
+        for (const [key, entry] of iconDom) {
+          if (!desired.has(key)) {
+            for (const el of entry.els) el.remove();
+            iconDom.delete(key);
+          }
+        }
+
+        // Marker for one icon at its world position: category/POI shape, dark
+        // outline, and the POI's map-pixel colour as fill for landmarks. The
+        // fill goes on style (not the attribute) so it wins over the .ic-land
+        // CSS fallback — presentation attributes lose to any CSS rule.
+        function buildMarker(ic, baseClass) {
           const wx = (ic.Position && ic.Position.X) || 0;
           const wy = (ic.Position && ic.Position.Y) || 0;
           const pos = worldToLocal(wx, wy);
-          const c = (ic.Category || '').toLowerCase();
-          const isClickable = c === 'fasttravel' && (ic.EntityId | 0) > 0;
-          const shape = markerShape(ic.Category, pos.x, pos.y, r);
-          shape.setAttribute('class', `ic ${categoryClass(ic.Category)}${isClickable ? ' clickable' : ''}`);
+          const shape = markerShape(ic.Category, pos.x, pos.y, r, ic.Label);
+          shape.setAttribute('class', `${baseClass} ${categoryClass(ic.Category)}`);
           shape.setAttribute('stroke', '#231f18');
           shape.setAttribute('stroke-width', sw);
-          // Landmarks are POI-biome markers — tint them with the biome's map colour.
-          if (c === 'landmark') {
-            const biomeCol = biomeColorAt(wx, wy);
-            if (biomeCol) shape.setAttribute('fill', biomeCol);
+          let fill = '';
+          if ((ic.Category || '').toLowerCase() === 'landmark') {
+            fill = landmarkColor(ic, wx, wy) || '';
+            if (fill) shape.style.fill = fill;
           }
-          if (isClickable) {
-            shape.setAttribute('data-entity-id', String(ic.EntityId | 0));
-            shape.addEventListener('click', (ev) => {
-              ev.stopPropagation();
-              ctx.publish('UI.Cmd.Teleporter.Travel', {
-                FromId: 0, ToId: parseInt(shape.dataset.entityId, 10) || 0,
-              });
-            });
-          }
-          const title = svgEl('title');
-          title.textContent = ic.Label || ic.Category || ic.IconId || '';
-          shape.appendChild(title);
-          g.appendChild(shape);
+          return { shape, pos, fill };
         }
-        const clusterR = ICON_PX * 1.5 * inv;
-        for (const cl of clusters) {
-          const pos = worldToLocal(cl.x, cl.y);
-          const circle = svgEl('circle', {
-            cx: pos.x, cy: pos.y, r: clusterR,
-            class: 'ic-cluster', 'stroke-width': sw,
-          });
-          const text = svgEl('text', {
-            x: pos.x, y: pos.y + 5 * inv,
-            'text-anchor': 'middle', class: 'ic-cluster-text',
-            'font-size': 14 * inv,
-          });
-          text.textContent = String(cl.count);
-          const title = svgEl('title');
-          title.textContent = `${cl.count} POIs (zoom in to expand)`;
-          g.appendChild(circle);
-          g.appendChild(text);
-          circle.appendChild(title);
+
+        for (const [key, d] of desired) {
+          const ic = d.ic;
+          let entry = iconDom.get(key);
+          if (!entry) {
+            if (d.cluster) {
+              // Clusters draw as their centre-most member's real marker
+              // (truthful position, shape, and POI colour — zooming in on the
+              // group lands on an actual POI) plus a count badge.
+              const { shape, pos, fill } = buildMarker(ic, 'ic-cluster-rep');
+              const title = svgEl('title');
+              const repName = ic.Label || ic.Category || ic.IconId || '';
+              title.textContent = `${repName || 'POIs'} ×${d.cluster.count} (zoom in to expand)`;
+              shape.appendChild(title);
+              const badgeR = ICON_PX * 0.9 * inv;
+              const badgeOff = ICON_PX * 1.5 * inv;
+              const badge = svgEl('circle', {
+                cx: pos.x + badgeOff, cy: pos.y - badgeOff, r: badgeR,
+                class: 'ic-cluster', 'stroke-width': sw,
+              });
+              const text = svgEl('text', {
+                x: pos.x + badgeOff, y: pos.y - badgeOff + 3.5 * inv,
+                'text-anchor': 'middle', class: 'ic-cluster-text',
+                'font-size': 10 * inv,
+              });
+              text.textContent = String(d.cluster.count);
+              g.appendChild(shape);
+              g.appendChild(badge);
+              g.appendChild(text);
+              entry = { els: [shape, badge, text], shape, fill };
+            } else {
+              const c = (ic.Category || '').toLowerCase();
+              const isClickable = c === 'fasttravel' && (ic.EntityId | 0) > 0;
+              const { shape, fill } = buildMarker(ic, `ic${isClickable ? ' clickable' : ''}`);
+              if (isClickable) {
+                shape.setAttribute('data-entity-id', String(ic.EntityId | 0));
+                shape.addEventListener('click', (ev) => {
+                  ev.stopPropagation();
+                  ctx.publish('UI.Cmd.Teleporter.Travel', {
+                    FromId: 0, ToId: parseInt(shape.dataset.entityId, 10) || 0,
+                  });
+                });
+              }
+              const title = svgEl('title');
+              title.textContent = ic.Label || ic.Category || ic.IconId || '';
+              shape.appendChild(title);
+              g.appendChild(shape);
+              entry = { els: [shape], shape, fill };
+            }
+            iconDom.set(key, entry);
+          } else if ((ic.Category || '').toLowerCase() === 'landmark') {
+            // Surviving landmark: its POI colour can arrive later (TileGrid).
+            // Compared via our own record, not style.fill — the browser
+            // normalises colour strings, which would defeat the equality check.
+            const wx = (ic.Position && ic.Position.X) || 0;
+            const wy = (ic.Position && ic.Position.Y) || 0;
+            const col = landmarkColor(ic, wx, wy) || '';
+            if (entry.fill !== col) { entry.fill = col; entry.shape.style.fill = col; }
+          }
         }
       }
 
@@ -550,9 +1101,9 @@
       function redrawPlayerCanvas() {
         const cvs = qs('#player-canvas');
         if (!cvs) return;
-        const vp = qs('#map-viewport');
-        const w = vp.clientWidth;
-        const h = vp.clientHeight;
+        if (!(vpW > 0)) measureViewport();
+        const w = vpW;
+        const h = vpH;
         if (cvs.width !== w || cvs.height !== h) { cvs.width = w; cvs.height = h; }
         const c = cvs.getContext('2d');
         c.clearRect(0, 0, w, h);
@@ -569,21 +1120,43 @@
           else        drawPlayerDot(c, s.x, s.y, color, 5);
         }
       }
-      function repositionPlayers() { redrawPlayerCanvas(); }
+      // Pan input (mouse drag, gamepad axis) can fire faster than the frame
+      // rate; the canvas can only be presented once per frame, so coalesce the
+      // clear+redraw to rAF. Data updates (renderPlayers) stay synchronous —
+      // tests read the canvas right after injecting a snapshot.
+      let playersRedrawQueued = false;
+      function repositionPlayers() {
+        if (playersRedrawQueued) return;
+        playersRedrawQueued = true;
+        requestAnimationFrame(() => {
+          playersRedrawQueued = false;
+          if (ctx.isVisible()) redrawPlayerCanvas();
+        });
+      }
       function renderPlayers(players) { latestPlayers = players || []; redrawPlayerCanvas(); }
 
+      // Fixed-size cross inside a --mi scale group: the output no longer depends
+      // on zoom (the shared custom property handles size), so rebuild only when
+      // the ping set itself changes.
+      let pingsRendered = null;
+      let pingsRenderedEpoch = -1;
       function renderPings(pings) {
+        if (pings === pingsRendered && pingsRenderedEpoch === boundsEpoch) return;
+        pingsRendered = pings;
+        pingsRenderedEpoch = boundsEpoch;
         const g = qs('#g-pings');
         g.textContent = '';
-        const inv = state.scale > 0 ? (1 / state.scale) : 1;
-        const half = PING_HALF_PX * inv;
-        const sw = PING_STROKE_PX * inv;
+        pingScaleGs = [];
+        const half = PING_HALF_PX;
+        const sw = PING_STROKE_PX;
         for (const p of (pings || [])) {
           const loc = p.Location || {};
           const pos = worldToLocal(loc.X || 0, loc.Y || 0);
           const cross = svgEl('g', { transform: `translate(${pos.x},${pos.y})` });
-          cross.appendChild(svgEl('line', { x1: -half, y1: -half, x2:  half, y2:  half, class: 'ping', 'stroke-width': sw }));
-          cross.appendChild(svgEl('line', { x1: -half, y1:  half, x2:  half, y2: -half, class: 'ping', 'stroke-width': sw }));
+          const scaleG = newAuxScaleGroup(pingScaleGs);
+          scaleG.appendChild(svgEl('line', { x1: -half, y1: -half, x2:  half, y2:  half, class: 'ping', 'stroke-width': sw }));
+          scaleG.appendChild(svgEl('line', { x1: -half, y1:  half, x2:  half, y2: -half, class: 'ping', 'stroke-width': sw }));
+          cross.appendChild(scaleG);
           const title = svgEl('title');
           title.textContent = `${p.PingType || 'Ping'} • ${p.OwnerId || ''}`;
           cross.appendChild(title);
@@ -591,27 +1164,43 @@
         }
       }
 
+      // Corner coordinates only change with bounds; rebuilding the four <text>
+      // nodes on every rerender invalidated SVG layout on every snapshot
+      // broadcast for nothing. Zoom-size compensation rides the shared --mi
+      // scale group like the markers, so zoom does not touch these nodes either.
+      let coordsKey = '';
       function renderBoundsCoords() {
         const g = qs('#g-coords');
+        const key = bounds.hasData
+          ? `${bounds.minX},${bounds.minY},${bounds.maxX},${bounds.maxY}`
+          : '';
+        if (key === coordsKey) return;
+        coordsKey = key;
         g.textContent = '';
+        coordScaleGs = [];
         if (!bounds.hasData) return;
-        const inv = state.scale > 0 ? (1 / state.scale) : 1;
-        const inset = 6 * inv;
-        const fs = 11 * inv;
+        const inset = 6;
+        const fs = 11;
         const w = (bounds.maxX - bounds.minX) * PX_PER_CM;
         const h = (bounds.maxY - bounds.minY) * PX_PER_CM;
+        // Anchor a scale group at each corner; the label offsets inside are
+        // fixed pixels, counter-scaled by --mi.
         const corners = [
-          { lx: inset,     ly: inset + fs,  anchor: 'start', wx: bounds.maxX, wy: bounds.minY },
-          { lx: w - inset, ly: inset + fs,  anchor: 'end',   wx: bounds.maxX, wy: bounds.maxY },
-          { lx: inset,     ly: h - inset,   anchor: 'start', wx: bounds.minX, wy: bounds.minY },
-          { lx: w - inset, ly: h - inset,   anchor: 'end',   wx: bounds.minX, wy: bounds.maxY },
+          { cx: 0, cy: 0, lx: inset,  ly: inset + fs, anchor: 'start', wx: bounds.maxX, wy: bounds.minY },
+          { cx: w, cy: 0, lx: -inset, ly: inset + fs, anchor: 'end',   wx: bounds.maxX, wy: bounds.maxY },
+          { cx: 0, cy: h, lx: inset,  ly: -inset,     anchor: 'start', wx: bounds.minX, wy: bounds.minY },
+          { cx: w, cy: h, lx: -inset, ly: -inset,     anchor: 'end',   wx: bounds.minX, wy: bounds.maxY },
         ];
         for (const cc of corners) {
+          const corner = svgEl('g', { transform: `translate(${cc.cx} ${cc.cy})` });
+          const scaleG = newAuxScaleGroup(coordScaleGs);
           const t = svgEl('text', {
             x: cc.lx, y: cc.ly, 'text-anchor': cc.anchor, class: 'bound-coord', 'font-size': fs,
           });
           t.textContent = `${Math.round(cc.wx)}, ${Math.round(cc.wy)}`;
-          g.appendChild(t);
+          scaleG.appendChild(t);
+          corner.appendChild(scaleG);
+          g.appendChild(corner);
         }
       }
 
@@ -670,7 +1259,7 @@
       }
 
       function onTileGrid(p) {
-        if (!p || !p.WorldSize || p.WorldSize <= 0) { tileGrid = null; return; }
+        if (!p || !p.WorldSize || p.WorldSize <= 0) { tileGrid = null; heightTint = null; return; }
         const total = (p.WorldSize | 0) * (p.WorldSize | 0);
         tileGrid = {
           worldSize: p.WorldSize | 0,
@@ -683,9 +1272,40 @@
           colors:  Array.isArray(p.BiomeColors) ? p.BiomeColors : [],
           biomes:  expandRLE(p.BiomeRLE,  total),
           heights: expandRLE(p.HeightRLE, total),
+          // Sky / Underground, for the cheat menu's teleport picker. A world
+          // with no such layers yields zeroes, which reads as "not here" —
+          // which is correct.
+          skyHeights:   expandRLE(p.SkyHeightRLE, total),
+          underHeights: expandRLE(p.UndergroundHeightRLE, total),
+          layerMask:    expandRLE(p.LayerMaskRLE, total),
         };
+        const HT = window.TSICHeightTint;
+        heightTint = HT ? HT.build(p) : null;
+        if (heightTint && HT) HT.prebuild(heightTint);
+        updateHeightTintLayer();
         // Repaint markers so newly-arrived biome colours apply.
         if (ctx.isVisible() && latestSnapshot) rerenderSoon();
+      }
+
+      // Blit the cached tint canvas for the player's current level into the
+      // overlay layer. The display canvas is 1px/tile; CSS stretches it over
+      // the map with pixelated sampling (see setBounds).
+      function updateHeightTintLayer() {
+        const cvs = qs('#height-tint-tex');
+        if (!cvs) return;
+        const HT = window.TSICHeightTint;
+        const src = (heightTint && HT) ? HT.getCanvas(heightTint, heightLevel) : null;
+        if (!src) {
+          if (cvs.width > 0) cvs.getContext('2d').clearRect(0, 0, cvs.width, cvs.height);
+          return;
+        }
+        if (cvs.width !== src.width || cvs.height !== src.height) {
+          cvs.width = src.width;
+          cvs.height = src.height;
+        }
+        const c2d = cvs.getContext('2d');
+        c2d.clearRect(0, 0, cvs.width, cvs.height);
+        c2d.drawImage(src, 0, 0);
       }
 
       function tileAt(wx, wy) {
@@ -698,7 +1318,16 @@
         const biomeName = (paletteIdx >= 0 && paletteIdx < tileGrid.palette.length)
           ? tileGrid.palette[paletteIdx]
           : '';
-        return { index: idx, north: N, east: E, biome: biomeName, height: tileGrid.heights[idx] | 0 };
+        const mask = tileGrid.layerMask[idx] | 0;
+        return {
+          index: idx, north: N, east: E, biome: biomeName,
+          height: tileGrid.heights[idx] | 0,
+          // bit0 = Sky walkable, bit1 = Underground walkable (FScpUIMapTileGrid).
+          hasSky: (mask & 1) !== 0,
+          hasUnderground: (mask & 2) !== 0,
+          skyHeight: tileGrid.skyHeights[idx] | 0,
+          underHeight: tileGrid.underHeights[idx] | 0,
+        };
       }
 
       function humanizeBiome(name) {
@@ -713,8 +1342,26 @@
         const biome = humanizeBiome(t.biome);
         if (biome) lines.push(biome);
         lines.push('Floor ' + t.height);
+        // In teleport mode the other layers are the whole point, so spell out
+        // whether they exist here and how far each is offset.
+        if (teleportMode) {
+          lines.push(t.hasSky ? ('Sky +' + t.skyHeight) : 'Sky —');
+          lines.push(t.hasUnderground ? ('Underground -' + t.underHeight) : 'Underground —');
+          lines.push('tile E' + t.east + ' N' + t.north);
+        }
         lines.push('(' + Math.round(wx) + ', ' + Math.round(wy) + ')');
         return lines.join('\n');
+      }
+
+      // PlayerState names come through blank in a local/PIE session, and the
+      // unique-id fallback is a bare net-id number ("0") — neither reads as a
+      // name, so drop through to the in-fiction default rather than show digits.
+      function playerLabel(e) {
+        const name = String((e && e.Name) || '').trim();
+        if (name && !/^\d+$/.test(name)) return name;
+        const id = String((e && e.PlayerId) || '').trim();
+        if (id && !/^\d+$/.test(id)) return id;
+        return 'Customer';
       }
 
       function describePick(pick) {
@@ -723,7 +1370,10 @@
         if (pick.type === 'player') {
           const x = Math.round((e.Position && e.Position.X) || 0);
           const y = Math.round((e.Position && e.Position.Y) || 0);
-          return `${e.Name || e.PlayerId || 'Player'} • (${x}, ${y})`;
+          // Name the biome they're standing on, same as hovering bare ground.
+          const t = tileAt(x, y);
+          const biome = t ? humanizeBiome(t.biome) : '';
+          return [playerLabel(e), biome, `(${x}, ${y})`].filter(Boolean).join(' • ');
         }
         if (pick.type === 'ping') {
           const loc = e.Location || {};
@@ -758,15 +1408,22 @@
         const chip = qs('#hover-chip');
         const vp = qs('#map-viewport');
         if (!chip || !vp || !bounds.hasData) { hideHoverChip(); return; }
+        // The chip lives outside #map-content, so it draws OVER the fog veil —
+        // it would happily label tiles and POIs the veil is busy hiding. The
+        // per-cell fowGrid gate below can't cover this: it fails open until the
+        // grid arrives, which is exactly the window the veil exists for.
+        if (!fowReady()) { hideHoverChip(); return; }
+        if (!(vpW > 0)) measureViewport();
         let cx, cy;
-        if (state.isPad) { cx = vp.clientWidth / 2; cy = vp.clientHeight / 2; }
+        if (state.isPad) { cx = vpW / 2; cy = vpH / 2; }
         else { if (state.mouseX < 0) { hideHoverChip(); return; } cx = state.mouseX; cy = state.mouseY; }
         const lx = (cx - state.panX) / state.scale;
         const ly = (cy - state.panY) / state.scale;
         const { wx, wy } = localToWorld(lx, ly);
         // Hide everything (tile info + POI/player/ping labels) over unexplored fog.
         const TF = window.TSICFow;
-        if (fowGrid && TF && fowOverlayVisible() && !TF.exploredAt(fowGrid, wx, wy)) {
+        const hoverFowGrid = teleportMode ? null : getFowGrid();
+        if (hoverFowGrid && TF && fowOverlayVisible() && !TF.exploredAt(hoverFowGrid, wx, wy)) {
           hideHoverChip();
           return;
         }
@@ -781,8 +1438,8 @@
         let px = cx + offset, py = cy + offset;
         const w = chip.offsetWidth;
         const h = chip.offsetHeight;
-        if (px + w > vp.clientWidth)  px = Math.max(0, cx - offset - w);
-        if (py + h > vp.clientHeight) py = Math.max(0, cy - offset - h);
+        if (px + w > vpW) px = Math.max(0, cx - offset - w);
+        if (py + h > vpH) py = Math.max(0, cy - offset - h);
         chip.style.left = px + 'px';
         chip.style.top  = py + 'px';
       }
@@ -821,9 +1478,7 @@
         const p = latestSnapshot;
         const empty = qs('#empty');
         if (!p) {
-          qs('#g-icons').textContent = '';
-          qs('#g-pings').textContent = '';
-          qs('#g-coords').textContent = '';
+          clearOverlaySvg();
           renderPlayers([]);
           hideHoverChip();
           empty.textContent = 'Waiting for map data…';
@@ -831,9 +1486,7 @@
           return;
         }
         if (!bounds.hasData) {
-          qs('#g-icons').textContent = '';
-          qs('#g-pings').textContent = '';
-          qs('#g-coords').textContent = '';
+          clearOverlaySvg();
           renderPlayers([]);
           hideHoverChip();
           empty.textContent = 'Map bounds unavailable.';
@@ -853,6 +1506,13 @@
       function onSnapshot(p) {
         latestSnapshot = p;
         if (p) setBounds(p.MinBounds, p.MaxBounds);
+        // Players[0] is the local player; retint the height overlay when their
+        // height level changes (elevators, stairs, ramps).
+        const me = p && Array.isArray(p.Players) ? p.Players[0] : null;
+        if (me && typeof me.HeightLevel === 'number' && me.HeightLevel !== heightLevel) {
+          heightLevel = me.HeightLevel | 0;
+          updateHeightTintLayer();
+        }
         if (ctx.isVisible()) rerender();
       }
       function onPingSet(p) {
@@ -861,8 +1521,12 @@
       }
 
       // ---- mouse / wheel / keyboard --------------------------------
+      let lastZoomSoundAt = 0;
       let dragging = false;
       let dragLastX = 0, dragLastY = 0;
+      // Where the press started, so a teleport click isn't fired at the end of a pan.
+      let pressX = 0, pressY = 0;
+      const CLICK_SLOP_PX = 4;
       const vp = qs('#map-viewport');
 
       vp.addEventListener('mousedown', (ev) => {
@@ -876,6 +1540,7 @@
           const X = Math.max(bounds.minX, Math.min(bounds.maxX, wx));
           const Y = Math.max(bounds.minY, Math.min(bounds.maxY, wy));
           ctx.publish('UI.Cmd.Cheat.Execute', { Command: `Teleport2D ${X.toFixed(0)} ${Y.toFixed(0)}` });
+          if (window.tsic && window.tsic.playSound) window.tsic.playSound('Map.Teleport', 0.5);
           flashTeleportMarker(lx, ly);
           ev.preventDefault();
           ev.stopPropagation();
@@ -884,6 +1549,8 @@
         dragging = true;
         dragLastX = ev.clientX;
         dragLastY = ev.clientY;
+        pressX = ev.clientX;
+        pressY = ev.clientY;
         vp.classList.add('dragging');
       });
 
@@ -900,11 +1567,38 @@
         repositionPlayers();
         updateHoverChipSoon();
       });
-      window.addEventListener('mouseup', () => {
+      window.addEventListener('mouseup', (ev) => {
         if (!dragging) return;
         dragging = false;
         vp.classList.remove('dragging');
+        if (!teleportMode || !bounds.hasData) return;
+        // A pan ends in a mouseup too; only a press that barely moved is a click.
+        if (Math.abs(ev.clientX - pressX) > CLICK_SLOP_PX
+         || Math.abs(ev.clientY - pressY) > CLICK_SLOP_PX) return;
+        const rect = vp.getBoundingClientRect();
+        if (ev.clientX < rect.left || ev.clientX > rect.right
+         || ev.clientY < rect.top  || ev.clientY > rect.bottom) return;
+        const lx = (ev.clientX - rect.left - state.panX) / state.scale;
+        const ly = (ev.clientY - rect.top  - state.panY) / state.scale;
+        const { wx, wy } = localToWorld(lx, ly);
+        teleportToPoint(wx, wy);
+        flashTeleportMarker(lx, ly);
       });
+
+      // Layer buttons + exit. Bound once; the bar is hidden outside teleport mode.
+      root.querySelectorAll('#tp-bar .tp-layer').forEach((b) => {
+        b.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          selectTeleportLayer(b.getAttribute('data-layer'));
+        });
+      });
+      const tpDone = qs('#tp-done');
+      if (tpDone) {
+        tpDone.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          ctx.publish('UI.Cmd.Pause.CheatMenu', {});
+        });
+      }
 
       vp.addEventListener('wheel', (ev) => {
         ev.preventDefault();
@@ -914,7 +1608,14 @@
         const factor = ev.deltaY < 0 ? 1.1 : (1 / 1.1);
         const lx = (cx - state.panX) / state.scale;
         const ly = (cy - state.panY) / state.scale;
+        const prevScale = state.scale;
         state.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, state.scale * factor));
+        // Throttled + clamp-aware: a wheel spin fires many events, and at the
+        // zoom limits nothing moves, so neither should make a sound.
+        if (state.scale !== prevScale && Date.now() - lastZoomSoundAt > 70) {
+          lastZoomSoundAt = Date.now();
+          if (window.tsic && window.tsic.playSound) window.tsic.playSound('Map.Zoom.Step', 0.2);
+        }
         state.panX = cx - lx * state.scale;
         state.panY = cy - ly * state.scale;
         applyTransform();
@@ -929,7 +1630,10 @@
       // R = reset. Esc closes via screen-manager's cancelCmd (UI.Cmd.GameScreen.Close).
       window.addEventListener('keydown', (ev) => {
         if (!ctx.isVisible()) return;
-        if (ev.key === 'r' || ev.key === 'R') fitToBounds();
+        if (ev.key === 'r' || ev.key === 'R') {
+          fitToBounds();
+          if (window.tsic && window.tsic.playSound) window.tsic.playSound('Map.Reset', 0.35);
+        }
       });
 
       // Resize: refit while visible.
@@ -968,8 +1672,9 @@
         const me = (latestSnapshot.Players || [])[0];
         if (!me || !me.Position) return;
         const loc = worldToLocal(me.Position.X || 0, me.Position.Y || 0);
-        state.panX = vp.clientWidth  / 2 - loc.x * state.scale;
-        state.panY = vp.clientHeight / 2 - loc.y * state.scale;
+        if (!(vpW > 0)) measureViewport();
+        state.panX = vpW / 2 - loc.x * state.scale;
+        state.panY = vpH / 2 - loc.y * state.scale;
         applyTransform();
         rerenderSoon();
       }
@@ -987,6 +1692,7 @@
         const X = Math.max(bounds.minX, Math.min(bounds.maxX, wx));
         const Y = Math.max(bounds.minY, Math.min(bounds.maxY, wy));
         ctx.publish('UI.Cmd.Ping.Request', { PingType: 'Map', Location: { X, Y, Z: 0 } });
+        if (window.tsic && window.tsic.playSound) window.tsic.playSound('Map.Ping', 0.45);
       }
       function panBy(dx, dy) {
         state.panX += dx;
@@ -1010,7 +1716,13 @@
       ctx.on('tsic.msg.UI.Behavior.MapZoomOut', (e) => zoomStep(e, -1));
       ctx.on('tsic.msg.UI.Behavior.MapCenter',     (e) => { if (e.Phase === 'Started') centerOnLocalPlayer(); });
       ctx.on('tsic.msg.UI.Behavior.MapPlacePing',  (e) => { if (e.Phase === 'Started') placePingAtCursorOrCenter(); });
-      ctx.on('tsic.msg.UI.Behavior.MapResetView',  (e) => { if (e.Phase === 'Started' && typeof resetView === 'function') resetView(); });
+      // Same contract as keyboard 'R': fit the whole map. (This previously
+      // guarded on an undefined `resetView` and silently no-oped on gamepad.)
+      ctx.on('tsic.msg.UI.Behavior.MapResetView',  (e) => {
+        if (e.Phase !== 'Started') return;
+        fitToBounds();
+        if (window.tsic && window.tsic.playSound) window.tsic.playSound('Map.Reset', 0.35);
+      });
       ctx.on('tsic.msg.UI.Behavior.MapMove', (e) => {
         if (!ctx.isVisible() || e.Phase !== 'Axis') return;
         const dt = (1 / 60);
@@ -1020,18 +1732,31 @@
       ctx.on('tsic.msg.UI.Map.Snapshot', onSnapshot);
       ctx.on('tsic.msg.UI.Map.TileGrid', onTileGrid);
       ctx.on('tsic.msg.UI.Ping.Set', onPingSet);
-      ctx.on('tsic.msg.UI.Map.Fow', () => {
-        const img = qs('#fow-tex');
-        if (img) img.src = TSIC.runtimeImgUrl('fow') + '?t=' + Date.now();
-      });
+      ctx.on('tsic.msg.UI.Map.Fow', onFowBroadcast);
       ctx.on('tsic.msg.UI.Map.FowGrid', (p) => {
-        fowGrid = window.TSICFow ? window.TSICFow.build(p) : null;
+        // Keep the RAW payload and rebuild lazily. build() walks every explored row,
+        // so doing it here ran a cost proportional to total exploration on every fog
+        // regen for the rest of the session — on the CEF renderer's main thread, the
+        // one serving mouse and clicks — even with the map closed. The texture refetch
+        // three lines up was already visibility-gated; this was the hole beside it.
+        // Only the hover chip reads the grid, and only while the map is on screen.
+        fowGridRaw = p;
+        fowGrid = null;
+        // FowGrid ships with every fog regen, so it proves fog is in play even
+        // if the texture message was missed.
+        fowExpected = true;
+        applyFowGate();
         if (ctx.isVisible()) updateHoverChip();
       });
       ctx.on('tsic.msg.Cheats.Map.Fow.Visibility', (p) => {
-        const img = qs('#fow-tex');
-        if (!img) return;
-        img.style.display = (p && p.bVisible === false) ? 'none' : '';
+        const cvs = qs('#fow-tex');
+        if (!cvs) return;
+        cvs.style.display = (p && p.bVisible === false) ? 'none' : '';
+        applyFowGate();
+        // Both hover gates (the veil gate and the per-cell fowGrid gate) key off
+        // this flag, so the chip has to be recomputed rather than waiting for the
+        // next mouse move.
+        if (ctx.isVisible()) updateHoverChip();
       });
       ctx.on('tsic.debug.Map.Overlay', (p) => {
         if (!p || !p.Layer) return;
@@ -1070,10 +1795,36 @@
       }
       ctx.on('tsic.msg.UI.Cheat.Catalog', () => { cheatEnabled = true; updateHint(); });
 
+      // Veil until fog pixels land (sticky UI.Map.Fow above may already have
+      // kicked the fetch off), and give up on fog if no broadcast ever arrives.
+      applyFowGate();
+      setTimeout(() => {
+        fowGraceExpired = true;
+        applyFowGate();
+      }, FOW_ASSUME_OFF_MS);
+
+      // onShow() runs outside this closure; hand it the per-mount refresh.
+      teleportModeHook = setTeleportMode;
+      onShowHook = () => {
+        // A fresh open re-arms the retry ladder: a session that gave up on the
+        // fog source earlier should try again rather than stay unfogged forever.
+        // fowFetchGaveUp stays latched so the veil doesn't flicker back on.
+        fowRetries = 0;
+        if (fowStale || (fowExpected && !fowPainted && !fowInFlight)) reloadFow();
+        applyFowGate();
+      };
+
       buildLegend();
     },
 
-    onShow(/* params, ctx */) {
+    onShow(params /*, ctx */) {
+      if (window.tsic && window.tsic.playSound) window.tsic.playSound('Map.Open', 0.4);
+      // The cheat menu opens us as {"mode":"teleport"}; the map hotkey sends
+      // nothing, which must land back in the normal read-only map even if the
+      // picker was used earlier in the session.
+      const p = params || {};
+      if (teleportModeHook) teleportModeHook(p.mode === 'teleport', p.player);
+      if (onShowHook) onShowHook();
       // Force a refit on show so the map fills the viewport correctly after
       // any prior overlay's display:none changed layout dimensions.
       // Defer to next frame so the container has actual rect dimensions.
@@ -1084,6 +1835,12 @@
         if (vp) vp.dispatchEvent(new Event('resize'));
         window.dispatchEvent(new Event('resize'));
       });
+    },
+
+    onHide(/* ctx */) {
+      if (window.tsic && window.tsic.playSound) window.tsic.playSound('Map.Close', 0.4);
+      // Never leave the fog override latched — the next opener may be the normal map.
+      if (teleportModeHook) teleportModeHook(false, 1);
     },
   });
 })();

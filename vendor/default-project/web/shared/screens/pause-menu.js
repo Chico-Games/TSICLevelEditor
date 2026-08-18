@@ -11,8 +11,22 @@
   // module is fully self-contained. Inserted once on first mount.
   const STYLE = `
     [data-screen="PauseMenu"] #pause-overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:auto; }
-    [data-screen="PauseMenu"] #pause-panel { width:360px; text-align:center; background: var(--cat-bg); max-height: 90vh; overflow-y:auto; }
-    [data-screen="PauseMenu"] .pl { text-align:left; margin: 8px 0; max-height: 140px; overflow:auto; }
+    /* Fixed height, not max-height. The panel is vertically CENTRED, so anything that made it
+       taller pushed its top edge upward — and every button in it moved with that edge, under
+       a cursor already reaching for one. Measured (Scripts/webui-bench/layout.mjs, issue
+       #273): h 583/639/723 and y 249/221/179 for nought/two/eight players, all from one list
+       growing. A fixed box makes the menu the same page whoever is in the session, and the
+       overflow that used to move the panel scrolls inside it instead.
+       min() so a short window still gets a panel that fits rather than one it clips. */
+    [data-screen="PauseMenu"] #pause-panel {
+      width:360px; height:min(760px, 90vh); text-align:center; background: var(--cat-bg);
+      overflow-y:auto; scrollbar-gutter:stable;
+    }
+    /* Likewise fixed: the list reserves its row whether it holds nought names or eight, so
+       the multiplayer block below it never slides. Its own gutter is reserved too — a
+       scrollbar appearing on the fourth player would otherwise reflow every row in it. */
+    [data-screen="PauseMenu"] .pl { text-align:left; margin: 8px 0; height: 140px; overflow:auto; scrollbar-gutter:stable; }
+    [data-screen="PauseMenu"] .pl-empty { padding:4px 6px; opacity:0.5; font-size:13px; }
     [data-screen="PauseMenu"] .pl-row { padding: 4px 6px; display:flex; align-items:center; gap:8px; }
     [data-screen="PauseMenu"] .pl-dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto; border:1px solid rgba(255,255,255,0.5); }
     [data-screen="PauseMenu"] .pl-name { flex:1 1 auto; }
@@ -39,9 +53,13 @@
           <button class="tsic-button" style="width:100%;" id="btn-resume" data-tsic-initial-focus>Resume</button>
           <button class="tsic-button" style="width:100%; margin-top:8px;" id="btn-settings">Settings</button>
           <button class="tsic-button" style="width:100%; margin-top:8px;" id="btn-bug-report">Report a Bug</button>
+          <button class="tsic-button" style="width:100%; margin-top:8px;" id="btn-teleport-spawn">I'm stuck (Teleport to spawn point)</button>
           <button class="tsic-button" style="width:100%; margin-top:8px;" id="btn-menu">Save and Return to Main Menu</button>
-          <!-- Dev/testing only: revealed by the UI.State.DevMode flag in non-shipping builds. -->
+          <button class="tsic-button" style="width:100%; margin-top:8px;" id="btn-quit">Save and Quit</button>
+          <!-- Dev/testing only, revealed by UI.State.DevMode: join is bEditor (PIE only), cheats bDevBuild (non-shipping). -->
+
           <button class="tsic-button" style="width:100%; margin-top:8px; display:none;" id="btn-dev-join">Join Game (Dev)</button>
+          <button class="tsic-button" style="width:100%; margin-top:8px; display:none;" id="btn-dev-cheats">Cheat Menu (F1)</button>
         </div>
         <div class="mp" id="mp">
           <h2 class="mp-title">Multiplayer</h2>
@@ -72,6 +90,7 @@
   TSIC.registerScreen('PauseMenu', {
     inputModeTag: 'InputMode.Menu.Pause',
     cancelCmd: 'UI.Cmd.Pause.Resume',
+    screenSound: false, // plays its own Pause.Open / Pause.Close
     actionBarContext: [
       { ActionName: 'IA_UI_CancelBack', Label: 'Resume', Priority: 1000 },
     ],
@@ -83,7 +102,7 @@
       // Latest host multiplayer settings + whether we're the host. Defaults match
       // the C++ FSimpleSessionSettings defaults (allow-friends on). Overwritten by
       // the UI.Multiplayer.State broadcast that fires when the pause menu opens.
-      let mpState = { bAllowFriends: true, bPasswordRequired: false, Password: '', bLocalIsHost: false };
+      let mpState = { bAllowFriends: true, bPasswordRequired: false, Password: '', bLocalIsHost: false, bCanInvite: false };
       let lastPlayers = null;
 
       const allowTog = root.querySelector('#mp-allow');
@@ -111,15 +130,27 @@
         if (document.activeElement !== pwInput) pwInput.value = mpState.Password || '';
         pwInput.disabled = !host || !mpState.bPasswordRequired;
         pwInput.style.display = mpState.bPasswordRequired ? '' : 'none';
-        inviteBtn.disabled = !host;
-        inviteBtn.style.opacity = host ? '' : '0.4';
+        // Not host-only: a client can invite a friend into the host's game with
+        // the same connect string. C++ reports whether the session is joinable.
+        const canInvite = !!mpState.bCanInvite;
+        inviteBtn.disabled = !canInvite;
+        inviteBtn.style.opacity = canInvite ? '' : '0.4';
+        inviteBtn.title = canInvite ? '' : 'No joinable session — the host has closed the game to friends.';
       }
 
       function renderPlayers() {
         const hostEl = root.querySelector('#players');
         if (!hostEl) return;
         hostEl.innerHTML = '';
-        if (!lastPlayers || !lastPlayers.Players) return;
+        // The list keeps its row whether or not anyone is in it (see .pl's fixed height), so
+        // say what the empty box means rather than leaving a blank plate under the heading.
+        if (!lastPlayers || !lastPlayers.Players || !lastPlayers.Players.length) {
+          const none = document.createElement('div');
+          none.className = 'pl-empty';
+          none.textContent = 'No other players';
+          hostEl.appendChild(none);
+          return;
+        }
         lastPlayers.Players.forEach((pl, i) => {
           const row = document.createElement('div');
           row.className = 'pl-row';
@@ -183,7 +214,7 @@
         publishSet();
       };
       inviteBtn.onclick = () => {
-        if (!mpState.bLocalIsHost) return;
+        if (!mpState.bCanInvite) return;
         ctx.publish('UI.Cmd.Multiplayer.Invite');
       };
 
@@ -192,21 +223,34 @@
       root.querySelector('#btn-resume').onclick     = () => ctx.publish('UI.Cmd.Pause.Resume');
       root.querySelector('#btn-settings').onclick   = () => ctx.publish('UI.Cmd.Pause.Settings');
       root.querySelector('#btn-bug-report').onclick = () => ctx.publish('UI.Cmd.Pause.BugReport');
+      root.querySelector('#btn-teleport-spawn').onclick = () => ctx.publish('UI.Cmd.Pause.TeleportToSpawn');
       root.querySelector('#btn-menu').onclick       = () => ctx.publish('UI.Cmd.Pause.QuitToMenu');
+      // Menu.Exit's handler saves (SaveBeforeQuit) then quits the process —
+      // the same path as the main menu's Fire Exit, minus the trip through it.
+      root.querySelector('#btn-quit').onclick       = () => ctx.publish('UI.Cmd.Menu.Exit');
 
       // Dev/testing: reveal + wire the "Join Game (Dev)" button. Destroys this
-      // instance's own session (if hosting) then finds + joins the host.
+      // instance's own session (if hosting) then finds + joins the host. Editor
+      // only (PIE) - it must not show up in a packaged build, Development
+      // included, so it gates on bEditor rather than bDevBuild.
       const devJoin = root.querySelector('#btn-dev-join');
-      if (devJoin) {
-        devJoin.onclick = () => ctx.publish('UI.Cmd.Dev.JoinGame');
+      const devCheats = root.querySelector('#btn-dev-cheats');
+      if (devCheats) devCheats.onclick = () => ctx.publish('UI.Cmd.Pause.CheatMenu');
+      if (devJoin) devJoin.onclick = () => ctx.publish('UI.Cmd.Dev.JoinGame');
+      if (devJoin || devCheats) {
         ctx.on('tsic.msg.UI.State.DevMode', (p) => {
-          devJoin.style.display = (p && p.bDevBuild) ? '' : 'none';
+          if (devJoin) devJoin.style.display = (p && p.bEditor) ? '' : 'none';
+          if (devCheats) devCheats.style.display = (p && p.bDevBuild) ? '' : 'none';
         });
       }
     },
 
-    // onShow / onHide intentionally omitted — there's no transient state to
-    // refresh or release beyond the input-mode tag + action-bar context the
-    // manager handles automatically.
+    onShow(/* params, ctx */) {
+      if (window.tsic && window.tsic.playSound) window.tsic.playSound('Pause.Open', 0.4);
+    },
+
+    onHide(/* ctx */) {
+      if (window.tsic && window.tsic.playSound) window.tsic.playSound('Pause.Close', 0.4);
+    },
   });
 })();

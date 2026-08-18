@@ -4,7 +4,7 @@
   "class": "UDamageableFurnitureDefinition",
   "schema_version": 2,
   "properties": {
-    "starting_health": 43,
+    "starting_health": 86,
     "furniture_armour": 1,
     "destructible_collection": "/Game/Furniture/Tables/GeometryCollections/GCS_Table02.GCS_Table02",
     "destruction_impulse_strength": 0,
@@ -12,8 +12,26 @@
       "LD_WoodenTableLoot"
     ],
     "constructable_item_to_grant": "ID_Table_10_CI",
-    "deconstruction_tier": 0,
-    "blocking_collision_boxes": [],
+    "deconstruction_tier": 1,
+    "blocking_collision_boxes": [
+      {
+        "offset": {
+          "x": 14.3481,
+          "y": -89.2533,
+          "z": 54.0134
+        },
+        "rotation": {
+          "pitch": 0,
+          "yaw": 0,
+          "roll": 0
+        },
+        "box_size": {
+          "x": 51.9431,
+          "y": 51.2443,
+          "z": 32.482
+        }
+      }
+    ],
     "support_collision_boxes": [
       {
         "offset": {
@@ -111,7 +129,7 @@
     "friction": 0.699999988079071,
     "restitution": 0.30000001192092896,
     "drag_linear_damping": 5,
-    "drag_angular_damping": 5,
+    "drag_angular_damping": 1.25,
     "drag_max_angular_velocity": 90,
     "release_linear_damping": 0.009999999776482582,
     "release_angular_damping": 0.05000000074505806,
@@ -136,7 +154,93 @@
       "name": "Furniture"
     },
     "random_material_overrides": [],
-    "loot_positions": [],
+    "loot_positions": [
+      {
+        "local_transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.2338,
+            "w": -0.9723
+          },
+          "translation": {
+            "x": -30.63,
+            "y": -105.29,
+            "z": 89.06
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "weight": 1000
+      },
+      {
+        "local_transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.4594,
+            "w": -0.8882
+          },
+          "translation": {
+            "x": 3.02,
+            "y": -136.08,
+            "z": 89.06
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "weight": 1000
+      },
+      {
+        "local_transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.9942,
+            "w": -0.1079
+          },
+          "translation": {
+            "x": -44.46,
+            "y": -63.26,
+            "z": 89.06
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "weight": 1000
+      },
+      {
+        "local_transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.9749,
+            "w": 0.2227
+          },
+          "translation": {
+            "x": 12.18,
+            "y": -61.86,
+            "z": 89.06
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "weight": 1000
+      }
+    ],
+    "loot_position_chance": 0.3,
     "weighted_chance": 1000,
     "world_gen_priority": 6000
   }

@@ -42,22 +42,12 @@ TSICTestHarness.register({
 // ---- VoiceChat ----------------------------------------------------------
 TSICTestHarness.register({
     name: 'VoiceChat: empty speaker list yields zero rows',
-    file: '/screens/voice-chat.html',
+    file: '/screens/in-game.html',
     async run(ctx) {
+        await ctx.waitFor(() => ctx.doc.querySelector('#vc-list'));
         ctx.inject('tsic.msg.UI.VoiceChat.State', { Speaking: [], bSelfPushToTalk: false });
         await new Promise(r => setTimeout(r, 60));
         ctx.expect(ctx.assert.domCount(ctx.doc, '#vc-list .vc-row', 0));
-    },
-});
-
-// ---- ConstructionCarousel ---------------------------------------------
-TSICTestHarness.register({
-    name: 'ConstructionCarousel: no-data payload clears the strip',
-    file: '/screens/construction-carousel.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Construction.Carousel', null);
-        await new Promise(r => setTimeout(r, 60));
-        ctx.expect(ctx.assert.domCount(ctx.doc, '#cc-row .cc-slot', 0));
     },
 });
 
@@ -101,6 +91,7 @@ TSICTestHarness.register({
     name: 'CheatMenu: GiveItem with empty item select does not publish',
     file: '/screens/cheat-menu.html',
     async run(ctx) {
+        ctx.screen('CheatMenu');
         await ctx.waitFor(() => ctx.doc.getElementById('cm-give'));
         // No catalog broadcast, so the select has no options that resolve to an item name.
         ctx.doc.getElementById('cm-item').innerHTML = '';
@@ -114,6 +105,7 @@ TSICTestHarness.register({
     name: 'CheatMenu: Hide FOW preset publishes HideFOW for target player',
     file: '/screens/cheat-menu.html',
     async run(ctx) {
+        ctx.screen('CheatMenu');
         await ctx.waitFor(() => ctx.doc.querySelector('button[data-cmd-tpl]'));
         ctx.clearPublishes();
         const btn = Array.from(ctx.doc.querySelectorAll('button[data-cmd-tpl]')).find(b => /hide fow/i.test(b.textContent || ''));
@@ -135,19 +127,6 @@ TSICTestHarness.register({
         ctx.doc.querySelector('.field-toggle').click();
         ctx.expect(ctx.assert.published(ctx.handle, 'UI.Cmd.Settings.Set',
             { where: p => p.Key === 'fs' && p.ValueJson === 'true' }));
-    },
-});
-
-// ---- Selection / Cage ----------------------------------------------
-TSICTestHarness.register({
-    name: 'Selection: empty options shows the empty hint and renders the Context title',
-    file: '/screens/selection.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Selection.Opened', { Context: 'Generic', Options: [] });
-        await new Promise(r => setTimeout(r, 60));
-        // Title text is set in semantic case; CSS .tsic-title applies text-transform.
-        ctx.expect(ctx.assert.domText(ctx.doc, '#title', 'Generic'));
-        ctx.expect(ctx.assert.domVisible(ctx.doc, '#empty'));
     },
 });
 

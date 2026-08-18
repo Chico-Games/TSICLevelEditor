@@ -79,6 +79,8 @@
               },
               "tags": [
                 "Tile.Offset.Biome.Bathroom.Up",
+                "Tile.Offset.Biome.BathroomEntrance.Up",
+                "Tile.Offset.Biome.BathroomExit.Up",
                 "Tile.Offset.Biome.Blocked.Up",
                 "Tile.Offset.Biome.CarPark.Up",
                 "Tile.Offset.Biome.CarParkEntrance.Up",
@@ -95,10 +97,8 @@
                 "Tile.Offset.Biome.SkyEmpty.Up",
                 "Tile.Offset.Biome.StaffRoom.Up",
                 "Tile.Offset.Biome.Warehouse.Up",
-                "Tile.Offset.Height.-1.Up",
-                "Tile.Offset.Height.-2.Up",
-                "Tile.Offset.Height.1.Up",
-                "Tile.Offset.Height.2.Up"
+                "Tile.Offset.HeightDrop.Up",
+                "Tile.Offset.HeightRise.Up"
               ],
               "b_not": true
             }
@@ -153,6 +153,8 @@
               },
               "tags": [
                 "Tile.Offset.Biome.Bathroom.Down",
+                "Tile.Offset.Biome.BathroomEntrance.Down",
+                "Tile.Offset.Biome.BathroomExit.Down",
                 "Tile.Offset.Biome.Blocked.Down",
                 "Tile.Offset.Biome.CarPark.Down",
                 "Tile.Offset.Biome.CarParkEntrance.Down",
@@ -169,10 +171,8 @@
                 "Tile.Offset.Biome.SkyEmpty.Down",
                 "Tile.Offset.Biome.StaffRoom.Down",
                 "Tile.Offset.Biome.Warehouse.Down",
-                "Tile.Offset.Height.-1.Down",
-                "Tile.Offset.Height.-2.Down",
-                "Tile.Offset.Height.1.Down",
-                "Tile.Offset.Height.2.Down"
+                "Tile.Offset.HeightDrop.Down",
+                "Tile.Offset.HeightRise.Down"
               ],
               "b_not": true
             }
@@ -227,6 +227,8 @@
               },
               "tags": [
                 "Tile.Offset.Biome.Bathroom.Left",
+                "Tile.Offset.Biome.BathroomEntrance.Left",
+                "Tile.Offset.Biome.BathroomExit.Left",
                 "Tile.Offset.Biome.Blocked.Left",
                 "Tile.Offset.Biome.CarPark.Left",
                 "Tile.Offset.Biome.CarParkEntrance.Left",
@@ -243,10 +245,8 @@
                 "Tile.Offset.Biome.SkyEmpty.Left",
                 "Tile.Offset.Biome.StaffRoom.Left",
                 "Tile.Offset.Biome.Warehouse.Left",
-                "Tile.Offset.Height.-1.Left",
-                "Tile.Offset.Height.-2.Left",
-                "Tile.Offset.Height.1.Left",
-                "Tile.Offset.Height.2.Left"
+                "Tile.Offset.HeightDrop.Left",
+                "Tile.Offset.HeightRise.Left"
               ],
               "b_not": true
             }
@@ -301,6 +301,8 @@
               },
               "tags": [
                 "Tile.Offset.Biome.Bathroom.Right",
+                "Tile.Offset.Biome.BathroomEntrance.Right",
+                "Tile.Offset.Biome.BathroomExit.Right",
                 "Tile.Offset.Biome.Blocked.Right",
                 "Tile.Offset.Biome.CarPark.Right",
                 "Tile.Offset.Biome.CarParkEntrance.Right",
@@ -317,10 +319,8 @@
                 "Tile.Offset.Biome.SkyEmpty.Right",
                 "Tile.Offset.Biome.StaffRoom.Right",
                 "Tile.Offset.Biome.Warehouse.Right",
-                "Tile.Offset.Height.-1.Right",
-                "Tile.Offset.Height.-2.Right",
-                "Tile.Offset.Height.1.Right",
-                "Tile.Offset.Height.2.Right"
+                "Tile.Offset.HeightDrop.Right",
+                "Tile.Offset.HeightRise.Right"
               ],
               "b_not": true
             }
@@ -375,6 +375,8 @@
               },
               "tags": [
                 "Tile.Offset.Biome.Bathroom.Right",
+                "Tile.Offset.Biome.BathroomEntrance.Right",
+                "Tile.Offset.Biome.BathroomExit.Right",
                 "Tile.Offset.Biome.Blocked.Right",
                 "Tile.Offset.Biome.CarPark.Right",
                 "Tile.Offset.Biome.CarParkEntrance.Right",
@@ -391,10 +393,8 @@
                 "Tile.Offset.Biome.SkyEmpty.Right",
                 "Tile.Offset.Biome.StaffRoom.Right",
                 "Tile.Offset.Biome.Warehouse.Right",
-                "Tile.Offset.Height.-1.Right",
-                "Tile.Offset.Height.-2.Right",
-                "Tile.Offset.Height.1.Right",
-                "Tile.Offset.Height.2.Right"
+                "Tile.Offset.HeightDrop.Right",
+                "Tile.Offset.HeightRise.Right"
               ],
               "b_not": false
             }
@@ -449,6 +449,8 @@
               },
               "tags": [
                 "Tile.Offset.Biome.Bathroom.Up",
+                "Tile.Offset.Biome.BathroomEntrance.Up",
+                "Tile.Offset.Biome.BathroomExit.Up",
                 "Tile.Offset.Biome.Blocked.Up",
                 "Tile.Offset.Biome.CarPark.Up",
                 "Tile.Offset.Biome.CarParkEntrance.Up",
@@ -465,10 +467,8 @@
                 "Tile.Offset.Biome.SkyEmpty.Up",
                 "Tile.Offset.Biome.StaffRoom.Up",
                 "Tile.Offset.Biome.Warehouse.Up",
-                "Tile.Offset.Height.-1.Up",
-                "Tile.Offset.Height.-2.Up",
-                "Tile.Offset.Height.1.Up",
-                "Tile.Offset.Height.2.Up"
+                "Tile.Offset.HeightDrop.Up",
+                "Tile.Offset.HeightRise.Up"
               ],
               "b_not": false
             }
@@ -523,6 +523,8 @@
               },
               "tags": [
                 "Tile.Offset.Biome.Bathroom.Left",
+                "Tile.Offset.Biome.BathroomEntrance.Left",
+                "Tile.Offset.Biome.BathroomExit.Left",
                 "Tile.Offset.Biome.Blocked.Left",
                 "Tile.Offset.Biome.CarPark.Left",
                 "Tile.Offset.Biome.CarParkEntrance.Left",
@@ -539,10 +541,8 @@
                 "Tile.Offset.Biome.SkyEmpty.Left",
                 "Tile.Offset.Biome.StaffRoom.Left",
                 "Tile.Offset.Biome.Warehouse.Left",
-                "Tile.Offset.Height.-1.Left",
-                "Tile.Offset.Height.-2.Left",
-                "Tile.Offset.Height.1.Left",
-                "Tile.Offset.Height.2.Left"
+                "Tile.Offset.HeightDrop.Left",
+                "Tile.Offset.HeightRise.Left"
               ],
               "b_not": false
             }
@@ -597,6 +597,8 @@
               },
               "tags": [
                 "Tile.Offset.Biome.Bathroom.Down",
+                "Tile.Offset.Biome.BathroomEntrance.Down",
+                "Tile.Offset.Biome.BathroomExit.Down",
                 "Tile.Offset.Biome.Blocked.Down",
                 "Tile.Offset.Biome.CarPark.Down",
                 "Tile.Offset.Biome.CarParkEntrance.Down",
@@ -613,10 +615,8 @@
                 "Tile.Offset.Biome.SkyEmpty.Down",
                 "Tile.Offset.Biome.StaffRoom.Down",
                 "Tile.Offset.Biome.Warehouse.Down",
-                "Tile.Offset.Height.-1.Down",
-                "Tile.Offset.Height.-2.Down",
-                "Tile.Offset.Height.1.Down",
-                "Tile.Offset.Height.2.Down"
+                "Tile.Offset.HeightDrop.Down",
+                "Tile.Offset.HeightRise.Down"
               ],
               "b_not": false
             }

@@ -12,10 +12,10 @@
       "value": 0
     },
     "map_color": {
-      "r": 1.0,
+      "r": 1,
       "g": 0.41200000047683716,
       "b": 0.7059999704360962,
-      "a": 1.0
+      "a": 1
     },
     "rotation_height_colors": {
       "rotation_height_direction_color_arr": [
@@ -92877,9 +92877,10 @@
       "search_loot_rarity": [],
       "hold_loot_rarity": []
     },
-    "loot_multiplier": 1.0,
+    "loot_multiplier": 1,
     "floor_lsp": "LSP_Kids_Floor",
     "furniture_lsp": "LSP_Kids_Furniture",
+    "container_loot_table": "LSP_Kids_Container",
     "layouts": [
       "LYD_Kids_All",
       "LYD_Kids_All_2",
@@ -92906,13 +92907,23 @@
       "LYD_Kids_UpRight_2",
       "LYD_Kids_UpRight_3",
       "LYD_Kids_UpRightDown",
-      "LYD_Kids_UpRightDown_2"
+      "LYD_Kids_UpRightDown_2",
+      "LYD_Kids_Up_4",
+      "LYD_Kids_Up_5",
+      "LYD_Kids_UpDown_4",
+      "LYD_Kids_UpDown_5",
+      "LYD_Kids_UpRight_4",
+      "LYD_Kids_UpRight_5",
+      "LYD_Kids_UpRightDown_3",
+      "LYD_Kids_UpRightDown_4",
+      "LYD_Kids_All_5",
+      "LYD_Kids_All_6"
     ],
-    "environmental_effects": [],
     "ambient_audio": {
-      "volume": 1.0,
-      "fade_in_duration": 3.0,
-      "fade_out_duration": 3.0
+      "sound": "Ambience.StoreTone",
+      "volume": 0.3,
+      "fade_in_duration": 3,
+      "fade_out_duration": 3
     }
   }
 }

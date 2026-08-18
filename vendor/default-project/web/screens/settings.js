@@ -11,6 +11,17 @@
         tsic.publishMessage('UI.Cmd.Input.RemoveModeTag', { Tag: 'InputMode.Menu.Settings' });
     });
 
+    // Shared low..epic options for the scalability dropdowns. Fresh arrays per
+    // call — applyNvidiaCaps-style pruning mutates option lists in place.
+    function qualityLevels() {
+        return [
+            { Value: 'low',    Label: 'Low' },
+            { Value: 'medium', Label: 'Medium' },
+            { Value: 'high',   Label: 'High' },
+            { Value: 'epic',   Label: 'Epic' },
+        ];
+    }
+
     // Static catalog for Audio/Video/Gameplay. The "Keyboard & Mouse" and
     // "Controller" tabs are built dynamically from UI.Settings.ControlsState
     // (rebinds can't be captured in JS; the C++ input manager drives capture —
@@ -22,11 +33,127 @@
                     { Key: 'audio.master', Label: 'Master volume', Type: 'range', Min: 0, Max: 1, Step: 0.01, Value: 0.8 },
                     { Key: 'audio.music',  Label: 'Music volume',  Type: 'range', Min: 0, Max: 1, Step: 0.01, Value: 0.5 },
                     { Key: 'audio.sfx',    Label: 'SFX volume',    Type: 'range', Min: 0, Max: 1, Step: 0.01, Value: 0.7 },
+                    { Key: 'audio.menu_music', Label: 'Menu music volume', Type: 'range', Min: 0, Max: 1, Step: 0.01, Value: 0.8 },
+                ] },
+                { Id: 'Voice', Title: 'Voice chat', Settings: [
+                    { Key: 'voice.enabled', Label: 'Voice chat', Type: 'bool', Value: true },
+                    { Key: 'voice.mode', Label: 'Microphone mode', Type: 'enum',
+                      Options: [
+                          { Value: 'ptt',    Label: 'Push to talk' },
+                          { Value: 'toggle', Label: 'Toggle mute' },
+                      ],
+                      Value: 'ptt' },
+                    // Voice volume is 0..2 (1 = normal) so quiet teammates can be boosted.
+                    { Key: 'voice.output_volume', Label: 'Voice volume', Type: 'range', Min: 0, Max: 2, Step: 0.05, Value: 1 },
+                    // Options are replaced by the C++-enumerated device list
+                    // (UI.Settings.VoiceDevices) when it arrives.
+                    { Key: 'voice.input_device', Label: 'Microphone', Type: 'enum',
+                      Options: [ { Value: '', Label: 'System default' } ],
+                      Value: '' },
                 ] },
             ] },
             { Id: 'VideoCollection', Title: 'Video', Groups: [
+                { Id: 'Graphics', Title: 'Graphics', Settings: [
+                    // graphics.* (not video.*) on purpose: video.* keys open the
+                    // keep/revert countdown, which is for display-mode changes
+                    // that can strand the player — a GI change can't.
+                    //
+                    // Benchmarks the machine and rewrites the preset, the Lumen tier
+                    // and the resolution scale. The game freezes for a second or two
+                    // while it measures; every value it lands on is an ordinary row
+                    // below, so nothing here is locked afterwards.
+                    { Key: 'graphics.autodetect', Label: 'Detect optimal settings',
+                      Type: 'action', ButtonText: 'Detect' },
+                    //
+                    // Overall preset drives the "Advanced quality" categories below.
+                    // "Custom" is display-only: C++ echoes it when the categories
+                    // are mixed and rejects it as an input.
+                    { Key: 'graphics.quality', Label: 'Overall quality', Type: 'enum',
+                      Options: [
+                          { Value: 'low',    Label: 'Low' },
+                          { Value: 'medium', Label: 'Medium' },
+                          { Value: 'high',   Label: 'High' },
+                          { Value: 'epic',   Label: 'Epic' },
+                          { Value: 'custom', Label: 'Custom' },
+                      ],
+                      Value: 'high' },
+                    { Key: 'graphics.lumen', Label: 'Lumen quality', Type: 'enum',
+                      Options: [
+                          { Value: 'low',    Label: 'Low (Lumen Lite)' },
+                          { Value: 'medium', Label: 'Medium (Software)' },
+                          { Value: 'high',   Label: 'High (Hardware Ray Tracing)' },
+                      ],
+                      Value: 'medium' },
+                    // Upscaler options must match HandleCmdSettingsSet's allow-list
+                    // exactly — it drops anything else on the floor. The dlss_*/dlaa
+                    // entries are pruned on GPUs without DLSS and the fsr_* entries
+                    // on machines without the FSR plugin (graphics.nvidia_caps), so
+                    // TSR is the only option every machine keeps.
+                    { Key: 'graphics.upscaler', Label: 'Upscaling', Type: 'enum',
+                      Options: [
+                          { Value: 'tsr',                   Label: 'TSR (recommended)' },
+                          { Value: 'dlaa',                  Label: 'DLAA (native res, best quality)' },
+                          { Value: 'dlss_quality',          Label: 'DLSS Quality' },
+                          { Value: 'dlss_balanced',         Label: 'DLSS Balanced' },
+                          { Value: 'dlss_performance',      Label: 'DLSS Performance' },
+                          { Value: 'dlss_ultra_performance',Label: 'DLSS Ultra Performance' },
+                          { Value: 'fsr_native_aa',         Label: 'FSR Native AA (native res, best quality)' },
+                          { Value: 'fsr_quality',           Label: 'FSR Quality' },
+                          { Value: 'fsr_balanced',          Label: 'FSR Balanced' },
+                          { Value: 'fsr_performance',       Label: 'FSR Performance' },
+                          { Value: 'fsr_ultra_performance', Label: 'FSR Ultra Performance' },
+                      ],
+                      Value: 'tsr' },
+                    // TSR's internal render percentage — the old "Upscaling quality"
+                    // tiers were just fixed points on this scale (performance 50 /
+                    // balanced 67 / quality 77 / ultra 100). Ignored while a DLSS mode
+                    // is selected: DLSS picks its own optimal percentage.
+                    { Key: 'graphics.resolution_scale', Label: 'Render resolution (TSR)',
+                      Type: 'range', Min: 50, Max: 100, Step: 1, Value: 67 },
+                    // Frame generation and Reflex are NVIDIA-only, FSR frame gen is
+                    // FSR-plugin-only; the rows are removed wholesale when
+                    // graphics.nvidia_caps reports no support.
+                    { Key: 'graphics.frame_gen', Label: 'Frame generation (DLSS)', Type: 'enum',
+                      Options: [
+                          { Value: 'off',  Label: 'Off' },
+                          { Value: 'auto', Label: 'Auto' },
+                          { Value: '2x',   Label: '2x' },
+                          { Value: '3x',   Label: '3x' },
+                          { Value: '4x',   Label: '4x' },
+                      ],
+                      Value: 'off' },
+                    // Only takes effect while an FSR upscaling mode is selected.
+                    { Key: 'graphics.fsr_frame_gen', Label: 'Frame generation (FSR)', Type: 'bool', Value: false },
+                    { Key: 'graphics.reflex', Label: 'NVIDIA Reflex (low latency)', Type: 'enum',
+                      Options: [
+                          { Value: 'off',   Label: 'Off' },
+                          { Value: 'on',    Label: 'On' },
+                          { Value: 'boost', Label: 'On + Boost' },
+                      ],
+                      Value: 'on' },
+                    { Key: 'graphics.motion_blur', Label: 'Motion blur', Type: 'bool', Value: true },
+                ] },
+                // Per-category scalability. GI, anti-aliasing and render resolution
+                // deliberately have no rows here — they're owned by the Lumen /
+                // upscaler settings above.
+                { Id: 'Quality', Title: 'Advanced quality', Settings: [
+                    { Key: 'graphics.view_distance',   Label: 'View distance',   Type: 'enum', Options: qualityLevels(), Value: 'high' },
+                    { Key: 'graphics.shadows',         Label: 'Shadows',         Type: 'enum', Options: qualityLevels(), Value: 'high' },
+                    { Key: 'graphics.textures',        Label: 'Textures',        Type: 'enum', Options: qualityLevels(), Value: 'high' },
+                    { Key: 'graphics.effects',         Label: 'Effects',         Type: 'enum', Options: qualityLevels(), Value: 'high' },
+                    { Key: 'graphics.post_processing', Label: 'Post-processing', Type: 'enum', Options: qualityLevels(), Value: 'high' },
+                    { Key: 'graphics.foliage',         Label: 'Foliage',         Type: 'enum', Options: qualityLevels(), Value: 'high' },
+                    { Key: 'graphics.shading',         Label: 'Shading',         Type: 'enum', Options: qualityLevels(), Value: 'high' },
+                    { Key: 'graphics.reflections',     Label: 'Reflections',     Type: 'enum', Options: qualityLevels(), Value: 'high' },
+                ] },
                 { Id: 'Display', Title: 'Display', Settings: [
-                    { Key: 'video.fullscreen', Label: 'Fullscreen', Type: 'bool', Value: true },
+                    { Key: 'video.window_mode', Label: 'Window mode', Type: 'enum',
+                      Options: [
+                          { Value: 'fullscreen', Label: 'Fullscreen' },
+                          { Value: 'borderless', Label: 'Borderless window' },
+                          { Value: 'windowed',   Label: 'Windowed' },
+                      ],
+                      Value: 'borderless' },
                     { Key: 'video.resolution', Label: 'Resolution', Type: 'enum',
                       Options: [
                           { Value: '1280x720',  Label: '1280 × 720 (HD)' },
@@ -42,11 +169,82 @@
                           { Value: '3840x2160', Label: '3840 × 2160 (4K)' },
                       ],
                       Value: '1920x1080' },
+                    // graphics.* on purpose (instant apply, no countdown): neither
+                    // VSync nor an FPS cap can strand the player.
+                    { Key: 'graphics.vsync', Label: 'VSync', Type: 'bool', Value: false },
+                    { Key: 'graphics.fps_limit', Label: 'Frame rate limit', Type: 'enum',
+                      Options: [
+                          { Value: '30',  Label: '30 FPS' },
+                          { Value: '60',  Label: '60 FPS' },
+                          { Value: '90',  Label: '90 FPS' },
+                          { Value: '120', Label: '120 FPS' },
+                          { Value: '144', Label: '144 FPS' },
+                          { Value: '165', Label: '165 FPS' },
+                          { Value: '240', Label: '240 FPS' },
+                          { Value: '0',   Label: 'Unlimited' },
+                      ],
+                      Value: '0' },
+                    { Key: 'graphics.brightness', Label: 'Brightness (gamma)',
+                      Type: 'range', Min: 1.4, Max: 3, Step: 0.05, Value: 2.2 },
+                    // Removed on displays without HDR output (video.hdr_supported).
+                    // video.* on purpose: a bad HDR switch gets the countdown.
+                    { Key: 'video.hdr', Label: 'HDR output', Type: 'bool', Value: false },
                 ] },
             ] },
             { Id: 'GameplayCollection', Title: 'Gameplay', Groups: [
+                { Id: 'Interface', Title: 'Interface', Settings: [
+                    { Key: 'gameplay.show_tutorial', Label: 'Show tutorial objectives', Type: 'bool', Value: true },
+                    // Names floating over other players. Off leaves teammates unlabelled —
+                    // findable only by voice and the map, which some players prefer.
+                    { Key: 'gameplay.player_nametags', Label: 'Show player nametags', Type: 'bool', Value: true },
+                    // Off (default) = north-up minimap with a spinning player arrow.
+                    { Key: 'gameplay.minimap_rotate', Label: 'Rotate minimap with player', Type: 'bool', Value: false },
+                ] },
+                // Off stops the game publishing anything to Discord/Steam/EOS —
+                // the friends list then shows only "playing", with no map or count.
+                { Id: 'Social', Title: 'Social', Settings: [
+                    { Key: 'social.rich_presence', Label: 'Show game activity to friends (Discord, Steam)', Type: 'bool', Value: true },
+                ] },
+            ] },
+            // Accessibility is its own tab, not a group buried under Gameplay: a
+            // player who needs these has to be able to find them, and they are the
+            // difference between the game being playable and not.
+            { Id: 'AccessibilityCollection', Title: 'Accessibility', Groups: [
+                // Motion & Comfort. Camera and screen motion the player did not
+                // ask for is the main nausea trigger, so every row here removes
+                // one source of it. Defaults are the full-motion game; the preset
+                // at the bottom flips all of them at once.
+                { Id: 'MotionComfort', Title: 'Motion & comfort', Settings: [
+                    // Percent, not a bool: the cue notifies multiply their shake
+                    // scale by this, so 0 is silent and 40 keeps a hint of impact.
+                    { Key: 'accessibility.shake_intensity', Label: 'Screen shake intensity',
+                      Type: 'range', Min: 0, Max: 100, Step: 5, Value: 100 },
+                    // The camera is welded to the animated head bone — this moves
+                    // it to the capsule at the same eye height instead.
+                    { Key: 'accessibility.head_bob', Label: 'Head bob', Type: 'bool', Value: true },
+                    // The only dynamic FOV in the game (+6° while sprinting).
+                    { Key: 'accessibility.sprint_fov', Label: 'Sprint field-of-view effect', Type: 'bool', Value: true },
+                    // Mirrors graphics.motion_blur (Video → Graphics); one value,
+                    // two rows, and C++ re-echoes so both always agree.
+                    { Key: 'accessibility.motion_blur', Label: 'Motion blur', Type: 'bool', Value: true },
+                    // Low-health heartbeat, hit flash, stealth breathing. The
+                    // static art stays — only the looping stops.
+                    { Key: 'accessibility.screen_pulse', Label: 'Pulsing screen effects', Type: 'bool', Value: true },
+                    // Menu backdrops and UI chrome animation. Deliberately a game
+                    // setting rather than prefers-reduced-motion, which CEF
+                    // inherits from the host Windows session.
+                    { Key: 'accessibility.reduce_motion', Label: 'Reduce interface motion', Type: 'bool', Value: false },
+                    // Opt-in aid, off by default: it costs some of the view.
+                    { Key: 'accessibility.sprint_vignette', Label: 'Sprint comfort vignette', Type: 'bool', Value: false },
+                    { Key: 'accessibility.reduce_motion_preset', Label: 'Comfort preset',
+                      Type: 'action', ButtonText: 'Apply Reduce Motion' },
+                ] },
+                // Camera framing. A wider view reduces the sense of speed at the
+                // screen edges, so it belongs beside the comfort rows even though
+                // it is a taste setting for most players.
                 { Id: 'Camera', Title: 'Camera', Settings: [
-                    { Key: 'gameplay.fov', Label: 'Field of view', Type: 'range', Min: 60, Max: 120, Step: 1, Value: 90 },
+                    { Key: 'gameplay.fov', Label: 'Field of view',
+                      Type: 'range', Min: 60, Max: 120, Step: 1, Value: 90 },
                 ] },
             ] },
         ],
@@ -105,6 +303,87 @@
     // the pre-change value as the rollback target. Repeat edits while the
     // countdown runs join its revert set but keep the ORIGINAL value.
     function applySet(key, value, oldValue) {
+        if (STALLING_KEYS[key]) {
+            applySetAfterPainting(key, value, oldValue);
+            return;
+        }
+        publishSet(key, value);
+        if (!isVideoKey(key)) return;
+        if (!(key in videoRevert)) videoRevert[key] = oldValue;
+        openKeepCountdown();
+    }
+
+    // ---- Settings that freeze the game while they apply --------------------
+    //
+    // Picking a DLSS mode stalls the game thread for as long as ~16 s, and it is not our
+    // stall to fix: NVIDIA JIT-compiles the DLSS transformer cubins on first use of each
+    // quality mode (measured — 11 new cubins in %APPDATA%\NVIDIA\ComputeCache across the
+    // exact 16.47 s window, on a 5070/610.88). It recurs per GPU, per driver and per mode,
+    // so it is not a one-time-ever cost either. Frame generation builds NGX features the
+    // same way. What IS ours is that the screen said nothing, so a known compile read as a
+    // hang (#152).
+    //
+    // The ordering below is the whole trick. A blocked game thread presents no frames at
+    // all, so an "applying" state published in the same turn as the change would be
+    // composited only AFTER the stall it exists to explain. Paint first, publish second.
+    const STALLING_KEYS = {
+        'graphics.upscaler': 'Preparing the upscaler — the first use of a mode compiles '
+            + 'shaders for your GPU and can take several seconds.',
+        'graphics.frame_gen': 'Preparing frame generation — the first use compiles shaders '
+            + 'for your GPU and can take several seconds.',
+    };
+
+    function ensureApplyingOverlay() {
+        let el = document.getElementById('settings-applying');
+        if (el) return el;
+        el = document.createElement('div');
+        el.id = 'settings-applying';
+        el.className = 'tsic-modal-scrim tsic-modal-scrim--dim';
+        el.hidden = true;
+        el.innerHTML = '<div class="tsic-panel" style="min-width:360px;max-width:520px;text-align:center;">'
+            + '<h2 class="tsic-title tsic-title--sm">Applying…</h2>'
+            + '<p id="settings-applying-msg" style="margin:8px 0 0;"></p></div>';
+        document.body.appendChild(el);
+        return el;
+    }
+
+    // Resolves once the browser has had a real opportunity to composite the current DOM.
+    // Two rAFs: the first lands before the frame that includes our mutation, the second
+    // after it. The timeout is the belt-and-braces path for a hidden/throttled view, where
+    // rAF may never fire and we must not swallow the setting change.
+    function afterNextPaint() {
+        return new Promise((resolve) => {
+            let done = false;
+            const finish = () => { if (!done) { done = true; resolve(); } };
+            requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(finish, 0)));
+            setTimeout(finish, 250);
+        });
+    }
+
+    // Cleared by the next state broadcast from C++ — see onCatalog / onValue. Publishing is
+    // fire-and-forget, so the overlay cannot be taken down on the publish returning: that
+    // happens in the same millisecond and the player would be back to an unexplained freeze.
+    // A message arriving from C++ is the one signal that means the game thread is ticking
+    // again, which is exactly the condition for taking the overlay down.
+    let applyingTimeout = null;
+
+    function endApplying() {
+        const el = document.getElementById('settings-applying');
+        if (el) el.hidden = true;
+        if (applyingTimeout) { clearTimeout(applyingTimeout); applyingTimeout = null; }
+    }
+
+    async function applySetAfterPainting(key, value, oldValue) {
+        const overlay = ensureApplyingOverlay();
+        document.getElementById('settings-applying-msg').textContent = STALLING_KEYS[key] || '';
+        overlay.hidden = false;
+        if (applyingTimeout) clearTimeout(applyingTimeout);
+        // Backstop for a setting that applies without echoing any state (or a host that
+        // isn't wired to). 30s is past the worst measured compile; the overlay must never
+        // be the thing that strands someone.
+        applyingTimeout = setTimeout(endApplying, 30000);
+
+        await afterNextPaint();
         publishSet(key, value);
         if (!isVideoKey(key)) return;
         if (!(key in videoRevert)) videoRevert[key] = oldValue;
@@ -143,9 +422,11 @@
             slider.min = String(min); slider.max = String(max); slider.step = String(step);
             slider.value = String(v);
             slider.disabled = isDisabled;
+            slider.dataset.key = s.Key; // stable hook for tests / debugging, as with dropdowns
             const valueLabel = document.createElement('span');
             valueLabel.className = 'value-label';
             valueLabel.textContent = s.Display !== undefined ? s.Display : fmt2(v);
+            let lastTickAt = 0;
             slider.oninput = () => {
                 let n = Number(slider.value);
                 if (Number.isNaN(n)) return;
@@ -154,6 +435,11 @@
                 const old = (s.Key in localState) ? localState[s.Key] : s.Value;
                 localState[s.Key] = n;
                 valueLabel.textContent = fmt2(n);
+                const now = Date.now();
+                if (now - lastTickAt >= 60) {
+                    lastTickAt = now;
+                    try { tsic.playSound('UI.Slider.Tick', 0.3); } catch (e) {}
+                }
                 applySet(s.Key, n, old);
             };
             controlUpdaters[s.Key] = (val) => {
@@ -167,6 +453,7 @@
         } else if (type === 'bool') {
             const tog = document.createElement('div');
             tog.className = 'field-toggle' + (v ? ' on' : '') + (isDisabled ? ' disabled' : '');
+            tog.dataset.key = s.Key; // stable hook for tests / debugging, as with dropdowns
             if (!isDisabled) {
                 tog.setAttribute('data-tsic-focusable', '');
                 tog.tabIndex = 0;
@@ -176,6 +463,7 @@
                     const old = localState[s.Key] !== undefined ? localState[s.Key] : v;
                     localState[s.Key] = !old;
                     tog.classList.toggle('on', localState[s.Key]);
+                    try { tsic.playSound(localState[s.Key] ? 'UI.Toggle.On' : 'UI.Toggle.Off'); } catch (e) {}
                     applySet(s.Key, localState[s.Key], old);
                 };
             }
@@ -191,6 +479,7 @@
             const dd = document.createElement('button');
             dd.type = 'button';
             dd.className = 'tsic-dropdown';
+            dd.dataset.key = s.Key; // stable hook for tests / debugging
             dd.disabled = isDisabled;
             dd.setAttribute('data-tsic-focusable', '');
             dd.setAttribute('data-tsic-options', JSON.stringify(opts));
@@ -211,6 +500,7 @@
                 if (localState[s.Key] === newValue) return;
                 const old = (s.Key in localState) ? localState[s.Key] : String(v);
                 localState[s.Key] = newValue;
+                try { tsic.playSound('UI.Dropdown.Select'); } catch (e) {}
                 applySet(s.Key, newValue, old);
             });
             controlUpdaters[s.Key] = (val) => {
@@ -374,7 +664,7 @@
 
     // Category headers render in a fixed canonical order; anything unrecognized
     // (e.g. a modded hotkey with its own category) lands after them, Other last.
-    const CATEGORY_ORDER = ['Movement', 'Interaction', 'Combat', 'Building', 'Map', 'Hotbar', 'Interface'];
+    const CATEGORY_ORDER = ['Movement', 'Interaction', 'Combat', 'Building', 'Map', 'Hotbar', 'Communication', 'Interface'];
 
     // Search text survives re-renders — every applied rebind refreshes ControlsState,
     // which rebuilds the page, and losing the filter mid-search would be jarring.
@@ -784,6 +1074,9 @@
 
     function onCatalog(payload) {
         if (!payload) return;
+        // A message from C++ means the game thread is ticking again — the only reliable
+        // signal that a stalling setting has finished applying (see STALLING_KEYS).
+        endApplying();
         let parsed = null;
         try { parsed = JSON.parse(payload.Json || '{}'); } catch (e) {}
         lastCatalog = parsed || {};
@@ -835,6 +1128,12 @@
 
     function onControlsState(payload) {
         if (!payload) return;
+        // The stalling keys echo nothing of their own: HandleCmdSettingsSet applies the
+        // upscaler and then broadcasts ControlsState, not a Value or a Catalog. This is
+        // therefore the message that proves the game thread ticks again for exactly the
+        // settings the overlay exists for — without it the overlay only ever came down
+        // on its 30 s backstop.
+        endApplying();
         const focused = focusIdentity();
         controlsState = payload;
         renderTabs();
@@ -842,10 +1141,77 @@
         restoreFocus(focused);
     }
 
+    // Rebuild from STATIC_CATALOG after its structure changed, carrying the echoed
+    // saved values across — a structural rebuild wipes localState, and the sticky
+    // UI.Settings.Value replays may already have arrived.
+    function rebuildPreservingValues() {
+        const saved = Object.assign({}, localState);
+        onCatalog({ Json: JSON.stringify(STATIC_CATALOG) });
+        for (const k of Object.keys(saved)) {
+            localState[k] = saved[k];
+            if (controlUpdaters[k]) controlUpdaters[k](saved[k]);
+        }
+    }
+
+    // graphics.nvidia_caps is a capability report, not a setting: strip the options
+    // and rows this GPU can't drive so the menu never offers a control that the C++
+    // handler would silently reject. Mutating STATIC_CATALOG makes this idempotent,
+    // which matters because the message replays stickily. Despite the legacy key
+    // name it covers AMD FSR too (caps.fsr).
+    function applyNvidiaCaps(caps) {
+        if (!caps || typeof caps !== 'object') return false;
+        let changed = false;
+        const upscalerOk = (v) => v === 'tsr'
+            || (caps.dlss && (v === 'dlaa' || v.indexOf('dlss_') === 0))
+            || (caps.fsr && v.indexOf('fsr_') === 0);
+        for (const page of STATIC_CATALOG.Pages) {
+            for (const g of (page.Groups || [])) {
+                if (!g.Settings) continue;
+                for (const s of g.Settings) {
+                    if (s.Key !== 'graphics.upscaler' || !s.Options) continue;
+                    const kept = s.Options.filter((o) => upscalerOk(o.Value));
+                    if (kept.length !== s.Options.length) { s.Options = kept; changed = true; }
+                }
+                const dropKeys = [];
+                if (!caps.frame_gen) dropKeys.push('graphics.frame_gen');
+                if (!caps.fsr)       dropKeys.push('graphics.fsr_frame_gen');
+                if (!caps.reflex)    dropKeys.push('graphics.reflex');
+                if (dropKeys.length) {
+                    const kept = g.Settings.filter((s) => dropKeys.indexOf(s.Key) === -1);
+                    if (kept.length !== g.Settings.length) { g.Settings = kept; changed = true; }
+                }
+            }
+        }
+        return changed;
+    }
+
+    // video.hdr_supported is a capability report like nvidia_caps: drop the HDR
+    // row on displays that can't output HDR. Idempotent for sticky replays.
+    function dropHdrRow() {
+        let changed = false;
+        for (const page of STATIC_CATALOG.Pages) {
+            for (const g of (page.Groups || [])) {
+                if (!g.Settings) continue;
+                const kept = g.Settings.filter((s) => s.Key !== 'video.hdr');
+                if (kept.length !== g.Settings.length) { g.Settings = kept; changed = true; }
+            }
+        }
+        return changed;
+    }
+
     function onValue(payload) {
         if (!payload || !payload.Key) return;
+        endApplying();
         let v;
         try { v = JSON.parse(payload.ValueJson || 'null'); } catch (e) { return; }
+        if (payload.Key === 'graphics.nvidia_caps') {
+            if (applyNvidiaCaps(v)) rebuildPreservingValues();
+            return;
+        }
+        if (payload.Key === 'video.hdr_supported') {
+            if (v === false && dropHdrRow()) rebuildPreservingValues();
+            return;
+        }
         // Authoritative saved value (per-key sticky replay when the screen
         // opens, or a later C++ echo): it moves the control.
         localState[payload.Key] = v;
@@ -891,6 +1257,26 @@
     // subscribing first would let the placeholder build wipe them.
     onCatalog({ Json: JSON.stringify(STATIC_CATALOG) });
     tsic.on('tsic.msg.UI.Settings.Catalog', onCatalog);
+    // Microphone list is enumerated by C++ (sticky). Swap the placeholder
+    // Options into the static catalog and rebuild; structSig treats an
+    // unchanged list as a no-op value patch, so this is safe to re-run.
+    tsic.on('tsic.msg.UI.Settings.VoiceDevices', (p) => {
+        const devices = (p && p.Devices) || [];
+        if (!devices.length) return;
+        for (const page of STATIC_CATALOG.Pages) {
+            for (const g of (page.Groups || [])) {
+                for (const s of (g.Settings || [])) {
+                    if (s.Key === 'voice.input_device') {
+                        s.Options = devices.map(d => ({ Value: d.Value || '', Label: d.Label || d.Value || 'Unknown device' }));
+                    }
+                }
+            }
+        }
+        // A changed Options list forces a full rebuild, which wipes localState
+        // (the echoed saved values). This message can arrive after the sticky
+        // Value replays, so carry the values across the rebuild.
+        rebuildPreservingValues();
+    });
     tsic.on('tsic.msg.UI.Settings.ControlsState', onControlsState);
     tsic.on('tsic.msg.UI.Settings.RebindCapture', onRebindCapture);
     tsic.on('tsic.msg.UI.Settings.Value', onValue);
