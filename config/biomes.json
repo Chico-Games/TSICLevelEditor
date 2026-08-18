@@ -413,6 +413,56 @@
       "displayName": "Broken Empty",
       "description": "Broken/damaged empty area",
       "mod": "com.chicogames.default"
+    },
+    "Biome_BathroomEntrance": {
+      "color": "#598CF5",
+      "value": 25,
+      "icon": "📍",
+      "tag": "Tile.Biome.BathroomEntrance",
+      "category": "POI",
+      "displayName": "Bathroom Entrance",
+      "description": "Bathroom Entrance",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_BathroomExit": {
+      "color": "#1A45A6",
+      "value": 26,
+      "icon": "📍",
+      "tag": "Tile.Biome.BathroomExit",
+      "category": "POI",
+      "displayName": "Bathroom Exit",
+      "description": "Bathroom Exit",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_BlankFloor": {
+      "color": "#D1D1D1",
+      "value": 27,
+      "icon": "⬛",
+      "tag": "Tile.Biome.BlankFloor",
+      "category": "Biomes",
+      "displayName": "Blank Floor",
+      "description": "Blank Floor",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_BossArena": {
+      "color": "#990D26",
+      "value": 28,
+      "icon": "📍",
+      "tag": "Tile.Biome.BossArena",
+      "category": "POI",
+      "displayName": "Boss Arena",
+      "description": "Boss Arena",
+      "mod": "com.chicogames.default"
+    },
+    "Biome_Test": {
+      "color": "#FF00FF",
+      "value": 29,
+      "icon": "🟦",
+      "tag": "Tile.Biome.Test",
+      "category": "Biomes",
+      "displayName": "Test Zone",
+      "description": "Test Zone",
+      "mod": "com.chicogames.default"
     }
   },
   "layers": [
@@ -512,7 +562,7 @@
       "description": "Biome/room type",
       "valueRange": [
         0,
-        24
+        29
       ],
       "defaultValue": 0
     },
@@ -596,7 +646,12 @@
       "Pit": 21,
       "LostAndFound": 22,
       "Spawn": 23,
-      "BrokenEmpty": 24
+      "BrokenEmpty": 24,
+      "BathroomEntrance": 25,
+      "BathroomExit": 26,
+      "BlankFloor": 27,
+      "BossArena": 28,
+      "Test": 29
     },
     "ECurrentStoreDifficulty": {
       "Easy": 0,
@@ -622,7 +677,7 @@
     "syncedFrom": [
       "com.chicogames.default"
     ],
-    "biomeCount": 25,
-    "maxBiomeValue": 24
+    "biomeCount": 30,
+    "maxBiomeValue": 29
   }
 }
