@@ -48,12 +48,13 @@ TSICTestHarness.register(Object.assign({
             { ItemId: 'ID_Bread', Name: 'Bread', Category: 'Consumable',        Weight: 0.2 },
             { ItemId: 'ID_Wheat', Name: 'Wheat', Category: 'CraftingMaterial',  Weight: 0.05 },
         ] });
+        ctx.screen('Inventory');
         ctx.inject('tsic.msg.UI.Inventory.Updated', {
-            OwnerId: 'Player', MaxSlots: 32, MaxWeight: 30, CurrentWeight: 2,
+            OwnerId: 'Player', GridWidth: 8, MaxSlots: 32, MaxWeight: 30, CurrentWeight: 2,
             Items: [
-                { ItemId: 'ID_Axe',   Count: 1, SlotIndex: 0 },
-                { ItemId: 'ID_Bread', Count: 3, SlotIndex: 1 },
-                { ItemId: 'ID_Wheat', Count: 8, SlotIndex: 2 },
+                { ItemId: 'ID_Axe',   Count: 1, InstanceId: 1, GridSlot: 0 },
+                { ItemId: 'ID_Bread', Count: 3, InstanceId: 2, GridSlot: 1 },
+                { ItemId: 'ID_Wheat', Count: 8, InstanceId: 3, GridSlot: 2 },
             ],
         });
         ctx.inject('tsic.msg.UI.Equipment.Updated', { OwnerId: 'Player', Slots: [] });
@@ -66,6 +67,7 @@ TSICTestHarness.register(Object.assign({
     name: 'Focus/Production: reachable + groups mutually reachable',
     file: '/screens/production.html',
     async run(ctx) {
+        ctx.screen('Production');
         ctx.inject('tsic.msg.UI.Item.Catalog', { Items: [
             { ItemId: 'ID_Wheat', Name: 'Wheat', Category: 'CraftingMaterial' },
             { ItemId: 'ID_Bread', Name: 'Bread', Category: 'Consumable' },
@@ -110,26 +112,10 @@ TSICTestHarness.register(Object.assign({
 }, focusOpts()));
 
 // -- upgrade ---------------------------------------------------------------
-TSICTestHarness.register(Object.assign({
-    name: 'Focus/Upgrade: reachable + groups mutually reachable',
-    file: '/screens/upgrade.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Item.Catalog', { Items: [
-            { ItemId: 'ID_Iron', Name: 'Iron', Category: 'CraftingMaterial' },
-        ] });
-        ctx.inject('tsic.msg.UI.Recipe.StationOpened', {
-            Kind: 'Upgrade', StationId: 'F_Workbench_01',
-            Recipes: [
-                { RecipeId: 'U_Tier2', Name: 'Tier 2', bDiscovered: true, bStationLevelSufficient: true,
-                  Ingredients: [{ ItemId: 'ID_Iron', Count: 4 }] },
-                { RecipeId: 'U_Tier3', Name: 'Tier 3', bDiscovered: true, bStationLevelSufficient: true,
-                  Ingredients: [{ ItemId: 'ID_Iron', Count: 8 }] },
-            ],
-            MaterialCounts: { ID_Iron: 6 },
-        });
-        await TSICTestHarness.fx.runReachability(ctx);
-    },
-}, focusOpts()));
+// The Upgrade SCREEN was removed 2026-07-25: furniture upgrades now happen by looking at
+// the target with a hammer equipped (UScpGameplayAbility_Upgrade), with the cost shown on
+// the HUD instead of in a menu. Its focus-reachability test went with the page; the
+// replacement readout is covered by tests/upgrade-hud.test.js.
 
 // -- storage ---------------------------------------------------------------
 TSICTestHarness.register(Object.assign({
@@ -175,28 +161,12 @@ TSICTestHarness.register(Object.assign({
     },
 }, focusOpts()));
 
-// -- wardrobe --------------------------------------------------------------
-TSICTestHarness.register(Object.assign({
-    name: 'Focus/Wardrobe: reachable + groups mutually reachable',
-    file: '/screens/wardrobe.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Equipment.Updated', {
-            OwnerId: 'Player',
-            Slots: [
-                { SlotTag: 'Equipment.Cosmetic.Head', ItemId: 'ID_Hat' },
-                { SlotTag: 'Equipment.Cosmetic.Body', ItemId: 'ID_Coat' },
-            ],
-        });
-        ctx.inject('tsic.msg.UI.CharacterPreview.Ready', { bReady: true });
-        await TSICTestHarness.fx.runReachability(ctx);
-    },
-}, focusOpts()));
-
 // -- cheat-menu ------------------------------------------------------------
 TSICTestHarness.register(Object.assign({
     name: 'Focus/CheatMenu: reachable + groups mutually reachable',
     file: '/screens/cheat-menu.html',
     async run(ctx) {
+        ctx.screen('CheatMenu');
         ctx.inject('tsic.msg.UI.Cheat.Catalog', {
             Items: [
                 { InternalName: 'ID_Bread', DisplayName: 'Bread' },
@@ -242,23 +212,6 @@ TSICTestHarness.register(Object.assign({
     name: 'Focus/DeathScreen: reachable + groups mutually reachable',
     file: '/screens/death-screen.html',
     async run(ctx) { await TSICTestHarness.fx.runReachability(ctx); },
-}, focusOpts()));
-
-// -- equipment -------------------------------------------------------------
-TSICTestHarness.register(Object.assign({
-    name: 'Focus/Equipment: reachable + groups mutually reachable',
-    file: '/screens/equipment.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Equipment.Updated', {
-            OwnerId: 'Player',
-            Slots: [
-                { SlotTag: 'Equipment.MainHand', ItemId: 'ID_Axe' },
-                { SlotTag: 'Equipment.OffHand',  ItemId: '' },
-                { SlotTag: 'Equipment.Head',     ItemId: 'ID_Hat' },
-            ],
-        });
-        await TSICTestHarness.fx.runReachability(ctx);
-    },
 }, focusOpts()));
 
 // (No interaction entry: the live interaction prompt (hud-interaction.js) is

@@ -18,6 +18,13 @@
   var STATUS = ['available', 'blocked', 'cooldown', 'single-use-used'];
   var inputMode = 'MouseAndKeyboard';
   var entries = [];
+  // True while the look-target block (#bb-target, hud-interaction.js) is showing.
+  // The block renders the Interact verb + key chip at the TOP of the panel, so
+  // the generic "Interact" row is suppressed from this list to avoid a duplicate.
+  var hasLookTarget = false;
+  // True while the "Upgradable" badge (#bb-upgradable, hud-upgrade.js) is showing —
+  // like the look-target block, it counts as panel content for shell visibility.
+  var hasUpgradeTarget = false;
 
   // Key icon <img> nodes cached by `BehaviorTagName|url`. The behavior bar re-broadcasts
   // on every status/cooldown change (e.g. spamming crouch toggles StatusInt each poll),
@@ -61,6 +68,9 @@
     var row = document.createElement('span');
     row.className = 'bb-row';
     row.dataset.status = STATUS[entry.StatusInt | 0] || 'available';
+    // Lets other components find a specific row's key chip — the progress ring
+    // (hud-circular-progress.js) circles the chip of the action that is running.
+    if (entry.BehaviorTagName) row.dataset.behavior = entry.BehaviorTagName;
 
     var txt = document.createElement('span');
     txt.className = 'bb-text';
@@ -116,13 +126,18 @@
       if (entries[i].bVisible === false) continue;
       // Blocked actions (can't be used right now) are hidden from the bar entirely.
       if ((STATUS[entries[i].StatusInt | 0] || 'available') === 'blocked') continue;
+      // The look-target block above the divider already shows the interact verb
+      // with its key chip — drop the redundant generic row while it's visible.
+      if (hasLookTarget && entries[i].BehaviorTagName === 'Input.Behavior.Interact') continue;
       hasVisible = true;
       host.appendChild(renderRow(entries[i]));
     }
     for (var k in imgCache) {
       if (!liveKeys[k]) delete imgCache[k];
     }
-    shell.classList.toggle('hidden', !hasVisible);
+    // The look-target block and upgradable badge count as content — never hide the
+    // shell out from under them just because every generic row filtered out.
+    shell.classList.toggle('hidden', !hasVisible && !hasLookTarget && !hasUpgradeTarget);
   }
 
   tsic.on('tsic.msg.UI.BehaviorBar.Entries', function (p) {
@@ -131,6 +146,20 @@
   });
   tsic.on('tsic.msg.UI.Input.Mode.Changed', function (p) {
     inputMode = (p && p.Mode) || 'MouseAndKeyboard';
+    render();
+  });
+  tsic.on('tsic.msg.UI.Interaction.Targets', function (p) {
+    var next = !!(p && p.Targets && p.Targets[0]);
+    if (next === hasLookTarget) return;
+    hasLookTarget = next;
+    render();
+  });
+  tsic.on('tsic.msg.UI.Upgrade.Target', function (p) {
+    // Mirrors hud-upgrade.js's gate: bare-handed the badge never mounts, so an
+    // upgradeable target alone must not keep an otherwise-empty shell on screen.
+    var next = !!(p && p.EntityId && p.bHasUpgradeTool);
+    if (next === hasUpgradeTarget) return;
+    hasUpgradeTarget = next;
     render();
   });
 })();

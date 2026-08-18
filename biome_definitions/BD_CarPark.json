@@ -15,7 +15,7 @@
       "r": 0.41999998688697815,
       "g": 0.44699999690055847,
       "b": 0.5019999742507935,
-      "a": 1.0
+      "a": 1
     },
     "rotation_height_colors": {
       "rotation_height_direction_color_arr": [
@@ -92877,24 +92877,34 @@
       "search_loot_rarity": [],
       "hold_loot_rarity": []
     },
-    "loot_multiplier": 1.0,
+    "loot_multiplier": 1,
     "floor_lsp": "LSP_CarPark_Floor",
     "furniture_lsp": "LSP_CarPark_Furniture",
+    "container_loot_table": "LSP_CarPark_Container",
     "layouts": [
       "LYD_CarPark_All",
       "LYD_CarPark_All_Decrease",
       "LYD_Quarter_CarPark",
       "LYD_CarPark_Up",
       "LYD_CarPark_UpDown",
-      "LYD_CarPark_UpDownRight",
       "LYD_CarPark_UpRight",
-      "LYD_CarPark_UpRightDown"
+      "LYD_CarPark_UpRightDown",
+      "LYD_CarPark_Up_2",
+      "LYD_CarPark_Up_3",
+      "LYD_CarPark_UpDown_2",
+      "LYD_CarPark_UpDown_3",
+      "LYD_CarPark_UpRight_2",
+      "LYD_CarPark_UpRight_3",
+      "LYD_CarPark_UpRightDown_2",
+      "LYD_CarPark_UpRightDown_3",
+      "LYD_CarPark_All_2",
+      "LYD_CarPark_All_3"
     ],
-    "environmental_effects": [],
     "ambient_audio": {
-      "volume": 1.0,
-      "fade_in_duration": 3.0,
-      "fade_out_duration": 3.0
+      "sound": "Ambience.CarPark",
+      "volume": 0.4,
+      "fade_in_duration": 3,
+      "fade_out_duration": 3
     }
   }
 }

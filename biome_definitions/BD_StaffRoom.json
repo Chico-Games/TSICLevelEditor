@@ -15,7 +15,7 @@
       "r": 0.8709999918937683,
       "g": 0.722000002861023,
       "b": 0.5289999842643738,
-      "a": 1.0
+      "a": 1
     },
     "rotation_height_colors": {
       "rotation_height_direction_color_arr": [
@@ -92877,22 +92877,33 @@
       "search_loot_rarity": [],
       "hold_loot_rarity": []
     },
-    "loot_multiplier": 1.0,
+    "loot_multiplier": 1,
     "floor_lsp": "LSP_StaffRoom_Floor",
     "furniture_lsp": "LSP_StaffRoom_Furniture",
+    "container_loot_table": "LSP_StaffRoom_Container",
     "layouts": [
       "LYD_StaffRoom_All",
       "LYD_StaffRoom_Up",
       "LYD_StaffRoom_UpDown",
       "LYD_StaffRoom_UpRight",
       "LYD_StaffRoom_UpRightDown",
-      "LYD_StaffRoom_All_Decrease"
+      "LYD_StaffRoom_All_Decrease",
+      "LYD_StaffRoom_Up_2",
+      "LYD_StaffRoom_Up_3",
+      "LYD_StaffRoom_UpDown_2",
+      "LYD_StaffRoom_UpDown_3",
+      "LYD_StaffRoom_UpRight_2",
+      "LYD_StaffRoom_UpRight_3",
+      "LYD_StaffRoom_UpRightDown_2",
+      "LYD_StaffRoom_UpRightDown_3",
+      "LYD_StaffRoom_All_2",
+      "LYD_StaffRoom_All_3"
     ],
-    "environmental_effects": [],
     "ambient_audio": {
-      "volume": 1.0,
-      "fade_in_duration": 3.0,
-      "fade_out_duration": 3.0
+      "sound": "Ambience.BackOfHouse",
+      "volume": 0.3,
+      "fade_in_duration": 3,
+      "fade_out_duration": 3
     }
   }
 }

@@ -15,7 +15,7 @@
       "r": 0.6819999814033508,
       "g": 0.8389999866485596,
       "b": 0.9449999928474426,
-      "a": 1.0
+      "a": 1
     },
     "rotation_height_colors": {
       "rotation_height_direction_color_arr": [
@@ -92877,9 +92877,10 @@
       "search_loot_rarity": [],
       "hold_loot_rarity": []
     },
-    "loot_multiplier": 1.0,
+    "loot_multiplier": 1,
     "floor_lsp": "LSP_SCPBase_Floor",
     "furniture_lsp": "LSP_SCPBase_Furniture",
+    "container_loot_table": "LSP_SCPBase_Container",
     "layouts": [
       "LYD_Quarter_SCPBase",
       "LYD_SCPBase_All",
@@ -92895,13 +92896,23 @@
       "LYD_SCPBase_Up1",
       "LYD_SCPBase_UpDown",
       "LYD_SCPBase_UpRight",
-      "LYD_SCPBase_UpRightDown"
+      "LYD_SCPBase_UpRightDown",
+      "LYD_SCPBase_Up_2",
+      "LYD_SCPBase_Up_3",
+      "LYD_SCPBase_UpDown_2",
+      "LYD_SCPBase_UpDown_3",
+      "LYD_SCPBase_UpRight_2",
+      "LYD_SCPBase_UpRight_3",
+      "LYD_SCPBase_UpRightDown_2",
+      "LYD_SCPBase_UpRightDown_3",
+      "LYD_SCPBase_All_2",
+      "LYD_SCPBase_All_3"
     ],
-    "environmental_effects": [],
     "ambient_audio": {
-      "volume": 1.0,
-      "fade_in_duration": 3.0,
-      "fade_out_duration": 3.0
+      "sound": "Ambience.SCPBase",
+      "volume": 0.4,
+      "fade_in_duration": 3,
+      "fade_out_duration": 3
     }
   }
 }

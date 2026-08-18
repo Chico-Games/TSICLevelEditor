@@ -11,6 +11,7 @@
 //     renderExtra:  function(host, data){}, // optional extra pane content
 //     emptyText:    'No recipes available.',// placeholder when list is empty
 //     soundSuccess: 'Craft.Success',        // sound on successful action
+//     soundWorking: 'Craft.Working',        // optional, the bench working (exclusive slot)
 //     soundFail:    'Craft.Fail',           // sound on toast warning/error
 //     rowName:      function(recipe, cat){},// optional: override display name
 //     rowIcon:      function(recipe){},     // optional: override icon item ID
@@ -31,6 +32,7 @@
     var actionLabel = opts.actionLabel || 'Confirm';
     var emptyText = opts.emptyText || 'No recipes available.';
     var soundSuccess = opts.soundSuccess || null;
+    var soundWorking = opts.soundWorking || null;
     var soundFail = opts.soundFail || null;
 
     var stationId = null;
@@ -51,7 +53,9 @@
     var listEyebrow = el('div', { class: 'tsic-eyebrow' }, 'Recipes');
     var listCol = el('div', { class: 'tsic-split-col' }, listEyebrow, listPane);
 
-    var infoPane = el('div', { class: 'rs-info', style: 'padding:10px; background:rgba(241,229,207,0.88); border:1px solid var(--tsic-border); flex:1 1 auto; overflow:auto; min-height:0;' });
+    // scrollbar-gutter: a long ingredient list must not narrow the pane it is in the moment
+    // it overflows — the text would reflow under the cursor mid-read.
+    var infoPane = el('div', { class: 'rs-info', style: 'padding:10px; background:rgba(241,229,207,0.88); border:1px solid var(--tsic-border); flex:1 1 auto; overflow:auto; scrollbar-gutter:stable; min-height:0;' });
 
     var actionBtn = el('button', { class: 'tsic-button rs-action', style: 'width:100%; padding:8px; flex:0 0 auto;' }, actionLabel);
     actionBtn.disabled = true;
@@ -91,9 +95,8 @@
     function getRecipeName(r) {
       var cat = (window.tsic && window.tsic.itemCatalog) || {};
       if (typeof opts.rowName === 'function') return opts.rowName(r, cat);
-      if (!r.bDiscovered) return '???';
-      var outId = (r.Outputs && r.Outputs[0] && r.Outputs[0].ItemId) || '';
-      return (cat[outId] && cat[outId].Name) || r.Name || r.RecipeId;
+      // '???' while undiscovered, produced-item name otherwise — never a raw id.
+      return window.TSICRecipeInfo.displayName(r);
     }
 
     function getRowRight(r) {
@@ -136,7 +139,12 @@
             row.appendChild(el('div', { class: 'right' }, rightText));
           }
 
-          var selectRecipe = function () { selectRecipeOnly(r.RecipeId); };
+          var selectRecipe = function () {
+            // A gated row still selects (so the player can read why), but it
+            // sounds locked instead of like a normal pick.
+            if (locked && selectedRecipeId !== r.RecipeId) tsic.playSound('UI.Locked', 0.35);
+            selectRecipeOnly(r.RecipeId);
+          };
           var commitRecipe = function () {
             selectRecipe();
             if (!actionBtn.disabled) actionBtn.click();
@@ -183,12 +191,22 @@
     }
 
     function renderInfoPane(recipe) {
+      if (!recipe) {
+        // Never leave the detail pane as an unexplained blank slab — that read as a broken
+        // screen. Say which of the two states it is.
+        var hasRows = !!(lastStation && (lastStation.Recipes || []).length > 0);
+        infoPane.innerHTML = '';
+        infoPane.appendChild(el('div', { class: 'tsic-empty' },
+          hasRows ? 'Select a recipe to see its details.' : emptyText));
+        actionBtn.disabled = true;
+        return;
+      }
       if (typeof opts.renderInfo === 'function') {
         opts.renderInfo(infoPane, recipe, materialCounts);
       } else {
         window.TSICRecipeInfo.render(infoPane, recipe, materialCounts);
       }
-      actionBtn.disabled = !recipe || !canAction(recipe);
+      actionBtn.disabled = !canAction(recipe);
     }
 
     function renderAll() {
@@ -203,8 +221,19 @@
       stationId = p.StationId;
       lastStation = p;
       materialCounts = p.MaterialCounts || {};
-      if (!selectedRecipeId && (p.Recipes || []).length > 0) {
-        selectedRecipeId = p.Recipes[0].RecipeId;
+
+      // Keep the player's selection when the new snapshot still contains it, otherwise fall
+      // back to the first row. Previously this only auto-selected when NOTHING was selected,
+      // so a selection left over from a different station of the same kind survived into a
+      // station whose list does not contain it — Production/Plantable/Cage all share this one
+      // screen module, so opening a furnace then a plant pot left the stale furnace recipe
+      // selected, matched nothing, and rendered an empty details pane.
+      var recipes = p.Recipes || [];
+      var stillPresent = selectedRecipeId && recipes.some(function (r) {
+        return r.RecipeId === selectedRecipeId;
+      });
+      if (!stillPresent) {
+        selectedRecipeId = recipes.length > 0 ? recipes[0].RecipeId : null;
       }
       renderAll();
     }
@@ -232,6 +261,12 @@
       }
       if (soundSuccess) {
         tsic.playSound(soundSuccess);
+      }
+      // The bench itself working, under the confirmation blip. Craft.Working is an
+      // exclusive slot, so queueing a second item cuts the first one's take short
+      // instead of layering another bench on top of it.
+      if (soundWorking) {
+        tsic.playSound(soundWorking);
       }
     }
 

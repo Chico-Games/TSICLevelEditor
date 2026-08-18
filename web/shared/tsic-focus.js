@@ -26,6 +26,7 @@
 //   pushScope(rootEl, initialEl)   // modal scope; subsequent step() restricted to root
 //   popScope()                     // restores caller focus
 //   resetMemory()                  // clear per-screen focus memory (for tests)
+//   isTypingContext()              // true while a text-entry element owns focus (KBM only)
 //   snapshot()                     // debug — { mode, enabled, scope, focusable: [...] }
 //   __focusableSet()               // (test-only) returns current focusable list
 //   __stableSelector(el)           // (test-only) structural selector
@@ -43,6 +44,18 @@
             memory: {},          // per-screen last-focused stable selector
             scopeStack: [],      // [{ root, caller }]
             smoothScroll: true,  // tests flip this to 'instant'
+            // Focus territory when no modal scope is pushed. Three states:
+            //   undefined — never set: the whole document (legacy standalone
+            //               pages, where the page IS the menu)
+            //   element   — the active screen overlay (SPA shell, set by
+            //               screen-manager on every screen change)
+            //   null      — explicitly none (SPA shell during gameplay): nav,
+            //               Accept and initial focus must not touch anything.
+            //               Without this, switching to gamepad mid-gameplay
+            //               grabbed the hidden HUD chat input via the
+            //               structural last-resort, and menu nav could step
+            //               onto HUD elements behind an opaque overlay.
+            baseScope: undefined,
         };
 
         // ---- DOM helpers --------------------------------------------------
@@ -78,6 +91,21 @@
         // on keyboard only once the player has started navigating by keys.
         function navDriving() {
             return State.mode === 'Gamepad' || State.kbnav;
+        }
+
+        // While a text-entry element owns DOM focus, printable keys are
+        // content, not commands — nav/tab/page behaviors must not fire (Q in
+        // a search box types "q", it doesn't switch tabs). Gamepad-only for
+        // the exemption: a gamepad can't type, and d-pad nav must still be
+        // able to step off a focused input.
+        function isTypingContext() {
+            if (State.mode === 'Gamepad') return false;
+            const a = document.activeElement;
+            if (!a) return false;
+            if (a.isContentEditable) return true;
+            if (a.tagName === 'TEXTAREA') return true;
+            if (a.tagName !== 'INPUT') return false;
+            return !/^(button|submit|reset|checkbox|radio|range|color|file|image|hidden)$/i.test(a.type || 'text');
         }
 
         function isFocusable(el) {
@@ -140,8 +168,20 @@
             return prefix + path.join(' > ');
         }
 
+        // Focus territory: the innermost modal scope, else the base scope.
+        // Returns null when the shell says there is no territory (gameplay).
+        function territoryRoot() {
+            if (State.scopeStack.length > 0) {
+                return State.scopeStack[State.scopeStack.length - 1].root;
+            }
+            if (State.baseScope === undefined) return document;
+            return State.baseScope;   // element, or null = no territory
+        }
+
         function findInitial() {
-            return document.querySelector('[data-tsic-initial-focus]');
+            const root = territoryRoot();
+            if (!root) return null;
+            return root.querySelector('[data-tsic-initial-focus]');
         }
 
         // ---- Spatial-nearest ---------------------------------------------
@@ -150,6 +190,18 @@
 
         function pickNeighbor(from, dir, candidates) {
             if (!from) return null;
+            // Parent-first disambiguation for NESTED focusables (a delete
+            // button inside a focusable slot row): from OUTSIDE the pair,
+            // navigation lands on the container; the inner control is only
+            // reachable once focus is inside that container. Without this the
+            // child's centre often sits marginally closer and the row itself
+            // is never visited.
+            candidates = candidates.filter((c) => {
+                for (const p of candidates) {
+                    if (p !== c && p !== from && p.contains(c) && !p.contains(from)) return false;
+                }
+                return true;
+            });
             const fr = from.getBoundingClientRect();
             const fc = centre(fr);
             // Two-pass scoring. Pass A (overlap): only candidates whose
@@ -249,6 +301,7 @@
             disable() { State.enabled = false; },
             isEnabled() { return State.enabled; },
             getMode() { return State.mode; },
+            isTypingContext() { return isTypingContext(); },
 
             refresh() {
                 // No cached state — focusable list is read fresh on every step.
@@ -276,9 +329,8 @@
 
             step(dir) {
                 if (!State.enabled || !navDriving()) return false;
-                const scopeRoot = State.scopeStack.length > 0
-                    ? State.scopeStack[State.scopeStack.length - 1].root
-                    : document;
+                const scopeRoot = territoryRoot();
+                if (!scopeRoot) return false;   // shell gameplay: no focus territory
                 let candidates = focusableSet(scopeRoot);
                 // Layout-less fallback: nothing has a measurable rect (fresh
                 // portal, or jsdom-style test env). Use the structural list
@@ -331,6 +383,26 @@
                 const next = pickNeighbor(cur, dir, candidates);
                 if (!next) return false;
                 return api.focus(next);
+            },
+
+            // The SPA shell's screen-manager declares the active overlay as
+            // the engine's territory: an element while a screen is open, null
+            // (no territory) during gameplay. Legacy standalone pages never
+            // call this and keep the whole-document default. Not a modal
+            // scope on purpose — Back must keep closing the screen, not pop
+            // the screen's own scope.
+            setBaseScope(rootEl) {
+                State.baseScope = rootEl;
+            },
+
+            // Screen transitions invalidate the focus ring: a marker left on
+            // the outgoing screen (or on a pre-open HUD element) would win
+            // over the fresh overlay in Accept/step and click something the
+            // player cannot see focused.
+            clearMarkers() {
+                for (const stale of document.querySelectorAll('[data-tsic-focused]')) {
+                    stale.removeAttribute('data-tsic-focused');
+                }
             },
 
             pushScope(root, initial, opts) {
@@ -392,10 +464,16 @@
         };
 
         function applyInitialFocus() {
+            // Everything here stays inside the focus territory. In the SPA
+            // shell with no screen open there is none — switching to gamepad
+            // mid-gameplay must not grab HUD elements (it used to land on the
+            // hidden chat input via the structural last-resort).
+            const root = territoryRoot();
+            if (!root) return;
             const saved = State.memory[screenKey()];
             if (saved) {
                 let restored = null;
-                try { restored = document.querySelector(saved); } catch (e) { restored = null; }
+                try { restored = root.querySelector(saved); } catch (e) { restored = null; }
                 if (restored && isStructurallyFocusable(restored)) {
                     api.focus(restored, { trust: true });
                     return;
@@ -411,7 +489,7 @@
             }
             // Last resort: the first focusable in the layout if there is one,
             // else the first structurally focusable so navigation can start.
-            const first = focusableSet()[0] || structuralFocusableSet()[0];
+            const first = focusableSet(root)[0] || structuralFocusableSet(root)[0];
             if (first) api.focus(first, { trust: true });
         }
 
@@ -426,12 +504,16 @@
             setKbnav(false);
             if (!State.enabled) return;
             if (mode === 'Gamepad') {
-                try { t.setInteractiveRects && t.setInteractiveRects([]); } catch (e) {}
+                // Route through the LIVE global — the test playground swaps
+                // window.tsic after load (in production it IS `t`).
+                var liveT = window.tsic || t;
+                try { liveT.setInteractiveRects && liveT.setInteractiveRects([]); } catch (e) {}
                 applyInitialFocus();
             } else {
                 // Restore default (whole-view interactive) for the page's mouse
                 // mode. Pages that maintain their own rects re-publish them.
-                try { t.setInteractiveRects && t.setInteractiveRects([{ x: 0, y: 0, w: 99999, h: 99999 }]); } catch (e) {}
+                var liveT2 = window.tsic || t;
+                try { liveT2.setInteractiveRects && liveT2.setInteractiveRects([{ x: 0, y: 0, w: 99999, h: 99999 }]); } catch (e) {}
                 // Strip every focused marker — mouse users get the existing
                 // :hover styling, the focused-state CSS should never apply.
                 for (const stale of document.querySelectorAll('[data-tsic-focused]')) {
@@ -439,6 +521,19 @@
                 }
             }
         });
+
+        // Right-stick focus flick (grid design §8.2, P2): a stick deflection
+        // jumps focus 4 steps in that direction — a fast row/column hop across
+        // large grids. The stick keys act as digital presses (Started phase).
+        for (const flickDir of ['Up', 'Down', 'Left', 'Right']) {
+            t.on('tsic.msg.UI.Behavior.FocusFlick' + flickDir, (e) => {
+                if (!e || e.Phase !== 'Started' || !State.enabled) return;
+                const dir = flickDir.toLowerCase();
+                for (let i = 0; i < 4; i++) {
+                    if (!api.step(dir)) break;
+                }
+            });
+        }
 
         // Returns the element gamepad nav should treat as "current" —
         // activeElement if it's a real focus, else the engine's own marker
@@ -508,10 +603,11 @@
         });
 
         // Discrete directional nav: arrow keys (KBM) and D-pad (gamepad), one step per press.
-        t.on('tsic.msg.UI.Behavior.NavUp',    (p) => { if (p && p.Phase === 'Started') navStep('up'); });
-        t.on('tsic.msg.UI.Behavior.NavDown',  (p) => { if (p && p.Phase === 'Started') navStep('down'); });
-        t.on('tsic.msg.UI.Behavior.NavLeft',  (p) => { if (p && p.Phase === 'Started') navStep('left'); });
-        t.on('tsic.msg.UI.Behavior.NavRight', (p) => { if (p && p.Phase === 'Started') navStep('right'); });
+        // Typing guard: arrows move the caret inside a focused text field.
+        t.on('tsic.msg.UI.Behavior.NavUp',    (p) => { if (p && p.Phase === 'Started' && !isTypingContext()) navStep('up'); });
+        t.on('tsic.msg.UI.Behavior.NavDown',  (p) => { if (p && p.Phase === 'Started' && !isTypingContext()) navStep('down'); });
+        t.on('tsic.msg.UI.Behavior.NavLeft',  (p) => { if (p && p.Phase === 'Started' && !isTypingContext()) navStep('left'); });
+        t.on('tsic.msg.UI.Behavior.NavRight', (p) => { if (p && p.Phase === 'Started' && !isTypingContext()) navStep('right'); });
 
         t.on('tsic.msg.UI.Behavior.Accept', (payload) => {
             if (!State.enabled || !navDriving()) return;
@@ -520,7 +616,19 @@
             // Same fallback as step() — when iframe lost focus the marker is the
             // source of truth.
             const target = (a && a !== document.body) ? a : document.querySelector('[data-tsic-focused]');
-            if (!target) return;
+            if (!target) {
+                // Self-heal, mirroring step(): nothing focused and no marker
+                // (initial focus failed or the screen declares none). Spend
+                // the press landing focus on the territory's initial element
+                // (visible, conservative) rather than dropping it on the
+                // floor. Deliberately does NOT activate: a mashed confirm
+                // must not press buttons the player never saw focused. In
+                // shell gameplay findInitial() has no territory and returns
+                // null, so the press stays with the game.
+                const init = findInitial();
+                if (init) api.focus(init);
+                return;
+            }
             // Pages with a "select vs commit" distinction (list rows where
             // single-click selects and double-click commits) listen for a
             // 'tsic:confirm' event and call preventDefault to suppress the
@@ -612,11 +720,11 @@
             return true;
         }
         t.on('tsic.msg.UI.Behavior.NextTab', (payload) => {
-            if (!payload || payload.Phase !== 'Started') return;
+            if (!payload || payload.Phase !== 'Started' || isTypingContext()) return;
             cycleTab(+1);
         });
         t.on('tsic.msg.UI.Behavior.PrevTab', (payload) => {
-            if (!payload || payload.Phase !== 'Started') return;
+            if (!payload || payload.Phase !== 'Started' || isTypingContext()) return;
             cycleTab(-1);
         });
 
@@ -640,11 +748,11 @@
             target.scrollBy({ top: step, left: 0, behavior: 'auto' });
         }
         t.on('tsic.msg.UI.Behavior.NextPage', (payload) => {
-            if (!payload || payload.Phase !== 'Started') return;
+            if (!payload || payload.Phase !== 'Started' || isTypingContext()) return;
             pageStep(+1);
         });
         t.on('tsic.msg.UI.Behavior.PrevPage', (payload) => {
-            if (!payload || payload.Phase !== 'Started') return;
+            if (!payload || payload.Phase !== 'Started' || isTypingContext()) return;
             pageStep(-1);
         });
 
@@ -721,6 +829,14 @@
         }
         if (document.readyState === 'complete') scheduleMirror();
         else window.addEventListener('load', scheduleMirror, { once: true });
+
+        // In the SPA shell there is no focus territory until screen-manager
+        // declares one (a mounted overlay). Decided here, not in
+        // screen-manager, so it holds from the first instant regardless of
+        // which module's tsic-poll wins the boot race.
+        if (document.querySelector('meta[name="tsic-shell"]')) {
+            State.baseScope = null;
+        }
 
         if (metaSaysEnabled()) {
             // Defer to next tick so the page's render pass can populate

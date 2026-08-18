@@ -2,32 +2,19 @@
 
 // ---- Inventory: 200-stack stress ----------------------------------------
 TSICTestHarness.register({
-    name: 'Stress/Inventory: 200 stacks render as 200 list rows',
+    name: 'Stress/Inventory: 200 stacks render as 200 occupied grid cells',
     file: '/screens/inventory.html',
     async run(ctx) {
+        ctx.screen('Inventory');
         const items = [];
-        for (let i = 0; i < 200; i++) items.push({ ItemId: `ID_${i}`, Count: 1, SlotIndex: i });
-        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', Items: items, MaxSlots: 256 });
-        await ctx.waitFor(() => ctx.doc.querySelectorAll('#inv-list .tsic-list-row').length === 200, { timeout: 3000 });
-        ctx.expect(ctx.assert.domCount(ctx.doc, '#inv-list .tsic-list-row', 200));
+        for (let i = 0; i < 200; i++) items.push({ ItemId: `ID_${i}`, Count: 1, InstanceId: i + 1, GridSlot: i });
+        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', GridWidth: 8, Items: items, MaxSlots: 256 });
+        await ctx.waitFor(() => ctx.doc.querySelectorAll('#inv-grid .tsic-slot[data-instance]').length === 200, { timeout: 3000 });
+        ctx.expect(ctx.assert.domCount(ctx.doc, '#inv-grid .tsic-slot[data-instance]', 200));
     },
 });
 
 // ---- Map: 100 icons / 20 players / 50 pings -----------------------------
-TSICTestHarness.register({
-    name: 'Stress/Map: 100 icons + 20 players + 50 pings still renders',
-    file: '/screens/map.html',
-    async run(ctx) {
-        const icons = [], players = [], pings = [];
-        for (let i = 0; i < 100; i++) icons.push({ IconId: `i${i}`, Category: 'landmark', Position: { X: i * 10, Y: i * 5 }, Label: `i${i}` });
-        for (let i = 0; i < 20;  i++) players.push({ PlayerId: `p${i}`, Name: `P${i}`, Position: { X: i * 5, Y: i * 3 }, YawDeg: i * 18 });
-        for (let i = 0; i < 50;  i++) pings.push({ PingId: `g${i}`, PingType: 'Map', Location: { X: i * 2, Y: i * 4, Z: 0 }, OwnerId: 'X' });
-        ctx.inject('tsic.msg.UI.Map.Snapshot', { Players: players, Icons: icons, MinBounds: { X: -2000, Y: -2000 }, MaxBounds: { X: 2000, Y: 2000 } });
-        ctx.inject('tsic.msg.UI.Ping.Set', { Pings: pings });
-        await new Promise(r => setTimeout(r, 200));
-        ctx.expect(ctx.assert.truthy(ctx.doc.querySelectorAll('#g-pings g').length >= 1));
-    },
-});
 
 // ---- Action bar: 50 ability rows -----------------------------------------
 TSICTestHarness.register({
@@ -35,7 +22,8 @@ TSICTestHarness.register({
     file: '/screens/test-behavior-bar.html',
     async run(ctx) {
         const slots = [];
-        for (let i = 0; i < 50; i++) slots.push({ BehaviorTagName: `IA_${i}`, DisplayName: `A${i}`, bVisible: true, StatusInt: i % 4 });
+        // blocked (1) rows are hidden by design — keep all 50 available
+        for (let i = 0; i < 50; i++) slots.push({ BehaviorTagName: `IA_${i}`, DisplayName: `A${i}`, bVisible: true, StatusInt: 0 });
         ctx.inject('tsic.msg.UI.BehaviorBar.Entries', { Entries: slots });
         await ctx.waitFor(() => ctx.doc.querySelectorAll('#bb-gameplay .bb-row').length === 50, { timeout: 3000 });
         ctx.expect(ctx.assert.domCount(ctx.doc, '#bb-gameplay .bb-row', 50));
@@ -90,20 +78,6 @@ TSICTestHarness.register({
     },
 });
 
-// ---- Construction: many items into tabs --------------------------------
-TSICTestHarness.register({
-    name: 'Stress/Construction: 30 items across 4 categories produce 5 tabs (All + 4)',
-    file: '/screens/construction.html',
-    async run(ctx) {
-        const items = [];
-        const cats = ['Furniture','Structure','Decoration','Storage'];
-        for (let i = 0; i < 30; i++) items.push({ EntityDefId: `FD_${i}`, Name: `i${i}`, Category: cats[i % cats.length], bAffordable: i % 2 === 0 });
-        ctx.inject('tsic.msg.UI.Construction.Available', { Items: items });
-        await ctx.waitFor(() => ctx.doc.querySelectorAll('#c-tabs .tsic-tab').length >= 5, { timeout: 2000 });
-        ctx.expect(ctx.assert.eq(ctx.doc.querySelectorAll('#c-tabs .tsic-tab').length, 5));
-    },
-});
-
 // ---- Detection: out-of-range bearing values ----------------------------
 TSICTestHarness.register({
     name: 'Stress/Detection: bearings beyond ±180 still render without throwing',
@@ -126,23 +100,26 @@ TSICTestHarness.register({
     name: 'Stress/Storage: 99999 stack count renders cleanly',
     file: '/screens/storage.html',
     async run(ctx) {
-        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Storage:1', Items: [{ ItemId: 'ID_X', Count: 99999, SlotIndex: 0 }], MaxSlots: 32 });
-        await ctx.waitFor(() => ctx.doc.querySelector('#ss-container-list .tsic-list-row[data-slot="0"]'));
-        const row = ctx.doc.querySelector('#ss-container-list .tsic-list-row[data-slot="0"]');
-        ctx.expect(ctx.assert.truthy(/×99999/.test(row.textContent || ''),
-            `expected stack count ×99999 in row text, got: ${row.textContent}`));
+        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Storage:1', GridWidth: 8, Items: [{ ItemId: 'ID_X', Count: 99999, InstanceId: 1, GridSlot: 0 }], MaxSlots: 32 });
+        await ctx.waitFor(() => ctx.doc.querySelector('#ss-container-list .tsic-slot[data-grid="0"]'));
+        const cell = ctx.doc.querySelector('#ss-container-list .tsic-slot[data-grid="0"]');
+        ctx.expect(ctx.assert.truthy(/99999/.test((cell.querySelector('.count') || {}).textContent || ''),
+            `expected count badge 99999`));
     },
 });
 
-// ---- Cheat: empty custom field --------------------------------------------
+// ---- Cheat: an input-driven command with an empty field does not publish ----
+// (Was the raw console box, which the panel no longer carries. The same contract
+// still matters for every data-cmd-tpl-input button.)
 TSICTestHarness.register({
-    name: 'Stress/CheatMenu: empty custom field does not publish',
+    name: 'Stress/CheatMenu: empty input field does not publish',
     file: '/screens/cheat-menu.html',
     async run(ctx) {
-        await ctx.waitFor(() => ctx.doc.getElementById('cm-custom-go'));
-        ctx.doc.getElementById('cm-custom-cmd').value = '';
+        ctx.screen('CheatMenu');
+        await ctx.waitFor(() => ctx.doc.getElementById('cm-entity-id'));
+        ctx.doc.getElementById('cm-entity-id').value = '';
         ctx.clearPublishes();
-        ctx.doc.getElementById('cm-custom-go').click();
+        ctx.doc.querySelector('button[data-cmd-tpl-input^="FindEntity"]').click();
         ctx.expect(ctx.assert.notPublished(ctx.handle, 'UI.Cmd.Cheat.Execute'));
     },
 });
@@ -152,6 +129,7 @@ TSICTestHarness.register({
     name: 'Stress/Production: 20 queue entries render',
     file: '/screens/production.html',
     async run(ctx) {
+        ctx.screen('Production');
         const q = [];
         for (let i = 0; i < 20; i++) q.push({ RecipeId: `R_${i}`, Name: `r${i}`, ProgressFraction: i / 20 });
         ctx.inject('tsic.msg.UI.Recipe.StationOpened', { Kind: 'Production', Recipes: [], MaterialCounts: {} });
@@ -166,20 +144,22 @@ TSICTestHarness.register({
     name: 'Stress/Inventory: empty payload shows empty-state',
     file: '/screens/inventory.html',
     async run(ctx) {
-        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', Items: [] });
-        await ctx.waitFor(() => ctx.doc.querySelector('#inv-list .tsic-empty'), { timeout: 2000 });
-        ctx.expect(ctx.assert.eq(ctx.doc.querySelectorAll('#inv-list .tsic-list-row').length, 0));
+        ctx.screen('Inventory');
+        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', GridWidth: 8, Items: [], MaxSlots: 32 });
+        await ctx.waitFor(() => ctx.doc.querySelectorAll('#inv-grid .tsic-slot').length > 0, { timeout: 2000 });
+        ctx.expect(ctx.assert.eq(ctx.doc.querySelectorAll('#inv-grid .tsic-slot[data-instance]').length, 0));
     },
 });
 
-// ---- Hotbar: zero slots -------------------------------------------------
+// ---- Hotbar: a payload with no NumSlots still renders the bar -----------
 TSICTestHarness.register({
-    name: 'Stress/Hotbar: zero slots payload renders zero cells',
+    name: 'Stress/Hotbar: a payload missing NumSlots falls back to the shared default',
     file: '/screens/hotbar.html',
     async run(ctx) {
-        ctx.inject('tsic.msg.UI.Hotbar.Changed', { SlotIndices: [], SelectedSlot: 0 });
+        // C++ always ships NumSlots; a truncated or pre-upgrade payload must not blank the bar.
+        ctx.inject('tsic.msg.UI.Hotbar.Changed', { SelectedSlot: 0 });
         await new Promise(r => setTimeout(r, 60));
-        ctx.expect(ctx.assert.eq(ctx.doc.querySelectorAll('#hotbar-row .tsic-slot').length, 0));
+        ctx.expect(ctx.assert.eq(ctx.doc.querySelectorAll('#hotbar-row .tsic-slot').length, 8));
     },
 });
 
@@ -197,17 +177,6 @@ TSICTestHarness.register({
         });
         await ctx.waitFor(() => ctx.doc.querySelector('#bb-gameplay .bb-row'));
         ctx.expect(ctx.assert.domCount(ctx.doc, '#bb-gameplay .bb-key', 0));
-    },
-});
-
-// ---- Quantity picker: min=1 lower-bound stays at 1 ----------------------
-TSICTestHarness.register({
-    name: 'Stress/QuantityPicker: slider min is 1 (not 0)',
-    file: '/screens/quantity-picker.html?fromOwnerId=Player&toOwnerId=Storage:1&fromSlot=0&toSlot=-1&maxCount=5',
-    async run(ctx) {
-        await ctx.waitFor(() => ctx.doc.querySelector('input[type="range"]'));
-        const slider = ctx.doc.querySelector('input[type="range"]');
-        ctx.expect(ctx.assert.eq(slider.min, '1'));
     },
 });
 

@@ -12,6 +12,7 @@
   <script src="/shared/router.js" defer></script>
   <script src="/shared/tsic-bridge.js" defer></script>
   <script src="/shared/tsic-runtime.js" defer></script>
+  <script src="/shared/reduce-motion.js" defer></script>
   <script src="/shared/store-maze.js" defer></script>
   <script src="/shared/store-maze-stage.js" defer></script>
   <script src="/shared/tsic-focus.js" defer></script>
@@ -171,6 +172,7 @@
           row.className = 'save-slot';
           row.setAttribute('role', 'button');
           row.setAttribute('data-tsic-focusable', '');
+          row.tabIndex = -1; // divs are not DOM-focusable without this — gamepad steps anchor on document.activeElement
           row.setAttribute('aria-label', `Load save from ${formatOpened(s.TimestampIso)}`);
 
           const thumb = document.createElement('div');

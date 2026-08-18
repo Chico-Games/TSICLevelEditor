@@ -7,8 +7,41 @@
     "layout_objects": [
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "ENEMY_SPAWN_POINT",
+          "value": 2
+        },
+        "b_visual_helper": false,
+        "definition_filter": {
+          "seed_offset": -1,
+          "search_queries": [],
+          "tile_requirements": [],
+          "spawn_chance_over": 0.0,
+          "spawn_chance_under": 0.7
+        },
+        "enemy_spawn_point_definition": "ESP_SCPBase",
+        "transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "translation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      {
+        "layout_actor_type": {
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -18,7 +51,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -40,8 +73,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -51,7 +84,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -73,8 +106,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -84,7 +117,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -106,8 +139,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -117,7 +150,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": 0.0,
@@ -139,8 +172,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -150,7 +183,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": 0.0,
@@ -172,8 +205,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -183,7 +216,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -205,8 +238,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -216,7 +249,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -238,8 +271,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -249,7 +282,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -271,8 +304,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -282,7 +315,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -304,8 +337,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -315,7 +348,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": 0.0,
@@ -337,8 +370,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -348,7 +381,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": 0.0,
@@ -370,8 +403,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -381,7 +414,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": 0.0,
@@ -403,8 +436,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -414,7 +447,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": 0.0,
@@ -436,8 +469,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -447,7 +480,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -469,8 +502,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -480,7 +513,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -502,8 +535,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -513,7 +546,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -535,8 +568,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -546,7 +579,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": -0.0,
@@ -568,8 +601,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -579,7 +612,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": 0.0,
@@ -601,8 +634,8 @@
       },
       {
         "layout_actor_type": {
-          "name": "PROXY_ACTOR",
-          "value": 0
+          "name": "LAYOUT",
+          "value": 1
         },
         "b_visual_helper": false,
         "definition_filter": {
@@ -612,7 +645,7 @@
           "spawn_chance_over": 0.0,
           "spawn_chance_under": 1.0
         },
-        "furniture_definition": "FD_LabWall_DF",
+        "layout_definition": "LYD_LabWall_ByDifficulty",
         "transform": {
           "rotation": {
             "x": 0.0,
@@ -794,6 +827,105 @@
           "translation": {
             "x": 0.0,
             "y": 0.0,
+            "z": 0.0
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      {
+        "layout_actor_type": {
+          "name": "LOOT_SPAWN_POINT",
+          "value": 3
+        },
+        "b_visual_helper": false,
+        "definition_filter": {
+          "seed_offset": 19,
+          "search_queries": [],
+          "tile_requirements": [],
+          "spawn_chance_over": 0.0,
+          "spawn_chance_under": 1.0
+        },
+        "loot_spawn_point_definition": "LSP_SCPBase_Floor",
+        "transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "translation": {
+            "x": 600.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      {
+        "layout_actor_type": {
+          "name": "LOOT_SPAWN_POINT",
+          "value": 3
+        },
+        "b_visual_helper": false,
+        "definition_filter": {
+          "seed_offset": 20,
+          "search_queries": [],
+          "tile_requirements": [],
+          "spawn_chance_over": 0.0,
+          "spawn_chance_under": 1.0
+        },
+        "loot_spawn_point_definition": "LSP_SCPBase_Floor",
+        "transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "translation": {
+            "x": 100.0,
+            "y": -325.0,
+            "z": 0.0
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      {
+        "layout_actor_type": {
+          "name": "LOOT_SPAWN_POINT",
+          "value": 3
+        },
+        "b_visual_helper": false,
+        "definition_filter": {
+          "seed_offset": 21,
+          "search_queries": [],
+          "tile_requirements": [],
+          "spawn_chance_over": 0.0,
+          "spawn_chance_under": 1.0
+        },
+        "loot_spawn_point_definition": "LSP_SCPBase_Floor",
+        "transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          },
+          "translation": {
+            "x": 100.0,
+            "y": 325.0,
             "z": 0.0
           },
           "scale3_d": {

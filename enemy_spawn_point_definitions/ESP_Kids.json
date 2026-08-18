@@ -13,12 +13,16 @@
         "value": {
           "enemies_can_spawn": [
             {
-              "enemy_spawn_parameter": "TVHeadSpawnParameters",
+              "enemy_spawn_parameter": "JanitorSpawnParameters",
               "weight": 550
             },
             {
               "enemy_spawn_parameter": "MaleStaffSpawnParameters",
               "weight": 450
+            },
+            {
+              "enemy_spawn_parameter": "LivingMannequinSpawnParameters",
+              "weight": 150
             }
           ]
         }
@@ -45,7 +49,7 @@
         "value": {
           "enemies_can_spawn": [
             {
-              "enemy_spawn_parameter": "BoneHeadSpawnParameters",
+              "enemy_spawn_parameter": "HeavyStaffSpawnParameters",
               "weight": 300
             }
           ]

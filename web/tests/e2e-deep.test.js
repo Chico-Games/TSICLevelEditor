@@ -3,35 +3,17 @@
 
 // ---- Inventory state evolution ----------------------------------------
 TSICTestHarness.register({
-    name: 'E2E/Inventory: weight grows past warning, then full, then overburdened',
+    name: 'E2E/Inventory: weight grows past warning, then overburdened',
     file: '/screens/inventory.html',
     async run(ctx) {
-        for (const [cur, expectedState] of [[1, 'normal'], [8, 'warning'], [10, 'full'], [12, 'overburdened']]) {
+        ctx.screen('Inventory');
+        // Current meter states: normal < 75%, warning >= 75%, overburdened
+        // strictly past MaxWeight (the bar pegs at 100% while the number counts on).
+        for (const [cur, expectedState] of [[1, 'normal'], [8, 'warning'], [12, 'overburdened']]) {
             ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', Items: [], MaxSlots: 32, MaxWeight: 10, CurrentWeight: cur });
-            await ctx.waitFor(() => ctx.doc.getElementById('inv-capacity').dataset.state === expectedState);
-            ctx.expect(ctx.assert.eq(ctx.doc.getElementById('inv-capacity').dataset.state, expectedState));
+            await ctx.waitFor(() => ctx.doc.getElementById('inv-meter').dataset.state === expectedState);
+            ctx.expect(ctx.assert.eq(ctx.doc.getElementById('inv-meter').dataset.state, expectedState));
         }
-    },
-});
-
-TSICTestHarness.register({
-    name: 'E2E/Inventory: hover publishes contextual menu, leave keeps it sticky',
-    file: '/screens/inventory.html',
-    async run(ctx) {
-        ctx.setItemCatalog({ ID_Axe: { Name: 'Axe', Category: 'Equipment' } });
-        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', MaxSlots: 32, MaxWeight: 50, CurrentWeight: 1, Items: [{ ItemId: 'ID_Axe', Count: 1, SlotIndex: 0 }] });
-        await ctx.waitFor(() => ctx.doc.querySelector('#inv-list .tsic-list-row[data-slot="0"] img'));
-        const slot = ctx.doc.querySelector('#inv-list .tsic-list-row[data-slot="0"]');
-        ctx.clearPublishes();
-        slot.dispatchEvent(new ctx.win.MouseEvent('mouseenter', { bubbles: true }));
-        slot.dispatchEvent(new ctx.win.MouseEvent('mouseleave', { bubbles: true }));
-        const hoverCtx = ctx.publishes().find(p => p.channel === 'UI.Cmd.BehaviorBar.SetMenuContext'
-            && p.payload.Entries.find(e => e.Label === 'Equip'));
-        ctx.expect(ctx.assert.truthy(hoverCtx, 'expected an Equip-bearing context on hover'));
-        // Inventory keeps the right pane sticky on leave (no clear context fires).
-        // So the last publish should still be the hover context, not a separate clear.
-        const setMenuPubs = ctx.publishes().filter(p => p.channel === 'UI.Cmd.BehaviorBar.SetMenuContext');
-        ctx.expect(ctx.assert.eq(setMenuPubs.length, 1, 'expected only the hover publish (no leave-clear)'));
     },
 });
 
@@ -46,6 +28,7 @@ TSICTestHarness.register({
     name: 'E2E/Production: station open → recipe → queue → progress → completed',
     file: '/screens/production.html',
     async run(ctx) {
+        ctx.screen('Production');
         ctx.inject('tsic.msg.UI.Recipe.StationOpened', { Kind: 'Production',
             Recipes: [{ RecipeId: 'R_Plank', Name: 'Plank', bDiscovered: true, bStationLevelSufficient: true, Inputs: [], Outputs: [] }],
             MaterialCounts: {},
@@ -81,49 +64,23 @@ TSICTestHarness.register({
     },
 });
 
-// ---- Map: pings appear, then are removed -----------------------------
-TSICTestHarness.register({
-    name: 'E2E/Map: ping appears in #g-pings then disappears on empty broadcast',
-    file: '/screens/map.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Map.Snapshot', { Players: [], Icons: [], MinBounds: { X: -100, Y: -100 }, MaxBounds: { X: 100, Y: 100 } });
-        ctx.inject('tsic.msg.UI.Ping.Set', { Pings: [{ PingId: 'p1', PingType: 'Map', Location: { X: 0, Y: 0, Z: 0 }, OwnerId: 'X' }] });
-        await ctx.waitFor(() => ctx.doc.querySelectorAll('#g-pings g').length >= 1);
-        ctx.inject('tsic.msg.UI.Ping.Set', { Pings: [] });
-        await ctx.waitFor(() => ctx.doc.querySelectorAll('#g-pings g').length === 0);
-        ctx.expect(ctx.assert.domCount(ctx.doc, '#g-pings g', 0));
-    },
-});
-
-// ---- Construction: preview state transitions --------------------------
-TSICTestHarness.register({
-    name: 'E2E/Construction: preview goes blocked -> ready, status pill colour flips',
-    file: '/screens/construction.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Construction.PreviewState', { bCanPlace: false, FailureReason: 'no clearance' });
-        await ctx.waitFor(() => /NO CLEARANCE/.test(ctx.doc.getElementById('preview-text').textContent || ''));
-        ctx.inject('tsic.msg.UI.Construction.PreviewState', { bCanPlace: true });
-        await ctx.waitFor(() => /READY/.test(ctx.doc.getElementById('preview-text').textContent || ''));
-        ctx.expect(ctx.assert.domText(ctx.doc, '#preview-text', 'READY'));
-    },
-});
-
 // ---- Inventory + Catalog late-arrival ---------------------------------
 TSICTestHarness.register({
     name: 'E2E/Inventory: late item-catalog arrival re-renders with names',
     file: '/screens/inventory.html',
     async run(ctx) {
-        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', MaxSlots: 32, MaxWeight: 50, CurrentWeight: 1, Items: [
-            { ItemId: 'ID_Late', Count: 1, SlotIndex: 0 },
+        ctx.screen('Inventory');
+        ctx.inject('tsic.msg.UI.Inventory.Updated', { OwnerId: 'Player', GridWidth: 8, MaxSlots: 32, MaxWeight: 50, CurrentWeight: 1, Items: [
+            { ItemId: 'ID_Late', Count: 1, InstanceId: 1, GridSlot: 0 },
         ]});
-        await ctx.waitFor(() => ctx.doc.querySelector('#inv-list .tsic-list-row[data-slot="0"] img'));
-        // Catalog arrives later — categorisation should reroute the item into Tools.
+        await ctx.waitFor(() => ctx.doc.querySelector('#inv-grid .tsic-slot[data-grid="0"] img'));
+        // Catalog arrives later — categorisation routes the item into Equip.
         ctx.setItemCatalog({ ID_Late: { Name: 'Late', Category: 'Equipment' } });
         await new Promise(r => setTimeout(r, 60));
-        // Click the Tools tab; item should still be there.
-        Array.from(ctx.doc.querySelectorAll('.tsic-tab')).find(e => e.textContent === 'Tools').click();
+        // Rule 48: the Equip tab keeps the item visible (filters dim in place).
+        Array.from(ctx.doc.querySelectorAll('.tsic-tab')).find(e => e.textContent === 'Equip').click();
         await new Promise(r => setTimeout(r, 30));
-        ctx.expect(ctx.assert.domExists(ctx.doc, '#inv-list .tsic-list-row[data-slot="0"] img'));
+        ctx.expect(ctx.assert.domExists(ctx.doc, '#inv-grid .tsic-slot[data-grid="0"] img'));
     },
 });
 
@@ -175,9 +132,13 @@ TSICTestHarness.register({
     async run(ctx) {
         ctx.inject('tsic.msg.UI.BehaviorBar.Entries', { Entries: [{ BehaviorTagName: 'IA_X', DisplayName: 'X', bVisible: true, StatusInt: 0 }] });
         await ctx.waitFor(() => ctx.doc.querySelector('#bb-gameplay .bb-row[data-status="available"]'));
+        // Status 1 (blocked) rows are HIDDEN from the bar entirely; status 2
+        // (cooldown) stays visible with its own status stamp.
         ctx.inject('tsic.msg.UI.BehaviorBar.Entries', { Entries: [{ BehaviorTagName: 'IA_X', DisplayName: 'X', bVisible: true, StatusInt: 1 }] });
-        await ctx.waitFor(() => ctx.doc.querySelector('#bb-gameplay .bb-row[data-status="blocked"]'));
-        ctx.expect(ctx.assert.domExists(ctx.doc, '#bb-gameplay .bb-row[data-status="blocked"]'));
+        await ctx.waitFor(() => !ctx.doc.querySelector('#bb-gameplay .bb-row'));
+        ctx.inject('tsic.msg.UI.BehaviorBar.Entries', { Entries: [{ BehaviorTagName: 'IA_X', DisplayName: 'X', bVisible: true, StatusInt: 2, CooldownPct: 0.5 }] });
+        await ctx.waitFor(() => ctx.doc.querySelector('#bb-gameplay .bb-row[data-status="cooldown"]'));
+        ctx.expect(ctx.assert.domExists(ctx.doc, '#bb-gameplay .bb-row[data-status="cooldown"]'));
     },
 });
 

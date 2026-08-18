@@ -17,6 +17,16 @@
 //     inputModeTag: 'InputMode.Menu.Inventory',   // optional
 //     cancelCmd:    'UI.Cmd.Pause.Resume',        // optional, default Pause.Resume
 //     actionBarContext: [ ... ],                  // optional, static menu-context entries
+//     screenSound: false,                         // optional, opt out of the generic
+//                                                 // UI.Screen.Open/Close sounds (for
+//                                                 // screens that play their own)
+//     screenSoundOpen:  'Inventory.Open',         // optional, replace just the generic key
+//     screenSoundClose: 'Inventory.Close',        // (a screen with its own voice that still
+//                                                 // wants the manager to time it)
+//     opaque: true,                               // optional: fully covers the HUD;
+//                                                 // body gets .tsic-overlay-opaque so HUD
+//                                                 // components can pause decorative
+//                                                 // always-on animations while hidden
 //     mount(root, ctx)   { ... },                 // one-time, on first activation
 //     onShow(params, ctx){ ... },                 // every time it becomes visible
 //     onHide(ctx)        { ... },                 // every time it becomes hidden
@@ -61,9 +71,19 @@
       on:      (ch, cb) => window.tsic.on(ch, cb),
       off:     (ch, cb) => window.tsic.off && window.tsic.off(ch, cb),
       focus: () => {
-        // Re-trigger initial focus on the overlay's marked element.
+        // Re-trigger initial focus on the overlay's marked element. Routed
+        // through the focus engine when it is present so the engine's ring
+        // marker and scroll-into-view come along (the marker styling only
+        // shows under gamepad/kbnav, so this is invisible to mouse users);
+        // plain DOM focus otherwise.
         const target = container.querySelector('[data-tsic-initial-focus]');
-        if (target && typeof target.focus === 'function') {
+        if (!target) return;
+        const f = window.tsic.focus;
+        if (f && typeof f.focus === 'function') {
+          f.focus(target, { trust: true });
+          return;
+        }
+        if (typeof target.focus === 'function') {
           try { target.focus({ preventScroll: true }); } catch (e) { /* noop */ }
         }
       },
@@ -144,6 +164,9 @@
       if (f && f.backHandled && f.backHandled()) return;
       const entry = MOUNTED.get(activeName);
       if (!entry) return;
+      // A module can consume one Back press (e.g. the inventory returns a
+      // held stack first; the next press closes the screen).
+      if (typeof entry.module.onCancel === 'function' && entry.module.onCancel() === true) return;
       // Modules that handle cancel themselves (e.g. Construction, whose
       // ability listens to the Back behaviour) opt out by setting cancelCmd
       // to null/'' — we then skip the auto-publish so the action only fires once.
@@ -165,6 +188,13 @@
       if (typeof entry.module.onHide === 'function') entry.module.onHide(entry.ctx);
     } catch (e) { console.warn('[screen-manager] onHide(' + activeName + ') failed', e); }
     entry.container.hidden = true;
+    // Leaving a screen ends its focus territory and invalidates its ring
+    // markers. showRegistered re-establishes both for the incoming screen;
+    // returning to gameplay leaves territory null so gamepad nav/Accept have
+    // nothing to grab (the HUD is not focus-navigable).
+    const f = window.tsic.focus;
+    if (f && f.clearMarkers) f.clearMarkers();
+    if (f && f.setBaseScope) f.setBaseScope(null);
   }
 
   function showRegistered(name, params) {
@@ -176,9 +206,36 @@
       pushInputMode(entry.module);
       publishMenuActionContext(entry.module);
       if (typeof entry.module.onShow === 'function') entry.module.onShow(params || {}, entry.ctx);
+      // The overlay becomes the engine's focus territory before focus lands,
+      // so nav/Accept can never wander into the HUD or a hidden overlay.
+      const f = window.tsic.focus;
+      if (f && f.setBaseScope) f.setBaseScope(entry.container);
+      // Initial focus is SYNCHRONOUS, deliberately. History, so nobody
+      // re-litigates it without the data: element.focus() forces a
+      // style+layout pass, and on a cold first mount the dirty document made
+      // that pass cost 10-37ms, so it was once deferred past the first
+      // frame's layout (a single rAF is NOT enough — rAF callbacks run
+      // before that frame's layout; double rAF was needed). But the deferral
+      // opened a measured 22-54ms window where activeElement was <body> and
+      // a native keypress (Enter, typing) landed nowhere, on every open once
+      // warm opens were included. A once-per-screen-per-session 10-37ms task
+      // that merely DELAYS queued input beats a window that LOSES input; the
+      // frame presents at the same time either way, since the forced pass
+      // replaces the frame's own layout.
       entry.ctx.focus();
     } catch (e) { console.warn('[screen-manager] onShow(' + name + ') failed', e); }
     return true;
+  }
+
+  // Generic screen open/close sounds. Screens that play their own (map,
+  // pause menu) opt out with screenSound: false in their registration; screens
+  // that only want a different voice name it with screenSoundOpen/Close and let
+  // the manager keep the timing.
+  function playScreenSound(name, key, override) {
+    const mod = REGISTRY.get(name);
+    if (mod && mod.screenSound === false) return;
+    const resolved = (mod && mod[override]) || key;
+    if (window.tsic && window.tsic.playSound) window.tsic.playSound(resolved);
   }
 
   function changeScreen(name, paramsJson) {
@@ -188,16 +245,24 @@
       try { params = JSON.parse(paramsJson); } catch (e) { /* ignore */ }
     }
 
+    const prevName = activeName;
     hideCurrent();
 
     if (name === 'InGame' || !name) {
       activeName = 'InGame';
       document.body.classList.remove('tsic-overlay-open');
+      document.body.classList.remove('tsic-overlay-opaque');
+      if (prevName !== 'InGame') playScreenSound(prevName, 'UI.Screen.Close', 'screenSoundClose');
       return;
     }
 
     if (REGISTRY.has(name)) {
       activeName = name;
+      // Screens that fully cover the HUD say so; HUD components key their
+      // "pause decorative animations while hidden" rules off this class.
+      document.body.classList.toggle('tsic-overlay-opaque', REGISTRY.get(name).opaque === true);
+      // Screen-to-screen switches only sound the incoming screen.
+      playScreenSound(name, 'UI.Screen.Open', 'screenSoundOpen');
       showRegistered(name, params);
       return;
     }

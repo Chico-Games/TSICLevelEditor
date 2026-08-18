@@ -201,9 +201,49 @@
             refresh: function () { if (lastTarget) root.dataset.mode = modeFor(lastTarget); },
         };
 
-        document.addEventListener('pointermove', function (e) {
+        // POSITION comes from pointerrawupdate where it exists; MODE stays on
+        // pointermove. They are split because they cost different things and are
+        // needed at different times.
+        //
+        // Chromium delays `pointermove` to align it with the renderer's frame.
+        // Measured against the C++ clock on 2026-08-13 (Inventory screen, software
+        // paint): the same injected move is answered from `pointerrawupdate` at
+        // p50 35.9ms and from `pointermove` at p50 52.0ms. That ~16ms gap is pure
+        // queueing, and because this cursor is DRAWN BY THE PAGE (the native one is
+        // `cursor: none`) the player sees every millisecond of it on every movement.
+        // It is the single largest thing the page controls in that path.
+        //
+        // Writing `transform` on each raw event does not cost a composite per event
+        // — the compositor still runs once per frame, it just gets the newest
+        // position instead of a frame-old one, which is the whole saving.
+        //
+        // `setMode` stays on pointermove on purpose: it reads `e.target`, i.e. a hit
+        // test, and the cursor's SHAPE arriving a frame late is invisible in a way
+        // its POSITION is not.
+        function place(e) {
             root.style.transform = 'translate3d(' + e.clientX + 'px,' + e.clientY + 'px,0)';
             root.classList.remove('is-gone');
+        }
+
+        // BOTH events place the cursor, and pointermove is never skipped.
+        //
+        // pointerrawupdate is an ADDITIONAL, earlier chance to get the position in —
+        // it is not a replacement, and making it one was a real bug: it is a trusted
+        // event, so `dispatchEvent` cannot produce one. shared/test-input.js drives
+        // every UI gauntlet node with synthetic pointermove, so a cursor that only
+        // listened to rawupdate stopped following the tests entirely while looking
+        // perfect by hand.
+        //
+        // Listening to both costs one redundant style write per move and loses none
+        // of the benefit: rawupdate lands first and writes the newer position, the
+        // compositor uses whatever is latest at frame time, and pointermove then
+        // confirms it (or corrects it, if it carries a newer position).
+        if ('onpointerrawupdate' in document) {
+            document.addEventListener('pointerrawupdate', place, { passive: true });
+        }
+
+        document.addEventListener('pointermove', function (e) {
+            place(e);
             setMode(e.target);
         }, { passive: true });
 
@@ -227,21 +267,21 @@
 
         // Hide while the game owns the mouse. Mirrors the C++ rule in
         // ScpUIDirectorSubsystem::RefreshFocusCapture: the UI has the mouse
-        // when an overlay is open OR the current screen is a capture screen.
+        // when an overlay is open OR the current screen is not a gameplay screen.
         // (UI.Input.Mode.Changed only carries the input DEVICE — gamepad is
         // handled via html[data-tsic-input] CSS.) Both channels are sticky,
         // so a freshly loaded page gets current state on subscribe.
-        // Keep in sync with the CaptureScreens set in ScpUIDirectorSubsystem.cpp.
-        var CAPTURE_SCREENS = {
-            MainMenu: 1, NewStore: 1, LoadSave: 1, Mods: 1, Settings: 1,
-            Credits: 1, DeathScreen: 1, PauseMenu: 1, Inventory: 1, Map: 1,
-            Crafting: 1, Production: 1, Chat: 1, CheatMenu: 1, HtmlGame: 1,
-            DebugScreen: 1, Construction: 1,
-        };
-        var currentScreen = '';
+        // Inverted list: every screen except these owns the mouse. Keep in sync
+        // with the GameplayScreens set in ScpUIDirectorSubsystem.cpp. (A capture
+        // allow-list used to live here and drifted — station screens like Storage
+        // and Shop were never added, so containers opened with no cursor.)
+        var GAMEPLAY_SCREENS = { InGame: 1, Boot: 1, Loading: 1 };
+        // Default to gameplay: the shell boots on the HUD, and the sticky
+        // Screen.Changed replaces this as soon as the bridge is up.
+        var currentScreen = 'InGame';
         var overlayCount = 0;
         function applySuppression() {
-            var uiHasMouse = overlayCount > 0 || !!CAPTURE_SCREENS[currentScreen];
+            var uiHasMouse = overlayCount > 0 || !GAMEPLAY_SCREENS[currentScreen];
             root.classList.toggle('is-suppressed', !uiHasMouse);
         }
         var tries = 0;

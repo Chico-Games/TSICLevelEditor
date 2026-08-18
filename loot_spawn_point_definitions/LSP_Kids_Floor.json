@@ -16,14 +16,9 @@
               "item_entity": "FD_SunflowerSeeds_SI",
               "count": 1,
               "weight": 1
-            },
-            {
-              "item_entity": "FD_ChewingGum_SI",
-              "count": 1,
-              "weight": 1
             }
           ],
-          "spawn_chance": 0.3499999940395355
+          "spawn_chance": 0.2800000011920929
         }
       },
       {
@@ -37,9 +32,25 @@
               "item_entity": "FD_DurhamFizzyPop_SI",
               "count": 1,
               "weight": 1
+            }
+          ],
+          "spawn_chance": 0.2800000011920929
+        }
+      },
+      {
+        "key": {
+          "name": "HARD",
+          "value": 2
+        },
+        "value": {
+          "loot_items": [
+            {
+              "item_entity": "FD_Crayons_SI",
+              "count": 1,
+              "weight": 1
             },
             {
-              "item_entity": "FD_DurhamBonBons_SI",
+              "item_entity": "FD_PlasticToy_SI",
               "count": 1,
               "weight": 1
             }

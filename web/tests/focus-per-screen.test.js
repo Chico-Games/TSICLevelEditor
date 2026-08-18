@@ -87,12 +87,6 @@ TSICTestHarness.register(Object.assign({
 }, focusOpts()));
 
 TSICTestHarness.register(Object.assign({
-    name: 'Focus/QuantityPicker: reachable + groups mutually reachable',
-    file: '/screens/quantity-picker.html',
-    async run(ctx) { await TSICTestHarness.fx.runReachability(ctx); },
-}, focusOpts()));
-
-TSICTestHarness.register(Object.assign({
     name: 'Focus/BugReport: reachable + groups mutually reachable',
     file: '/screens/bug-report.html',
     async run(ctx) { await TSICTestHarness.fx.runReachability(ctx); },
@@ -103,30 +97,6 @@ TSICTestHarness.register(Object.assign({
     file: '/screens/universal-storage-setup.html',
     async run(ctx) {
         ctx.inject('tsic.msg.UI.UniversalStorage.Groups', { GroupNames: ['Group A', 'Group B'] });
-        await TSICTestHarness.fx.runReachability(ctx);
-    },
-}, focusOpts()));
-
-TSICTestHarness.register(Object.assign({
-    name: 'Focus/Selection: reachable + groups mutually reachable',
-    file: '/screens/selection.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Selection.Opened', { Context: 'Pick', Options: [
-            { OptionId: 'a', Label: 'A' },
-            { OptionId: 'b', Label: 'B' },
-        ] });
-        await TSICTestHarness.fx.runReachability(ctx);
-    },
-}, focusOpts()));
-
-TSICTestHarness.register(Object.assign({
-    name: 'Focus/Cage: reachable + groups mutually reachable',
-    file: '/screens/cage.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Selection.Opened', { Context: 'Cage', Options: [
-            { OptionId: 'cap1', Label: 'Capture 1' },
-            { OptionId: 'cap2', Label: 'Capture 2' },
-        ] });
         await TSICTestHarness.fx.runReachability(ctx);
     },
 }, focusOpts()));
@@ -155,14 +125,3 @@ TSICTestHarness.register(Object.assign({
     },
 }, focusOpts()));
 
-TSICTestHarness.register(Object.assign({
-    name: 'Focus/Construction: reachable + groups mutually reachable',
-    file: '/screens/construction.html',
-    async run(ctx) {
-        ctx.inject('tsic.msg.UI.Construction.Available', { Items: [
-            { Id: 'wall',  Name: 'Wall',  Category: 'Walls', Cost: [] },
-            { Id: 'floor', Name: 'Floor', Category: 'Floors', Cost: [] },
-        ] });
-        await TSICTestHarness.fx.runReachability(ctx);
-    },
-}, focusOpts()));

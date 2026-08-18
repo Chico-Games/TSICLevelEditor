@@ -4,9 +4,10 @@
   "class": "UFurnitureWithComponentsDefinition",
   "schema_version": 2,
   "properties": {
-    "has_static_audio": false,
+    "has_static_audio": true,
     "static_audio": {
-      "volume_multiplier": 1,
+      "sound": "Furniture.TVStatic",
+      "volume_multiplier": 0.35,
       "pitch_multiplier": 1,
       "b_looping": true,
       "b_attach_to_entity": true,
@@ -28,7 +29,7 @@
           "z": 1
         }
       },
-      "attenuation_distance": 1000,
+      "attenuation_distance": 900,
       "fade_in_time": 0,
       "fade_out_time": 0
     },
@@ -169,7 +170,7 @@
       "b_attach_to_entity": true,
       "attach_socket_name": "None"
     },
-    "starting_health": 67,
+    "starting_health": 134,
     "furniture_armour": 2,
     "destructible_collection": "/Game/Furniture/Televisions/GeometryCollections/GCS_TV_65inches.GCS_TV_65inches",
     "destruction_impulse_strength": 0,
@@ -177,7 +178,7 @@
       "LD_TelevisionLoot"
     ],
     "constructable_item_to_grant": "ID_FlatscreenTelevisionTV_CI",
-    "deconstruction_tier": 0,
+    "deconstruction_tier": 2,
     "blocking_collision_boxes": [
       {
         "offset": {
@@ -200,7 +201,7 @@
     "support_collision_boxes": [
       {
         "offset": {
-          "x": -2.7796864543461197e-07,
+          "x": -2.7796864543461197e-7,
           "y": 1.7627440488824107,
           "z": 48.11933899888356
         },
@@ -217,7 +218,7 @@
       },
       {
         "offset": {
-          "x": -4.2020914747809e-08,
+          "x": -4.2020914747809e-8,
           "y": 0.3590460170238612,
           "z": 3.325516517949203
         },
@@ -260,7 +261,7 @@
     "friction": 0.699999988079071,
     "restitution": 0.30000001192092896,
     "drag_linear_damping": 5,
-    "drag_angular_damping": 5,
+    "drag_angular_damping": 1.25,
     "drag_max_angular_velocity": 90,
     "release_linear_damping": 0.009999999776482582,
     "release_angular_damping": 0.05000000074505806,

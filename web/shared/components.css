@@ -137,12 +137,14 @@
   from { background-position: 0 0; }
   to   { background-position: 18px 9px; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .tsic-button.danger,
-  .tsic-button.pink,
-  .tsic-button[data-variant="danger"],
-  .tsic-button[data-variant="pink"] { animation: none; }
-}
+/* Motion & Comfort -> "Reduce interface motion" (accessibility.reduce_motion).
+   Set on <html> by shared/reduce-motion.js. NOT prefers-reduced-motion: under
+   CEF that inherits from the host Windows session (RDP and dev boxes set it),
+   so it froze the UI for players who never asked for it. */
+html[data-tsic-reduce-motion] .tsic-button.danger,
+html[data-tsic-reduce-motion] .tsic-button.pink,
+html[data-tsic-reduce-motion] .tsic-button[data-variant="danger"],
+html[data-tsic-reduce-motion] .tsic-button[data-variant="pink"] { animation: none; }
 
 /* GHOST — type-only; a red rule sweeps in from the left on hover. */
 .tsic-button.ghost,
@@ -252,7 +254,7 @@
   text-transform: uppercase;
   text-align: left;
   cursor: pointer;
-  transition: background-color 120ms ease, padding-left 160ms ease, color 120ms ease;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 .tsic-row-button:first-child { border-top: 0; }
 .tsic-row-button::before {
@@ -262,11 +264,14 @@
   margin-right: 4px;
   transition: transform 160ms ease;
 }
-.tsic-row-button:hover {
-  background: var(--paper-muted);
-  padding-left: 22px;
-}
-.tsic-row-button:hover::before { transform: translateX(2px); }
+/* Hover must not change the row's BOX. It used to add 8px of padding-left, which narrowed
+   the content area, wrapped any label sitting near its wrap point onto a second line, and
+   made the row taller — shifting the rows below it out from under the cursor. Hover was
+   then lost, the padding animated back, the row re-wrapped, and the pointer landed on it
+   again: a visible flicker loop between two adjacent rows. The marker slide below carries
+   the same "you are here" read with no reflow at all. */
+.tsic-row-button:hover { background: var(--paper-muted); }
+.tsic-row-button:hover::before { transform: translateX(6px); }
 .tsic-row-button:active { background: var(--paper-soft); }
 .tsic-row-button:disabled,
 .tsic-row-button[disabled] {
@@ -277,7 +282,9 @@
 .tsic-row-button:disabled::before,
 .tsic-row-button[disabled]::before { color: var(--ink-mute); }
 .tsic-row-button:disabled:hover,
-.tsic-row-button[disabled]:hover { padding-left: 14px; background: var(--paper-muted); }
+.tsic-row-button[disabled]:hover { background: var(--paper-muted); }
+.tsic-row-button:disabled:hover::before,
+.tsic-row-button[disabled]:hover::before { transform: none; }
 
 /* Decorative dept/page tags that frame a row label like a magazine
    article header. Use as <span>s inside a .tsic-row-button.
@@ -328,7 +335,11 @@
   position: relative;
   transition: box-shadow 120ms ease, transform 120ms ease;
 }
-.tsic-slot:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--ink-night); }
+/* Shadow only, no translate. A transform moves the element's hit box as well as its
+   pixels, so lifting the slot 1px could drop hover when the cursor sat on its bottom or
+   right edge — the slot fell back, re-hovered, and flickered. The offset shadow alone
+   already reads as raised. */
+.tsic-slot:hover { box-shadow: 3px 3px 0 var(--ink-night); }
 .tsic-slot.selected {
   background: var(--mag-red);
   border-color: var(--ink-night);
@@ -338,7 +349,10 @@
 .tsic-slot .count {
   position: absolute; bottom: 2px; right: 4px;
   font-family: var(--font-pixel);
-  font-size: 9px;
+  /* Press Start 2P draws small for its em box — 9px here was sized against the
+   * Consolas fallback it used to fall through to, and is unreadable in the real
+   * face. 11px restores the legibility the count had before the font landed. */
+  font-size: 11px;
   color: var(--ink-night);
   background: var(--mag-yellow);
   padding: 1px 3px;

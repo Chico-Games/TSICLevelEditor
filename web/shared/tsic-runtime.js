@@ -31,8 +31,40 @@
         t.resume       = () => t.publishMessage('UI.Cmd.Pause.Resume', {});
         t.quitToMenu   = () => t.publishMessage('UI.Cmd.Pause.QuitToMenu', {});
         t.closeScreen  = () => t.publishMessage('UI.Cmd.GameScreen.Close', {});
-        t.playSound    = (key, vol) => t.publishMessage('UI.Cmd.Sound.Play',
-            { SoundKey: key, VolumeScale: typeof vol === 'number' ? vol : 1.0 });
+        let lastSoundAt = 0;
+        t.playSound    = (key, vol) => {
+            lastSoundAt = Date.now();
+            t.publishMessage('UI.Cmd.Sound.Play',
+                { SoundKey: key, VolumeScale: typeof vol === 'number' ? vol : 1.0 });
+        };
+
+        // ---- Generic control sounds -------------------------------------
+        // Delegated document-level listeners give every button-ish element a
+        // default click/hover sound without per-screen wiring. An element (or
+        // any ancestor) opts out with data-no-sfx. Explicit playSound calls
+        // win: the click layer skips its generic sound when something already
+        // played one this instant (target handlers run before this bubble
+        // listener), so e.g. a transfer button doesn't stack Click on top of
+        // Inventory.Transfer.
+        const SFX_SELECTOR = 'button, [role="button"]';
+        document.addEventListener('click', (ev) => {
+            const el = ev.target && ev.target.closest && ev.target.closest(SFX_SELECTOR);
+            if (!el || el.disabled || el.closest('[data-no-sfx]')) return;
+            if (Date.now() - lastSoundAt < 50) return;
+            t.playSound('UI.Click');
+        });
+        let lastHoverEl = null;
+        let lastHoverAt = 0;
+        document.addEventListener('mouseover', (ev) => {
+            const el = ev.target && ev.target.closest && ev.target.closest(SFX_SELECTOR);
+            if (!el || el === lastHoverEl) { if (!el) lastHoverEl = null; return; }
+            lastHoverEl = el;
+            if (el.disabled || el.closest('[data-no-sfx]')) return;
+            const now = Date.now();
+            if (now - lastHoverAt < 60) return;
+            lastHoverAt = now;
+            t.playSound('UI.Hover', 0.4);
+        });
 
         // ---- DOM helpers ------------------------------------------------
         t.qs  = (sel, root) => (root || document).querySelector(sel);
@@ -70,6 +102,10 @@
         t.bindEscape = function (opts) {
             const o = opts || {};
             return t.onKey('Escape', () => {
+                // Backing out with Escape reads differently from clicking a
+                // button — the screen-open/close sound covers the transition,
+                // this covers the gesture itself.
+                t.playSound('UI.Back', 0.3);
                 if (o.handler) { o.handler(); return; }
                 if (o.closeScreen) { t.closeScreen(); return; }
                 t.resume();
@@ -80,6 +116,7 @@
         t.bindCloseButton = function (selectorOrEl, opts) {
             return t.onClick(selectorOrEl || '#btn-close', () => {
                 const o = opts || {};
+                t.playSound('UI.Cancel', 0.3);
                 if (o.handler) { o.handler(); return; }
                 if (o.closeScreen) { t.closeScreen(); return; }
                 t.resume();
@@ -139,15 +176,34 @@
             };
 
             let captured = false;
-            const apply = (want) => {
+            const apply = (want, force) => {
                 want = !!want;
-                if (want === captured) return;
+                if (want === captured && !force) return;
                 captured = want;
                 if (typeof t.setFocusCapture === 'function') t.setFocusCapture(want);
             };
 
+            // Always re-assert on focusin, even when we already believe the
+            // keyboard is ours: a page navigation or a torn-down screen can leave
+            // `captured` true while the engine has since handed focus back, and a
+            // deduped call there means the next text field silently gets no keys.
             document.addEventListener('focusin', (ev) => {
-                if (isTextEntry(ev.target)) apply(true);
+                if (isTextEntry(ev.target)) apply(true, /*force*/ true);
+            }, true);
+
+            // Clicking a field that is ALREADY document.activeElement fires no
+            // focusin, so the listener above cannot repair a capture the engine
+            // took back behind the page's back (a viewport remount, a respawn
+            // re-asserting focus). Without this a stolen caret stays dead however
+            // many times the player clicks it. Pointerdown, not click: the field
+            // has to own the keyboard before the first keystroke can land.
+            document.addEventListener('pointerdown', (ev) => {
+                if (!isTextEntry(ev.target)) return;
+                apply(true, /*force*/ true);
+                // ...and hand it straight back if the press never became a focus
+                // (a handler that preventDefault'd it), so the claim can't outlive
+                // the caret and gate gameplay input off.
+                setTimeout(() => apply(isTextEntry(document.activeElement)), 0);
             }, true);
 
             document.addEventListener('focusout', () => {
@@ -156,6 +212,26 @@
                 // for a frame in between. Re-read activeElement after it settles.
                 setTimeout(() => apply(isTextEntry(document.activeElement)), 0);
             }, true);
+
+            // Focus a field from code (not from a click). The listeners above
+            // cannot carry this case: while the view has no keyboard focus the
+            // page is not the focused document, so Chromium moves
+            // document.activeElement without dispatching focusin — the field
+            // looks focused, the engine keeps the keyboard, and the player types
+            // into gameplay. Asking for capture directly breaks that deadlock.
+            // Use this instead of el.focus() whenever code opens a text field.
+            t.focusTextField = function (el) {
+                if (!el) return;
+                try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (e2) {} }
+                if (isTextEntry(el)) apply(true, /*force*/ true);
+            };
+
+            // Mirror of the above for closing: a blur while the page is not the
+            // focused document fires no focusout either.
+            t.blurTextField = function (el) {
+                if (el && typeof el.blur === 'function') { try { el.blur(); } catch (e) {} }
+                setTimeout(() => apply(isTextEntry(document.activeElement)), 0);
+            };
         }
 
         // ---- Magazine helpers -------------------------------------------
@@ -200,3 +276,8 @@
         setTimeout(poll, 16);
     })();
 })();
+
+// The always-on perf probe that used to live here shipped to the closed alpha
+// by accident. It is now shared/perf-probe.js — same measurements, opt-in, and
+// off unless a Gauntlet node or ?tsicperf=1 arms it. See that file for why an
+// always-running RAF probe is not a free observer in an offscreen CEF page.

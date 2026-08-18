@@ -372,7 +372,7 @@
     // Updated when more screens opt in — currently 27.
     const FOCUS_ENGINE_IDS = new Set([
         'boss-summoner', 'bug-report', 'cage', 'cheat-menu',
-        'construction', 'crafting', 'credits', 'death-screen',
+        'crafting', 'credits', 'death-screen',
         'equipment', 'interaction', 'inventory', 'lore',
         'main-menu', 'mods', 'new-store', 'pause-menu',
         'production', 'quantity-picker', 'repair', 'save-load',
@@ -401,12 +401,12 @@
         'health-bar': 'HUD', 'stamina-bar': 'HUD', 'crosshair': 'HUD', 'behavior-bar': 'HUD',
         'hotbar': 'HUD', 'interaction': 'HUD', 'notifications': 'HUD', 'circular-progress': 'HUD',
         'detection': 'HUD', 'ping': 'HUD', 'ping-markers': 'HUD', 'stomach': 'HUD',
+        'conditions': 'HUD',
 
         'inventory': 'Inventory & Equipment', 'equipment': 'Inventory & Equipment',
         'wardrobe': 'Inventory & Equipment', 'quantity-picker': 'Inventory & Equipment',
 
         'crafting': 'Crafting & Building', 'production': 'Crafting & Building',
-        'construction': 'Crafting & Building', 'construction-carousel': 'Crafting & Building',
         'repair': 'Crafting & Building', 'upgrade': 'Crafting & Building',
 
         'storage': 'Storage & Transport', 'universal-storage': 'Storage & Transport',

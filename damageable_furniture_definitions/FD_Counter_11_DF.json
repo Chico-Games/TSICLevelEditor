@@ -4,7 +4,7 @@
   "class": "UDamageableFurnitureDefinition",
   "schema_version": 2,
   "properties": {
-    "starting_health": 67,
+    "starting_health": 134,
     "furniture_armour": 1,
     "destructible_collection": "/Game/Furniture/Counters/GeometryCollections/GCS_M_WashingC.GCS_M_WashingC",
     "destruction_impulse_strength": 0,
@@ -12,7 +12,7 @@
       "LD_CountersLoot"
     ],
     "constructable_item_to_grant": "ID_Counter_11_CI",
-    "deconstruction_tier": 0,
+    "deconstruction_tier": 2,
     "blocking_collision_boxes": [
       {
         "offset": {
@@ -78,11 +78,11 @@
     "friction": 0.699999988079071,
     "restitution": 0.30000001192092896,
     "drag_linear_damping": 5,
-    "drag_angular_damping": 5,
+    "drag_angular_damping": 1.25,
     "drag_max_angular_velocity": 90,
     "release_linear_damping": 0.009999999776482582,
     "release_angular_damping": 0.05000000074505806,
-    "display_name": "Stove",
+    "display_name": "Sink Unit",
     "description": "Store furniture.",
     "level": 1,
     "gameplay_tags": [
@@ -102,7 +102,72 @@
       "name": "Furniture"
     },
     "random_material_overrides": [],
-    "loot_positions": [],
+    "loot_positions": [
+      {
+        "local_transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.9726,
+            "w": -0.2324
+          },
+          "translation": {
+            "x": 1.8524,
+            "y": -18.1217,
+            "z": 99.7252
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "weight": 1000
+      },
+      {
+        "local_transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.9465,
+            "w": 0.3226
+          },
+          "translation": {
+            "x": -10.6195,
+            "y": -2.6447,
+            "z": 99.7252
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "weight": 1000
+      },
+      {
+        "local_transform": {
+          "rotation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.1354,
+            "w": -0.9908
+          },
+          "translation": {
+            "x": -8.3038,
+            "y": 20.6625,
+            "z": 99.7252
+          },
+          "scale3_d": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "weight": 1000
+      }
+    ],
+    "loot_position_chance": 0.3,
     "weighted_chance": 1000,
     "world_gen_priority": 7000
   }

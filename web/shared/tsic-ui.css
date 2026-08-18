@@ -28,8 +28,28 @@
     justify-content: center;
     background: rgba(13, 14, 21, 0.55);
 }
+/* `display: flex` above beats the user-agent `[hidden] { display: none }`, so a scrim
+ * toggled with el.hidden stayed on screen forever — the settings "Applying…" overlay
+ * could not be dismissed at all, not even by its own 30 s backstop. Restore the
+ * attribute's meaning for every scrim rather than per-screen. */
+.tsic-modal-scrim[hidden] { display: none; }
 .tsic-modal-scrim--dim   { background: rgba(13, 14, 21, 0.78); }
 .tsic-modal-scrim--clear { background: transparent; }
+
+/* Top-left-anchored variant — the bag screens (inventory, storage).
+ *
+ * Both axes are pinned, and both for the same reason. These panels grow to the
+ * RIGHT as panes appear and DOWNWARD as the rail fills, so a centred panel moved
+ * the player's bag both sideways and up the moment a container was opened.
+ * Anchoring the panel's top-left corner fixes every row above the rail's end —
+ * title band, tabs, the grid itself — so opening a container adds a column and
+ * the bag does not move at all. What varies is only where the panel ENDS. */
+.tsic-modal-scrim--left {
+    justify-content: flex-start;
+    align-items: flex-start;
+    padding-left: clamp(16px, 4vw, 72px);
+    padding-top: clamp(12px, 5vh, 56px);
+}
 
 /* Vertical stack with consistent gap. */
 .tsic-stack         { display: flex; flex-direction: column; gap: 12px; }
@@ -47,15 +67,29 @@
     width: 60vw;
     height: 60vh;
     max-width: 1200px;
-    min-width: 720px;
-    max-height: 760px;
-    min-height: 420px;
+    /* The two FLOORS are capped against the scrim, because a bare min-height beats
+       max-height and beats the viewport: on a short window the panel grew past the screen
+       and its own overflow:hidden clipped the bottom off it. What is clipped is the close
+       row and the tail of whatever list is in the panel — which reads exactly as "the
+       recipe list extends past where it should instead of having a scroll bar" (#151),
+       while the list is in fact scrolling correctly inside a panel nobody can see the end
+       of. min() keeps the intent — don't let the panel pinch — without letting it overflow
+       the thing it lives in. Same guarantee #inv-panel spells out for itself. */
+    min-width: min(720px, 100%);
+    max-height: min(760px, 100%);
+    min-height: min(420px, 100%);
     display: flex;
     flex-direction: column;
     overflow: hidden;
 }
 
-/* Split-pane body for screen panels: two columns of vertical lists. */
+/* Split-pane body for screen panels: two columns of vertical lists.
+ *
+ * The name is shared vocabulary — recipe-station.js mounts one of these into every station
+ * screen — so nothing outside this file may claim it. shared/inventory.js once did, for its
+ * stack-split dialog, and because that sheet is global and injected on the first bag render,
+ * every station panel silently inherited `position:fixed` the moment a player opened their
+ * inventory (issue #228). That dialog is `.tsic-split-dialog` now. */
 .tsic-split {
     flex: 1 1 auto;
     display: grid;
@@ -71,10 +105,18 @@
     gap: 8px;
 }
 
-/* Scrollable list pane that fills its parent column. */
+/* Scrollable list pane that fills its parent column.
+ *
+ * `scrollbar-gutter: stable` reserves the bar's width whether or not the list is long
+ * enough to need one, so a pane does not shove its own contents sideways the moment a
+ * recipe is discovered — the same rule the style guide already asks of scrolling content
+ * on cover pages. CEF draws classic scrollbars that take real width; headless Chromium
+ * draws overlay ones and cannot reproduce the reflow, which is why this is a rule rather
+ * than something a measurement caught. */
 .tsic-list-pane {
     flex: 1 1 auto;
     overflow-y: auto;
+    scrollbar-gutter: stable;
     background: var(--paper-bright);
     border: 2px solid var(--ink-night);
     padding: 4px;
@@ -109,18 +151,29 @@ button.tsic-list-row {
     width: 100%;
     font-family: var(--font-display);
 }
-.tsic-list-row:hover { background: var(--paper-muted); padding-left: 14px; }
+/* The `>>` marker is always in the layout and only fades in, and neither hover nor
+   selection changes the row's padding any more. Both used to add 8px of padding-left,
+   which re-wrapped long labels and re-flowed the rows below — on hover that moved rows
+   out from under the cursor and flickered between two of them. Reserving the space also
+   stops rows jumping sideways as the selection moves. */
+.tsic-list-row::before {
+    content: '>>';
+    color: var(--mag-red);
+    font-weight: 900;
+    margin-right: 2px;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+.tsic-list-row:hover { background: var(--paper-muted); }
+.tsic-list-row:hover::before { opacity: 1; }
 .tsic-list-row.is-selected {
     background: var(--mag-red);
     color: #ffffff;
     border-bottom-color: var(--mag-red);
-    padding-left: 14px;
 }
 .tsic-list-row.is-selected::before {
-    content: '>>';
     color: #ffffff;
-    font-weight: 900;
-    margin-right: 2px;
+    opacity: 1;
 }
 .tsic-list-row.is-locked { color: var(--ink-mute); cursor: not-allowed; }
 
@@ -266,10 +319,25 @@ button.tsic-list-row {
 }
 .tsic-button-row--start   { justify-content: flex-start; }
 
+/* Never shrink: inside .tsic-panel--screen (a flex column with overflow:hidden) a greedy
+ * sibling would otherwise squeeze the close row to nothing and the player loses the
+ * only visible way out of the screen. */
 .tsic-close-row {
     display: flex;
     justify-content: flex-end;
     margin-top: 12px;
+    flex: 0 0 auto;
+}
+
+/* Host for a RecipeStation mounted inside a screen panel. The station appends a
+ * .tsic-split, whose `flex:1 1 auto; min-height:0` only sizes correctly when its parent
+ * is itself a flex column — a plain <div> host let the recipe list grow to content height
+ * and pushed the action button and close row out of the panel on long recipe lists. */
+.tsic-station-host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 /* Magazine tab-bar — borderless section labels sitting on one heavy ink
@@ -336,6 +404,7 @@ button.tsic-list-row {
     position: fixed;
     z-index: 1100;
     min-width: 200px;
+    max-width: 320px;
     padding: 4px;
     background: var(--paper-cream);
     border: 3px solid var(--ink-night);
@@ -346,8 +415,37 @@ button.tsic-list-row {
     text-transform: uppercase;
     color: var(--ink-night);
     user-select: none;
+    transform-origin: top left;
+    animation: tsic-menu-in 120ms ease-out;
+}
+@keyframes tsic-menu-in {
+    from { opacity: 0; transform: scale(0.92) translateY(-4px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Shared pop-in for transient chrome (quantity/hotbar modals, pickers). */
+.tsic-anim-overlay { animation: tsic-fade-in 120ms ease-out; }
+.tsic-anim-pop     { animation: tsic-pop-in 140ms cubic-bezier(0.2, 0.9, 0.3, 1.15); }
+@keyframes tsic-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes tsic-pop-in {
+    from { opacity: 0; transform: scale(0.94) translateY(6px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 .tsic-context-item {
+    /* Entries are <button>s (gamepad-focusable) — reset chrome and force
+       one-per-row block flow so the menu stays a vertical list. */
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
     padding: 6px 10px;
     cursor: pointer;
     transition: background-color 80ms ease, color 80ms ease, padding-left 120ms ease;
