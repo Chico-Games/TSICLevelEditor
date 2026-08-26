@@ -39,6 +39,12 @@ hardcode a host. Override the port with `LEVEL_EDITOR_TEST_PORT` if 8931 is take
 below about a blank document is wrong. Keep it on every `goto` unless a test is
 specifically exercising the default-map path.
 
+Note what `?map=none` does *not* do: it suppresses the bundled default map, not the
+restore of a previously saved project. In a real browser that already has one cached,
+`?map=none` still reloads it — a URL param should not throw away someone's work. Tests
+get a blank document because Playwright starts each run on an empty profile, so there
+is no cached project to restore.
+
 ## Writing tests: things that will mislead you
 
 Import from `./test-base`, not `@playwright/test` — the wrapper fails a test if the page

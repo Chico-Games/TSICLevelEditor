@@ -97,7 +97,9 @@ const test = base.test.extend({
  */
 async function initializeEditor(page) {
     // ?map=none opts out of the default-map startup (app.js getRequestedMapPath) so the
-    // suite keeps testing the blank document these assertions are written against.
+    // suite keeps testing the blank document these assertions are written against. It
+    // suppresses the bundled map only - a cached project would still restore - but
+    // Playwright's profile is empty each run, so there is never one to restore.
     await page.goto('/index.html?map=none');
     await page.waitForFunction(() => window.editor && window.editor.layerManager);
     // The default fill happens after the editor object exists; wait for it to land.
