@@ -7,7 +7,7 @@ const { test, expect } = require('./test-base');
 
 test.describe('Zoom on Mouse Position', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto('/index.html');
+        await page.goto('/index.html?map=none');
         await page.waitForSelector('#grid-canvas');
         await page.waitForTimeout(500);
     });

@@ -31,8 +31,13 @@ npx playwright test -g "undo restores the previous colour"
 at it. The port is deliberately unusual: the Unreal Editor binds its own HTTP server to
 `127.0.0.1:8000`, and because `reuseExistingServer` is on, a suite configured for port
 8000 silently ran every test against Unreal's 404 page instead of the app. Tests
-navigate with `page.goto('/index.html')` so they follow `baseURL`; do not hardcode a
-host. Override the port with `LEVEL_EDITOR_TEST_PORT` if 8931 is taken.
+navigate with `page.goto('/index.html?map=none')` so they follow `baseURL`; do not
+hardcode a host. Override the port with `LEVEL_EDITOR_TEST_PORT` if 8931 is taken.
+
+`?map=none` matters: without it the app opens the default mod's map
+(`vendor/default-project/maps/Durham Furniture.json`) on startup, and every assertion
+below about a blank document is wrong. Keep it on every `goto` unless a test is
+specifically exercising the default-map path.
 
 ## Writing tests: things that will mislead you
 

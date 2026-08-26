@@ -44,6 +44,14 @@ jobs:
             --exclude 'test-*.html' \
             --exclude 'test-*.js' \
             --exclude '*.spec.js'
+      # vendor/ is excluded above (88 MB), but the editor opens on a map from it at
+      # startup (app.js DEFAULT_MAP_PATH). Copy just maps/ back in - ~150 KB - so the
+      # deployed path matches the local one and the default map does not 404 into a
+      # blank grid.
+      - name: Include the bundled maps the editor can open
+        run: |
+          mkdir -p _site/vendor/default-project
+          cp -r vendor/default-project/maps _site/vendor/default-project/maps
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

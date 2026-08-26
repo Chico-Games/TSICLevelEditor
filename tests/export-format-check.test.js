@@ -141,7 +141,7 @@ test.describe('Export format for Unreal', () => {
         // colour) while the active layer was Height, so the user's first stroke wrote
         // #90ee90 into the Height layer and the export failed validation with
         // 'palette colour "#90ee90" is not defined in color_mappings.heights'.
-        await page.goto('/index.html');
+        await page.goto('/index.html?map=none');
         await page.waitForFunction(() => window.editor && window.editor.layerManager);
         await page.waitForFunction(() => {
             const lm = window.editor.layerManager;

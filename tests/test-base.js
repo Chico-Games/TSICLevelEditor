@@ -96,7 +96,9 @@ const test = base.test.extend({
  * tiles proves nothing. Use countChangedTiles() / snapshotLayer() below.
  */
 async function initializeEditor(page) {
-    await page.goto('/index.html');
+    // ?map=none opts out of the default-map startup (app.js getRequestedMapPath) so the
+    // suite keeps testing the blank document these assertions are written against.
+    await page.goto('/index.html?map=none');
     await page.waitForFunction(() => window.editor && window.editor.layerManager);
     // The default fill happens after the editor object exists; wait for it to land.
     await page.waitForFunction(() => {

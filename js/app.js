@@ -1661,6 +1661,14 @@ async function init() {
     await loadTestJSON();
     console.log(`[INIT] Test JSON check complete in ${(performance.now() - t0).toFixed(1)}ms, currentFileName: ${editor.currentFileName}`);
 
+    // An explicit ?map= is a deliberate "open this one", so it outranks whatever
+    // project happened to be active last. The default map does not - it only
+    // fills in below, after the cached-project path has had its chance.
+    const requestedMap = getRequestedMapPath();
+    if (!editor.currentFileName && requestedMap && requestedMap !== DEFAULT_MAP_PATH) {
+        await loadMapFromPath(requestedMap);
+    }
+
     // Initialize project system (only if no test JSON was loaded)
     if (!editor.currentFileName) {
         console.log('[INIT] No current file, initializing project system...');
@@ -1684,6 +1692,15 @@ async function init() {
             updateProjectUI();
             console.log('[INIT] No previous project - select from dropdown');
         }
+    }
+
+    // Nothing restored a document - no e2e fixture, no cached project - so open the
+    // default mod's map rather than dropping the user on a blank grid.
+    if (!editor.currentFileName && requestedMap) {
+        console.log('[INIT] No project restored - opening default map...');
+        t0 = performance.now();
+        await loadMapFromPath(requestedMap);
+        console.log(`[INIT] Default map load finished in ${(performance.now() - t0).toFixed(1)}ms`);
     }
 
     // Update status
@@ -3687,6 +3704,103 @@ async function loadTestJSON() {
         console.error('[E2E] Failed to load test JSON:', error);
         document.getElementById('status-message').textContent = `Test load failed: ${error.message}`;
         // Don't fail silently so we can see the error
+    }
+}
+
+/**
+ * The map the editor opens on when a visitor has nothing of their own yet: the
+ * level the default mod actually ships. Path is relative so it resolves under
+ * the /TSICLevelEditor/ project path on Pages, same reasoning as the stylesheet.
+ */
+const DEFAULT_MAP_PATH = 'vendor/default-project/maps/Durham Furniture.json';
+
+/**
+ * Resolve which bundled map startup should open.
+ * ?map=<path>   open that map instead of the default (and ahead of the last project)
+ * ?map=none     open nothing - the empty-canvas startup the e2e suite asserts on
+ * (absent)      the default map
+ * @returns {string|null} path to open, or null for "start empty"
+ */
+function getRequestedMapPath() {
+    try {
+        const requested = new URLSearchParams(location.search).get('map');
+        if (requested === null) return DEFAULT_MAP_PATH;
+        if (/^(none|blank|new)$/i.test(requested.trim())) return null;
+        return requested.trim() || null;
+    } catch (error) {
+        return DEFAULT_MAP_PATH;
+    }
+}
+
+/**
+ * Fetch a JSON-RLE map served alongside the app and open it, then register it in
+ * the project cache exactly as a manual Import would - so the next visit restores
+ * it (with any edits) through the normal last-active-project path rather than
+ * re-fetching a pristine copy over the user's work.
+ *
+ * Deliberately mirrors the import handler minus its confirm()/alert() dialogs:
+ * this runs during init(), where a modal would stall the whole app before the
+ * user has touched anything. Validation problems are logged, not raised.
+ *
+ * @param {string} path - Relative path to the .json map (undecoded, may contain spaces)
+ * @returns {Promise<boolean>} true if a map was opened
+ */
+async function loadMapFromPath(path) {
+    try {
+        console.log(`[MAP] Opening bundled map "${path}"...`);
+        const response = await fetch(encodeURI(path));
+        if (!response.ok) {
+            console.warn(`[MAP] "${path}" not found (HTTP ${response.status}) - starting empty`);
+            return false;
+        }
+
+        const data = await response.json();
+        if (!data.metadata || !data.layers) {
+            console.warn(`[MAP] "${path}" is not a JSON-RLE map - starting empty`);
+            return false;
+        }
+
+        const validator = dynamicValidator || rleValidator;
+        const validation = validator.validate(data);
+        if (!validation.valid) {
+            console.warn(`[MAP] "${path}" has validation errors, opening anyway:`, validation.errors);
+        } else if (validation.warnings && validation.warnings.length > 0) {
+            console.warn(`[MAP] "${path}" validation warnings:`, validation.warnings);
+        }
+
+        editor.layerManager.importRLEData(data, configManager);
+
+        const worldSize = data.metadata.world_size || data.metadata.gridSize;
+        editor.layerManager.resize(worldSize, worldSize);
+        editor.resizeCanvas();
+
+        exitSoloMode();
+
+        const activeIdx = editor.layerManager.activeLayerIndex;
+        editor.recentLayerSelections = [activeIdx];
+        editor.layerManager.layers.forEach((layer, idx) => {
+            layer.visible = (idx === activeIdx);
+        });
+
+        editor.render();
+        editor.renderMinimap();
+        updateLayersPanel();
+        editor.isDirty = false;
+
+        // Same naming rule as Import: the file name, not metadata.name, so the
+        // dropdown entry matches the file this came from.
+        const projectName = path.split('/').pop().replace(/\.json$/i, '');
+        saveProjectToCache(projectName, data);
+        updateProjectDropdown();
+        updateProjectUI();
+
+        document.getElementById('status-message').textContent =
+            `Loaded ${projectName} (${worldSize}x${worldSize})`;
+        console.log(`[MAP] Opened "${projectName}" (${worldSize}x${worldSize})`);
+        return true;
+    } catch (error) {
+        console.error(`[MAP] Failed to open "${path}":`, error);
+        return false;
     }
 }
 
